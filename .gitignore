@@ -4,6 +4,12 @@ dist/
 __pycache__/
 *.py[cod]
 
+# Next.js
+.next/
+out/
+next-env.d.ts.bak
+.vercel
+
 # Environment + secrets
 .env
 .env.*
