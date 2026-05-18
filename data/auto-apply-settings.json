@@ -1,0 +1,17 @@
+{
+  "enabled": false,
+  "mode": "fill",
+  "minScore": 80,
+  "minLabel": "A",
+  "providers": [
+    "greenhouse",
+    "lever",
+    "ashby"
+  ],
+  "dailyLimit": 20,
+  "requireReview": true,
+  "scoreLabels": [
+    "A",
+    "B"
+  ]
+}

@@ -1,0 +1,38 @@
+[
+  {
+    "name": "Netflix",
+    "url": "https://jobs.netflix.com/search?q=intern",
+    "selectors": {
+      "jobItem": ".card",
+      "title": ".card h3",
+      "linkAttr": "a[href]"
+    }
+  },
+  {
+    "name": "Jane Street",
+    "url": "https://www.janestreet.com/join-jane-street/open-roles/",
+    "selectors": {
+      "jobItem": ".opening",
+      "title": ".opening-title",
+      "linkAttr": "a[href]"
+    }
+  },
+  {
+    "name": "Two Sigma",
+    "url": "https://www.twosigma.com/careers/",
+    "selectors": {
+      "jobItem": ".career-listing",
+      "title": "h3",
+      "linkAttr": "a[href]"
+    }
+  },
+  {
+    "name": "DE Shaw",
+    "url": "https://www.deshaw.com/careers/",
+    "selectors": {
+      "jobItem": ".job-listing",
+      "title": "h3",
+      "linkAttr": "a[href]"
+    }
+  }
+]

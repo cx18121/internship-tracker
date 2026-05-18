@@ -1,0 +1,28 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.py[cod]
+
+# Environment + secrets
+.env
+.env.*
+
+# SQLite + auth state
+*.db
+*.db-*
+data/handshake-auth.json
+
+# Backups and migration cruft
+*.bak
+*.bak.*
+*.utm-migration-backup
+data/backup-*/
+
+# Logs
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

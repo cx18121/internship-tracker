@@ -1,0 +1,2 @@
+# scan-history.tsv -- WebSearch discovery log
+# Columns: discovered_at\tcompany_name\tplatform\tcareers_url\tstatus(live|unverified)

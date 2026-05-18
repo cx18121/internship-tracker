@@ -1,0 +1,30 @@
+{
+  "sites": ["linkedin", "indeed", "glassdoor"],
+  "searches": [
+    {
+      "keywords": "software engineer intern",
+      "location": "United States",
+      "results_wanted": 50,
+      "hours_old": 72
+    },
+    {
+      "keywords": "machine learning intern",
+      "location": "United States",
+      "results_wanted": 30,
+      "hours_old": 72
+    },
+    {
+      "keywords": "backend engineer internship",
+      "location": "United States",
+      "results_wanted": 30,
+      "hours_old": 72
+    },
+    {
+      "keywords": "software engineering internship",
+      "location": "United States",
+      "results_wanted": 30,
+      "hours_old": 72,
+      "remote": true
+    }
+  ]
+}

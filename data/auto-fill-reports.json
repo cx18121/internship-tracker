@@ -1,0 +1,137 @@
+{
+  "41384192bc344143a5170c6c61ea2dec": {
+    "internshipId": "41384192bc344143a5170c6c61ea2dec",
+    "company": "🔥 Cloudflare",
+    "title": "Software Engineer Intern",
+    "provider": "greenhouse",
+    "applyUrl": "https://boards.greenhouse.io/cloudflare/jobs/7774167",
+    "filledFields": [
+      {
+        "name": "first_name",
+        "label": "First Name",
+        "type": "text",
+        "required": true,
+        "value": "Charlie",
+        "source": "profile"
+      },
+      {
+        "name": "last_name",
+        "label": "Last Name",
+        "type": "text",
+        "required": true,
+        "value": "Xue",
+        "source": "profile"
+      },
+      {
+        "name": "email",
+        "label": "Email",
+        "type": "text",
+        "required": true,
+        "value": "charlie.l.xue@gmail.com",
+        "source": "profile"
+      }
+    ],
+    "humanFields": [
+      {
+        "name": "phone",
+        "label": "Phone",
+        "type": "text",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "resume",
+        "label": "Resume/CV",
+        "type": "file",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "resume_text",
+        "label": "Resume/CV",
+        "type": "textarea",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "cover_letter",
+        "label": "Cover Letter",
+        "type": "file",
+        "required": false,
+        "source": "needs_human"
+      },
+      {
+        "name": "cover_letter_text",
+        "label": "Cover Letter",
+        "type": "textarea",
+        "required": false,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153632",
+        "label": "Legal Name (if different than above)",
+        "type": "text",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153633",
+        "label": "Would you like to include your LinkedIn profile, personal website or blog?",
+        "type": "text",
+        "required": false,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153634",
+        "label": "How did you hear about this job?",
+        "type": "text",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153635",
+        "label": "Do you now or will you in the future require immigration sponsorship to work at Cloudflare?",
+        "type": "select",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153636[]",
+        "label": "Please review and acknowledge Cloudflare's Candidate Privacy Policy (cloudflare.com/candidate-privacy-notice/).",
+        "type": "select",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153637",
+        "label": "Are you currently based in Austin, San Francisco or New York? Or do you have plans to relocate to either of these cities for the duration of the internship?",
+        "type": "select",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153638",
+        "label": "If you are enrolled in university, what degree are you currently pursuing?\n",
+        "type": "select",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153639",
+        "label": "If you are currently enrolled in a university or program, when do you expect to graduate or complete your program? (Select the closest date.)",
+        "type": "select",
+        "required": true,
+        "source": "needs_human"
+      },
+      {
+        "name": "question_65153640",
+        "label": "Are you currently enrolled in a university or program and will return to the program upon completion of internship?",
+        "type": "select",
+        "required": true,
+        "source": "needs_human"
+      }
+    ],
+    "canAutoSubmit": false,
+    "fetchedAt": "2026-04-04T22:35:38.311Z"
+  }
+}
