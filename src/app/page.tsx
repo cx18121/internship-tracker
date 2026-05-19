@@ -167,11 +167,75 @@ export default function InternshipsPage() {
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
 
-  // Load localStorage on mount
+  // Track hydration so URL sync doesn't fire during initial mount
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load localStorage + initial filter state from URL on mount
   useEffect(() => {
     setAppliedDates(lsGet<Record<string, string>>(LS_DATES_KEY, {}));
     setNotesMap(lsGet<Record<string, string>>(LS_NOTES_KEY, {}));
+
+    const sp = new URLSearchParams(window.location.search);
+    const parseList = (key: string) =>
+      (sp.get(key) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+
+    const sources = parseList("sources");
+    if (sources.length) setSelectedSources(sources);
+
+    const labels = parseList("labels");
+    if (labels.length) setSelectedLabels(labels);
+
+    const locs = parseList("locs");
+    if (locs.length) setSelectedLocations(locs);
+
+    const inc = parseList("include");
+    if (inc.length) setIncludeKeywords(inc);
+
+    const exc = parseList("exclude");
+    if (exc.length) setExcludeKeywords(exc);
+
+    const ms = Number(sp.get("minScore"));
+    if (Number.isFinite(ms) && ms > 0) setMinScore(ms);
+
+    const loc = sp.get("location");
+    if (loc) setLocationText(loc);
+
+    const applied = sp.get("applied") as AppliedFilter | null;
+    if (applied === "applied" || applied === "not-applied") setAppliedFilter(applied);
+
+    const sort = sp.get("sort") as SortBy | null;
+    if (sort === "newest" || sort === "posted" || sort === "score") setSortBy(sort);
+
+    const page = Number(sp.get("page"));
+    if (Number.isFinite(page) && page > 1) setCurrentPage(page);
+
+    setHydrated(true);
   }, []);
+
+  // Push filter state back to URL whenever it changes (after hydration)
+  useEffect(() => {
+    if (!hydrated) return;
+    const params = new URLSearchParams();
+    if (selectedSources.length) params.set("sources", selectedSources.join(","));
+    if (selectedLabels.length) params.set("labels", selectedLabels.join(","));
+    if (selectedLocations.length) params.set("locs", selectedLocations.join(","));
+    if (includeKeywords.length) params.set("include", includeKeywords.join(","));
+    if (excludeKeywords.length) params.set("exclude", excludeKeywords.join(","));
+    if (minScore > 0) params.set("minScore", String(minScore));
+    if (locationText) params.set("location", locationText);
+    if (appliedFilter !== "all") params.set("applied", appliedFilter);
+    if (sortBy !== "score") params.set("sort", sortBy);
+    if (currentPage > 1) params.set("page", String(currentPage));
+
+    const qs = params.toString();
+    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
+    window.history.replaceState({}, "", url);
+  }, [
+    hydrated,
+    selectedSources, selectedLabels, selectedLocations,
+    includeKeywords, excludeKeywords,
+    minScore, locationText, appliedFilter, sortBy, currentPage,
+  ]);
 
   const fetchData = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -216,10 +280,12 @@ export default function InternshipsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // Reset to page 1 when filters or sort change
+  // Reset to page 1 when filters or sort change (skip during initial hydration
+  // so a shared URL like ?page=3&sources=Indeed lands on page 3, not page 1)
   useEffect(() => {
+    if (!hydrated) return;
     setCurrentPage(1);
-  }, [selectedSources, selectedLabels, minScore, selectedLocations, locationText, includeKeywords, excludeKeywords, appliedFilter, sortBy]);
+  }, [hydrated, selectedSources, selectedLabels, minScore, selectedLocations, locationText, includeKeywords, excludeKeywords, appliedFilter, sortBy]);
 
   // Load notification settings
   useEffect(() => {
