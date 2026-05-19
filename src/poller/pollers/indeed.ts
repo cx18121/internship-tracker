@@ -104,7 +104,7 @@ export async function pollIndeed(): Promise<Partial<Internship>[]> {
             title: job.title,
             company: job.company,
             location: job.location,
-            description: job.description?.slice(0, 1000),
+            description: job.description?.slice(0, 4000) || undefined,
             link,
             source: 'Indeed',
             postedAt: new Date().toISOString(),

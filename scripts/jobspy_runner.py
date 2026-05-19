@@ -130,6 +130,11 @@ def main():
                 country_indeed="USA",
                 is_remote=is_remote,
                 verbose=0,
+                # Pull full descriptions for LinkedIn results. Adds one page-fetch per result,
+                # so the LinkedIn portion of the cycle takes 3-5x longer. Trade-off accepted for
+                # description-aware scoring.
+                linkedin_fetch_description=True,
+                description_format="markdown",
             )
 
             if df is None or df.empty:
@@ -174,7 +179,7 @@ def main():
                         posted_at = str(date_val)
 
                 desc_val = row.get("description")
-                description = str(desc_val)[:600].strip() if pd.notna(desc_val) else ""
+                description = str(desc_val)[:4000].strip() if pd.notna(desc_val) else ""
 
                 all_jobs.append({
                     "title": title,

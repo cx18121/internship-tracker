@@ -20,6 +20,20 @@ export function isInternTitle(title: string): boolean {
   return /\bintern(ship)?\b/i.test(title);
 }
 
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
   const url = `https://boards-api.greenhouse.io/v1/boards/${target.slug}/jobs?content=true`;
   const { data } = await axios.get(url, { timeout: REQUEST_TIMEOUT });
@@ -30,6 +44,7 @@ async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<I
       title: j.title || '',
       company,
       location: j.location?.name || null,
+      description: stripHtml(j.content || '').slice(0, 4000) || undefined,
       link: j.absolute_url || `https://boards.greenhouse.io/${target.slug}/jobs/${j.id}`,
       source: 'Greenhouse',
       postedAt: j.updated_at || now,
@@ -51,16 +66,45 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
       const commitmentMatch = (j.categories?.commitment || '').toLowerCase() === 'internship';
       return titleMatch || commitmentMatch;
     })
-    .map((j) => ({
-      title: j.text || '',
-      company,
-      location: j.categories?.location || j.workplaceType || null,
-      link: j.hostedUrl || j.applyUrl || '',
-      source: 'Lever',
-      postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : now,
-      seenAt: now,
-      applied: false,
-    }));
+    .map((j) => {
+      const desc = j.descriptionPlain
+        ? j.descriptionPlain
+        : [
+            stripHtml(j.description || ''),
+            ...(j.lists ?? []).map((l: any) =>
+              `${l.text ?? ''} ${stripHtml(l.content ?? '')}`,
+            ),
+          ].join(' ').replace(/\s+/g, ' ').trim();
+      return {
+        title: j.text || '',
+        company,
+        location: j.categories?.location || j.workplaceType || null,
+        description: desc ? desc.slice(0, 4000) : undefined,
+        link: j.hostedUrl || j.applyUrl || '',
+        source: 'Lever',
+        postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : now,
+        seenAt: now,
+        applied: false,
+      };
+    });
+}
+
+async function fetchAshbyDescription(slug: string, jobId: string): Promise<string> {
+  try {
+    const { data: html } = await axios.get(`https://jobs.ashbyhq.com/${slug}/${jobId}`, {
+      timeout: REQUEST_TIMEOUT,
+      headers: { 'Accept': 'text/html', 'User-Agent': 'Mozilla/5.0' },
+      responseType: 'text',
+    });
+    const m = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
+    if (!m) return '';
+    const data = JSON.parse(m[1]);
+    const posting = data?.jobBoard?.jobPostings?.find((p: any) => p.id === jobId)
+      ?? data?.jobBoard?.jobPostings?.[0];
+    return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
+  } catch {
+    return '';
+  }
 }
 
 async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
@@ -84,24 +128,30 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
   const postings: any[] = appData?.jobBoard?.jobPostings || [];
   const company = target.name || appData?.organization?.name || target.slug;
 
-  return postings
-    .filter((j) => {
-      const titleMatch = /\bintern(ship)?\b/i.test(j.title || '');
-      const typeMatch = /\bintern(ship)?\b/i.test(j.employmentType || '');
-      return titleMatch || typeMatch;
-    })
-    .map((j) => ({
+  const interns = postings.filter((j) => {
+    const titleMatch = /\bintern(ship)?\b/i.test(j.title || '');
+    const typeMatch = /\bintern(ship)?\b/i.test(j.employmentType || '');
+    return titleMatch || typeMatch;
+  });
+
+  const results: Partial<Internship>[] = [];
+  for (const j of interns) {
+    const description = await fetchAshbyDescription(target.slug, j.id);
+    results.push({
       title: j.title || '',
       company,
       location: j.workplaceType === 'Remote'
         ? 'Remote'
         : (j.locationName || j.locationExternalName || null),
+      description: description || undefined,
       link: `https://jobs.ashbyhq.com/${target.slug}/${j.id}`,
       source: 'Ashby',
       postedAt: j.publishedDate || now,
       seenAt: now,
       applied: false,
-    }));
+    });
+  }
+  return results;
 }
 
 async function pollWorkday(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
@@ -190,6 +240,26 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
   return results;
 }
 
+async function fetchSmartRecruitersDescription(slug: string, jobId: string): Promise<string> {
+  try {
+    const url = `https://api.smartrecruiters.com/v1/companies/${slug}/postings/${jobId}`;
+    const { data } = await axios.get(url, {
+      timeout: REQUEST_TIMEOUT,
+      headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+    });
+    const sections = data?.jobAd?.sections ?? {};
+    const parts = [
+      sections.companyDescription?.text,
+      sections.jobDescription?.text,
+      sections.qualifications?.text,
+      sections.additionalInformation?.text,
+    ].filter(Boolean);
+    return stripHtml(parts.join(' ')).slice(0, 4000);
+  } catch {
+    return '';
+  }
+}
+
 async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
   const url = `https://api.smartrecruiters.com/v1/companies/${target.slug}/postings?status=PUBLIC&limit=100`;
   const { data } = await axios.get(url, {
@@ -198,23 +268,29 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
   });
   const postings: any[] = data.content || [];
   const company = target.name || target.slug;
-  return postings
-    .filter((j) => {
-      const titleMatch = isInternTitle(j.name || '');
-      const typeMatch = /intern/i.test(j.typeOfEmployment?.id || '');
-      return titleMatch || typeMatch;
-    })
-    .map((j) => ({
+  const interns = postings.filter((j) => {
+    const titleMatch = isInternTitle(j.name || '');
+    const typeMatch = /intern/i.test(j.typeOfEmployment?.id || '');
+    return titleMatch || typeMatch;
+  });
+
+  const results: Partial<Internship>[] = [];
+  for (const j of interns) {
+    const description = await fetchSmartRecruitersDescription(target.slug, j.id);
+    results.push({
       title: j.name || '',
       company,
       location: [j.location?.city, j.location?.region, j.location?.country]
         .filter(Boolean).join(', ') || 'United States',
+      description: description || undefined,
       link: `https://jobs.smartrecruiters.com/${target.slug}/${j.id}`,
       source: 'SmartRecruiters',
       postedAt: j.releasedDate || now,
       seenAt: now,
       applied: false,
-    }));
+    });
+  }
+  return results;
 }
 
 async function pollWorkdayPlaywright(csrfTargets: ATSTarget[], now: string): Promise<Partial<Internship>[]> {

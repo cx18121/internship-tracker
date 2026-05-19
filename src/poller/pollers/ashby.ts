@@ -79,6 +79,7 @@ interface AshbyAppData {
       locationName?: string;
       locationExternalName?: string;
       publishedDate?: string;
+      descriptionHtml?: string;
     }>;
   };
   organization?: {
@@ -92,6 +93,54 @@ function sleep(ms: number): Promise<void> {
 
 function isInternTitle(title: string): boolean {
   return /\bintern(ship)?\b/i.test(title);
+}
+
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Fetch the per-job page and extract the descriptionHtml from its appData.
+ * Returns empty string on failure — description is a nice-to-have.
+ */
+async function fetchJobDescription(slug: string, jobId: string): Promise<string> {
+  const url = `https://jobs.ashbyhq.com/${slug}/${jobId}`;
+  try {
+    const { data: html } = await axios.get(url, {
+      timeout: REQUEST_TIMEOUT,
+      headers: {
+        'Accept': 'text/html',
+        'User-Agent': 'Mozilla/5.0 (compatible; InternshipTracker/1.0)',
+      },
+      responseType: 'text',
+    });
+
+    // The job page embeds appData with the full posting including descriptionHtml.
+    // Parse via regex against the raw HTML (faster than full DOM parse).
+    const m = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
+    if (!m) return '';
+    let appData: AshbyAppData = {};
+    try {
+      appData = JSON.parse(m[1]);
+    } catch {
+      return '';
+    }
+    const posting = appData.jobBoard?.jobPostings?.find(p => p.id === jobId)
+      ?? appData.jobBoard?.jobPostings?.[0];
+    return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -151,19 +200,25 @@ async function fetchBoard(
       appData.organization?.name ||
       slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
-    return postings
-      .filter((j) => {
-        const titleMatch = isInternTitle(j.title || '');
-        const typeMatch = /\bintern(ship)?\b/i.test(j.workplaceType || '');
-        return titleMatch || typeMatch;
-      })
-      .map((j) => ({
+    const interns = postings.filter((j) => {
+      const titleMatch = isInternTitle(j.title || '');
+      const typeMatch = /\bintern(ship)?\b/i.test(j.workplaceType || '');
+      return titleMatch || typeMatch;
+    });
+
+    // Fetch description for each intern posting in sequence (board has ~1-5 typically).
+    // Sequential keeps per-host load reasonable.
+    const results: Partial<Internship>[] = [];
+    for (const j of interns) {
+      const description = await fetchJobDescription(slug, j.id);
+      results.push({
         title: j.title || '',
         company,
         location:
           j.workplaceType === 'Remote'
             ? 'Remote'
             : (j.locationName || j.locationExternalName || ''),
+        description: description || undefined,
         link: `https://jobs.ashbyhq.com/${slug}/${j.id}`,
         source: 'Ashby',
         atsSource: 'ashby',
@@ -172,7 +227,9 @@ async function fetchBoard(
         postedAt: j.publishedDate || now,
         seenAt: now,
         applied: false,
-      }));
+      });
+    }
+    return results;
   } catch {
     // 404 / 403 / network error → company not on Ashby or blocked
     return [];

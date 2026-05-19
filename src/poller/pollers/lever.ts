@@ -71,10 +71,38 @@ interface LeverPosting {
     team?: string;
   };
   createdAt: number; // Unix ms
+  description?: string;
+  descriptionPlain?: string;
+  lists?: Array<{ text?: string; content?: string }>;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function leverDescription(j: LeverPosting): string {
+  if (j.descriptionPlain) return j.descriptionPlain.slice(0, 4000);
+  const parts: string[] = [];
+  if (j.description) parts.push(stripHtml(j.description));
+  for (const l of j.lists ?? []) {
+    if (l.text) parts.push(l.text);
+    if (l.content) parts.push(stripHtml(l.content));
+  }
+  return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
 }
 
 function isInternTitle(title: string): boolean {
@@ -118,6 +146,7 @@ async function fetchBoard(
         title: j.text || '',
         company: slugToName(slug),
         location: j.categories?.location ?? j.categories?.commitment ?? undefined,
+        description: leverDescription(j) || undefined,
         link: j.hostedUrl || j.applyUrl || '',
         source: 'Lever',
         atsSource: 'lever' as const,

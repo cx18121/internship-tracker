@@ -59,10 +59,26 @@ interface GreenhouseJob {
   absolute_url: string;
   updated_at: string;
   departments?: Array<{ name: string }>;
+  /** HTML body returned when fetched with `?content=true`. */
+  content?: string;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function stripHtml(html: string): string {
+  if (!html) return '';
+  return html
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function isInternTitle(title: string): boolean {
@@ -96,6 +112,7 @@ async function fetchBoard(
         title: j.title,
         company: slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
         location: j.location?.name ?? undefined,
+        description: stripHtml(j.content || '').slice(0, 4000) || undefined,
         link: j.absolute_url || `https://boards.greenhouse.io/${slug}/jobs/${j.id}`,
         source: 'Greenhouse',
         atsSource: 'greenhouse' as const,
