@@ -1,19 +1,12 @@
 #!/usr/bin/env sh
 set -e
 
-# Seed /app/data (volume mount point) from /app/data-defaults if files missing.
-# Config files (companies.yml, scoring-config.json, ats-targets.json, etc.) get
-# the in-image defaults; runtime state (internships.json, seen.json, etc.)
-# accumulates in the volume across redeploys.
-if [ -d /app/data-defaults ]; then
-  mkdir -p /app/data
-  for src in /app/data-defaults/*; do
-    name=$(basename "$src")
-    if [ ! -e "/app/data/$name" ]; then
-      cp -r "$src" "/app/data/$name"
-      echo "[entrypoint] seeded data/$name from defaults"
-    fi
-  done
+# Seed/reconcile /app/data against /app/data-defaults via the seed-config helper.
+# It merges config files that accrete at runtime (ats-targets.json), overwrites
+# pure config files (scoring-config.json, etc.), and leaves runtime state alone.
+# See scripts/seed-config.cjs for the per-file strategies.
+if [ -f /app/scripts/seed-config.cjs ]; then
+  node /app/scripts/seed-config.cjs
 fi
 
 # Friendly env-var sanity checks (warn, don't fail — let the process start)

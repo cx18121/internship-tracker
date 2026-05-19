@@ -1,26 +1,42 @@
 #!/bin/sh
-# Production start script — bypasses npm/sh wrappers so SIGTERM hits the real
-# Node processes (next, tsx) instead of intermediate shells.
+# Production start script — runs Next.js + the poller via concurrently, and
+# translates SIGTERM/SIGINT-induced exit codes (143 / 130) into a clean exit 0.
 #
-# Why this matters: every `npm run X` wraps the inner command in `sh -c`, and
-# every layer logs `command failed / signal SIGTERM` when killed. With direct
-# binary invocation + `exec` we get a clean process tree:
+# Why: Railway sends SIGTERM on every deploy roll. Next.js exits gracefully but
+# the *process* still terminates with code 143 (128 + 15 = SIGTERM) because it
+# doesn't call process.exit(0). The poller's own SIGTERM handler exits 0
+# correctly. Concurrently surfaces the first non-zero child exit, so we end up
+# at 143 → Railway sees "deploy crashed" → email.
 #
-#   docker-entrypoint → sh start-server.sh → concurrently
-#                                              ├── next       (was: sh -c "exec next")
-#                                              └── node/tsx   (was: sh -c "exec tsx")
-#
-# Both children invoke the real binary via exec so the wrapper sh disappears
-# from the tree. SIGTERM lands on next/node directly, runs their handlers
-# (poller's is in src/poller/index.ts), and the process exits 0 — no noisy npm
-# error during Railway deploys.
+# Any *other* non-zero exit (uncaught exception, OOM, etc.) is a real crash and
+# still propagates up to Railway's restart-on-failure logic.
 
-set -e
 cd /app
 
-exec ./node_modules/.bin/concurrently \
+./node_modules/.bin/concurrently \
   --kill-others-on-fail \
   --names 'web,poll' \
   --prefix-colors 'cyan,magenta' \
-  "exec ./node_modules/.bin/next start -p ${PORT:-3000} -H 0.0.0.0" \
-  "exec ./node_modules/.bin/tsx src/poller/index.ts"
+  "./node_modules/.bin/next start -p ${PORT:-3000} -H 0.0.0.0" \
+  "./node_modules/.bin/tsx src/poller/index.ts" &
+PID=$!
+
+# Forward Railway's SIGTERM (and local Ctrl-C SIGINT) to concurrently so its
+# children get the signal and can shut down. Without this, kill -TERM hitting
+# sh would orphan concurrently.
+trap 'kill -TERM $PID 2>/dev/null' TERM
+trap 'kill -INT  $PID 2>/dev/null' INT
+
+# wait can be interrupted by the signal — re-wait until concurrently actually
+# exits and we have a real exit code.
+while kill -0 $PID 2>/dev/null; do
+  wait $PID
+  CODE=$?
+done
+
+# 143 = SIGTERM (Railway graceful shutdown)
+# 130 = SIGINT (local Ctrl-C)
+if [ "$CODE" = "143" ] || [ "$CODE" = "130" ]; then
+  exit 0
+fi
+exit "$CODE"
