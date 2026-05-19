@@ -12,7 +12,8 @@
     "poller:dev": "npx tsx --watch src/poller/index.ts",
     "serve": "npx concurrently --kill-others-on-fail --names 'web,poll' --prefix-colors 'cyan,magenta' 'npm:start' 'npm:poller'",
     "test": "npx tsx src/poller/test.ts",
-    "handshake:login": "npx tsx src/poller/handshake-login.ts"
+    "handshake:login": "npx tsx src/poller/handshake-login.ts",
+    "discover:ats": "npx tsx scripts/exa-discover-ats.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
