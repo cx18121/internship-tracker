@@ -14,9 +14,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 import { pollATS, ATSTarget } from './ats.js';
-import { loadInternships, saveInternships } from '../store.js';
+import { loadInternships, saveInternships } from '../../lib/store.js';
 
 // ---------------------------------------------------------------------------
 // Types

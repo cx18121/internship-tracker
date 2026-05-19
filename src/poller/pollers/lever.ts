@@ -12,7 +12,7 @@
  */
 
 import axios from 'axios';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 
 const REQUEST_TIMEOUT = 10_000;
 const RATE_LIMIT_MS = 600;

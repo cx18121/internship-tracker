@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { scoreInternship } from './scorer';
+import { scoreInternship } from '../lib/scorer.js';
 
 const dataPath = path.join(process.cwd(), 'data', 'internships.json');
 const internships: any[] = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));

@@ -1,8 +1,8 @@
 import { firefox, BrowserContext } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Internship } from '../types.js';
-import { discoverATSTarget, saveDiscoveredTargets } from '../utils/ats-discovery.js';
+import { Internship } from '../../lib/types.js';
+import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery.js';
 
 function alertAuthExpired(): void {
   console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');

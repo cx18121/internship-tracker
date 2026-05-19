@@ -1,5 +1,5 @@
 import { firefox } from 'playwright';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 
 const SEARCH_QUERIES = [
   { q: 'software engineer intern', sort: 'date' },

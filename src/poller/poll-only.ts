@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { runCycle } from './agent.js';
-import { archiveStalePostings } from './store.js';
+import { archiveStalePostings } from '../lib/store.js';
 
 async function main(): Promise<void> {
   console.log('[internship-tracker] Poll-only mode: running single cycle');

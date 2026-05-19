@@ -5,7 +5,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import axios from 'axios';
-import { discoverATSTarget, saveDiscoveredTargets, ATSTarget } from './utils/ats-discovery.js';
+import { discoverATSTarget, saveDiscoveredTargets, ATSTarget } from '../lib/utils/ats-discovery.js';
 
 const INTERNSHIPS_PATH = path.join(process.cwd(), 'data', 'internships.json');
 const CONCURRENCY = 5;

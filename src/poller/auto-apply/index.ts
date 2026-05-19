@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 import { AutoApplySettings, FillReport } from './types.js';
 import { loadProfile, loadSettings } from './profile.js';
 import { analyzeGreenhouseForm } from './greenhouse.js';

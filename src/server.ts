@@ -9,12 +9,12 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import express from 'express';
-import { getInternships, getStats, patchInternship } from './store.js';
-import { scoreInternship } from './scorer.js';
-import { Internship } from './types.js';
-import { analyzeFill, runBatch, loadReports, detectProvider, isEligible } from './auto-apply/index.js';
-import { autoFill } from './auto-apply/playwright-fill.js';
-import { loadProfile, saveProfile, loadSettings, saveSettings } from './auto-apply/profile.js';
+import { getInternships, getStats, patchInternship } from './lib/store.js';
+import { scoreInternship } from './lib/scorer.js';
+import { Internship } from './lib/types.js';
+import { analyzeFill, runBatch, loadReports, detectProvider, isEligible } from './poller/auto-apply/index.js';
+import { autoFill } from './poller/auto-apply/playwright-fill.js';
+import { loadProfile, saveProfile, loadSettings, saveSettings } from './poller/auto-apply/profile.js';
 
 const app = express();
 const PORT = parseInt(process.env.API_PORT || '3001', 10);

@@ -1,5 +1,5 @@
 import { chromium } from 'playwright';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 
 const BASE_URL = 'https://www.workatastartup.com';
 const POLL_TIMEOUT = 60_000;

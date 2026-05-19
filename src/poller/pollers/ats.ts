@@ -1,7 +1,7 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'ats-targets.json');
 const REQUEST_TIMEOUT = 10_000;

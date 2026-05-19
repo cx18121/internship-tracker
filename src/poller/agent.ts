@@ -1,6 +1,6 @@
 import md5 from 'md5';
-import { Internship, CycleStats } from './types.js';
-import { stripUtm } from './utils/normalize.js';
+import { Internship, CycleStats } from '../lib/types.js';
+import { stripUtm } from '../lib/utils/normalize.js';
 import { pollGitHub } from './pollers/github.js';
 import { pollHandshake } from './pollers/handshake.js';
 import { pollJobSpy } from './pollers/jobspy.js';
@@ -13,8 +13,8 @@ import { pollAshbyDiscovery } from './pollers/ashby.js';
 import { pollWebsearchDiscovery } from './pollers/websearch-discovery.js';
 import { scanCareersPages } from './pollers/careers-scan.js';
 import { filterInternships } from './filter.js';
-import { scoreInternship } from './scorer.js';
-import { deduplicateAndStore, savePollStats } from './store.js';
+import { scoreInternship } from '../lib/scorer.js';
+import { deduplicateAndStore, savePollStats } from '../lib/store.js';
 import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess } from './notifier.js';
 
 let consecutiveFailures = 0;

@@ -1,5 +1,5 @@
 import Parser from 'rss-parser';
-import { Internship } from '../types.js';
+import { Internship } from '../../lib/types.js';
 
 const parser = new Parser({
   timeout: 15000,
