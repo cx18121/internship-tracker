@@ -37,47 +37,59 @@ export async function sendBatchAlert(
     return false;
   }
 
-  const settled = await Promise.allSettled(
-    eligible.map(posting => {
-      const color = posting.scoreLabel === 'Excellent' ? 0x00ff88 : 0x5865f2;
-      const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
-      const body = {
-        embeds: [
-          {
-            title: `${sourceEmoji ? sourceEmoji + ' ' : ''}${posting.company} — ${posting.title}`.trim(),
-            url: posting.link || undefined,
-            color,
-            fields: [
-              { name: 'Score', value: `${posting.scoreLabel} (${posting.score ?? 0})`, inline: true },
-              { name: 'Location', value: posting.location || 'Unknown', inline: true },
-            ],
-            footer: { text: posting.id },
-          },
-        ],
-      };
-      return fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bot ${token}`,
+  // Send sequentially with a small delay to stay under Discord's per-channel
+  // rate limit (~5 messages / 5s). Honor 429 retry_after on overshoot.
+  const DELAY_MS = 1100;
+  let sentAny = false;
+
+  for (const posting of eligible) {
+    const color = posting.scoreLabel === 'Excellent' ? 0x00ff88 : 0x5865f2;
+    const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
+    const body = {
+      embeds: [
+        {
+          title: `${sourceEmoji ? sourceEmoji + ' ' : ''}${posting.company} — ${posting.title}`.trim(),
+          url: posting.link || undefined,
+          color,
+          fields: [
+            { name: 'Score', value: `${posting.scoreLabel} (${posting.score ?? 0})`, inline: true },
+            { name: 'Location', value: posting.location || 'Unknown', inline: true },
+          ],
+          footer: { text: posting.id },
         },
+      ],
+    };
+
+    // Try once, retry once on 429 honoring retry_after.
+    let res: Response;
+    try {
+      res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
         body: JSON.stringify(body),
       });
-    })
-  );
-
-  let sentAny = false;
-  for (const result of settled) {
-    if (result.status === 'fulfilled') {
-      if (result.value.ok) {
+      if (res.status === 429) {
+        const errBody = await res.clone().json().catch(() => ({ retry_after: 1 })) as { retry_after?: number };
+        const waitMs = Math.ceil((errBody.retry_after ?? 1) * 1000) + 100;
+        console.warn(`[notifier] 429 from Discord, waiting ${waitMs}ms then retrying once`);
+        await new Promise(r => setTimeout(r, waitMs));
+        res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
+          body: JSON.stringify(body),
+        });
+      }
+      if (res.ok) {
         sentAny = true;
       } else {
-        const text = await result.value.text().catch(() => '');
-        console.error(`[notifier] Discord post failed ${result.value.status}: ${text}`);
+        const text = await res.text().catch(() => '');
+        console.error(`[notifier] Discord post failed ${res.status}: ${text}`);
       }
-    } else {
-      console.error('[notifier] Discord post failed:', result.reason);
+    } catch (err) {
+      console.error('[notifier] Discord post failed:', err);
     }
+
+    await new Promise(r => setTimeout(r, DELAY_MS));
   }
 
   return sentAny;
