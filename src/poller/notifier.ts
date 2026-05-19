@@ -79,16 +79,19 @@ export async function sendBatchAlert(
               label: 'Apply',
               url: posting.link,
             }] : []),
+            // Emoji-only buttons keep the action row narrow enough to fit on
+            // one mobile row. Discord renders `emoji` without `label` as a
+            // compact square button.
             {
               type: 2,
               style: 3, // SUCCESS (green)
-              label: '✅ Applied',
+              emoji: { name: '✅' },
               custom_id: `applied:${posting.id}`,
             },
             {
               type: 2,
               style: 4, // DANGER (red)
-              label: '❌ Not interested',
+              emoji: { name: '❌' },
               custom_id: `hidden:${posting.id}`,
             },
           ],
