@@ -173,31 +173,60 @@ async function enrichWithDetailLinks(
       await page.goto(job.link, { waitUntil: 'domcontentloaded', timeout: 15000 });
       await page.waitForTimeout(1200);
 
-      const externalLink = await page.evaluate((patterns: string[]) => {
+      const detail = await page.evaluate((patterns: string[]) => {
         const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
 
         // Priority 1: any link directly matching a known ATS platform
+        let externalLink: string | null = null;
         for (const a of anchors) {
           const href = a.getAttribute('href') || '';
-          if (patterns.some(p => href.includes(p))) return href;
+          if (patterns.some(p => href.includes(p))) { externalLink = href; break; }
         }
 
         // Priority 2: an "Apply" anchor that points outside joinhandshake.com
-        for (const a of anchors) {
-          const href = a.getAttribute('href') || '';
-          if (!href.startsWith('http')) continue;
-          if (href.includes('joinhandshake.com')) continue;
-          const text = (a.textContent || '').trim().toLowerCase();
-          const aria = (a.getAttribute('aria-label') || '').toLowerCase();
-          if (text.includes('apply') || aria.includes('apply')) return href;
+        if (!externalLink) {
+          for (const a of anchors) {
+            const href = a.getAttribute('href') || '';
+            if (!href.startsWith('http')) continue;
+            if (href.includes('joinhandshake.com')) continue;
+            const text = (a.textContent || '').trim().toLowerCase();
+            const aria = (a.getAttribute('aria-label') || '').toLowerCase();
+            if (text.includes('apply') || aria.includes('apply')) { externalLink = href; break; }
+          }
         }
 
-        return null;
+        // Description: try several Handshake-flavored selectors, fall back to all paragraphs
+        const descSelectors = [
+          '[data-hook*="job-description"]',
+          '[data-hook*="description"]',
+          '[data-hook*="job-detail-body"]',
+          '[data-hook*="job-overview"]',
+          '[data-hook*="job-body"]',
+        ];
+        let description = '';
+        for (const sel of descSelectors) {
+          const el = document.querySelector(sel);
+          const text = el?.textContent?.trim() ?? '';
+          if (text.length > 100) { description = text; break; }
+        }
+        if (description.length < 100) {
+          // Last resort: join all paragraphs in main content
+          const ps = Array.from(document.querySelectorAll('main p, article p, [role="main"] p, body p'))
+            .map(p => p.textContent?.trim() ?? '')
+            .filter(t => t.length > 20);
+          if (ps.length > 0) description = ps.join(' ');
+        }
+        description = description.replace(/\s+/g, ' ').trim().slice(0, 4000);
+
+        return { externalLink, description };
       }, EXTERNAL_ATS_PATTERNS);
 
-      if (externalLink) {
-        job.link = externalLink;
+      if (detail.externalLink) {
+        job.link = detail.externalLink;
         enriched++;
+      }
+      if (detail.description) {
+        job.description = detail.description;
       }
     } catch {
       // Keep original Handshake URL on error

@@ -117,6 +117,72 @@ function parseRows(html: string): { company: string; title: string; location: st
   return results;
 }
 
+/**
+ * Best-effort description fetch by ATS type. Returns '' if the URL is from an
+ * ATS we don't handle here, or on any error — descriptions are nice-to-have.
+ */
+async function fetchDescriptionByUrl(url: string): Promise<string> {
+  if (!url) return '';
+  try {
+    // Greenhouse: https://(boards|job-boards).greenhouse.io/{slug}/jobs/{id}
+    let m = url.match(/greenhouse\.io\/(?:boards\/)?([^/]+)\/jobs\/(\d+)/);
+    if (m) {
+      const [, slug, jobId] = m;
+      const { data } = await axios.get(
+        `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${jobId}?content=true`,
+        { timeout: 8000 },
+      );
+      return stripHtml(decodeHtmlEntities(data?.content ?? '')).slice(0, 4000);
+    }
+    // Lever: https://jobs.lever.co/{slug}/{id}
+    m = url.match(/jobs\.lever\.co\/([^/?#]+)\/([a-f0-9-]+)/);
+    if (m) {
+      const [, slug, jobId] = m;
+      const { data } = await axios.get(
+        `https://api.lever.co/v0/postings/${slug}/${jobId}?mode=json`,
+        { timeout: 8000 },
+      );
+      if (data?.descriptionPlain) return data.descriptionPlain.slice(0, 4000);
+      const parts = [
+        stripHtml(data?.description ?? ''),
+        ...((data?.lists ?? []) as Array<{ text?: string; content?: string }>)
+          .map(l => `${l.text ?? ''} ${stripHtml(l.content ?? '')}`),
+      ];
+      return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
+    }
+    // Ashby: https://jobs.ashbyhq.com/{slug}/{id}
+    m = url.match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([^/?#]+)/);
+    if (m) {
+      const [, slug, jobId] = m;
+      const { data: html } = await axios.get(`https://jobs.ashbyhq.com/${slug}/${jobId}`, {
+        timeout: 8000,
+        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html' },
+        responseType: 'text',
+      });
+      const am = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
+      if (!am) return '';
+      const appData = JSON.parse(am[1]);
+      const posting = appData?.jobBoard?.jobPostings?.find((p: { id: string }) => p.id === jobId)
+        ?? appData?.jobBoard?.jobPostings?.[0];
+      return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+async function withConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  const queue = [...items];
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (queue.length > 0) {
+      const item = queue.shift()!;
+      await fn(item);
+    }
+  });
+  await Promise.all(workers);
+}
+
 export async function pollGitHub(): Promise<Partial<Internship>[]> {
   const response = await axios.get<string>(README_URL, { responseType: 'text', timeout: 15000 });
   const readme = response.data;
@@ -140,6 +206,16 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
     }
     return entry;
   });
+
+  // Best-effort description backfill via the linked ATS — Greenhouse/Lever/Ashby covered.
+  // Concurrency-limited so we don't hammer any one host. Failures silently leave description empty.
+  let enriched = 0;
+  await withConcurrency(results, 5, async (entry) => {
+    if (!entry.link) return;
+    const desc = await fetchDescriptionByUrl(entry.link);
+    if (desc) { entry.description = desc; enriched++; }
+  });
+  console.log(`[github poller] Description backfill: ${enriched}/${results.length} via ATS APIs`);
 
   // Auto-discover new ATS targets from direct links in SimplifyJobs
   const discovered = rows
