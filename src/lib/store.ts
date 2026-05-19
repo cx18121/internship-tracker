@@ -151,6 +151,14 @@ function applyColumnMigrations(db: Database.Database): void {
 
 let _db: Database.Database | null = null;
 
+/** Close the active SQLite handle (if any) for graceful shutdown. Safe to call multiple times. */
+export function closeDb(): void {
+  if (_db) {
+    try { _db.close(); } catch {}
+    _db = null;
+  }
+}
+
 function getDb(): Database.Database {
   if (_db) return _db;
 

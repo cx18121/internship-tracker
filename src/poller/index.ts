@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { runCycle } from './agent';
-import { archiveStalePostings, revalidateLinks } from '../lib/store';
+import { archiveStalePostings, revalidateLinks, closeDb } from '../lib/store';
 
 // Two-tier polling:
 //   Fast tier (default 5 min)  — SimplifyJobs RSS only. Quick to fetch, high
@@ -85,7 +85,27 @@ async function main(): Promise<void> {
   }, slowDelay);
 }
 
+// ---------------------------------------------------------------------------
+// Graceful shutdown
+// ---------------------------------------------------------------------------
+// Railway sends SIGTERM during deploys and gives ~10s before SIGKILL. We don't
+// try to wait for an in-flight cycle to finish (slow cycles take minutes) —
+// SQLite writes are synchronous, so anything mid-cycle has either committed or
+// will be re-fetched next cycle. We just close the DB cleanly so WAL gets
+// checkpointed, then exit 0 to keep `concurrently` quiet.
+let shuttingDown = false;
+function shutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[internship-tracker] Received ${signal} — closing DB and exiting cleanly`);
+  try { closeDb(); } catch {}
+  process.exit(0);
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
 main().catch(err => {
   console.error('[internship-tracker] Fatal error:', err);
+  closeDb();
   process.exit(1);
 });
