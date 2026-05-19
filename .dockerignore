@@ -1,0 +1,30 @@
+node_modules
+.next
+out
+dist
+.venv
+backups
+logs
+*.log
+
+# Don't ship local secrets
+.env
+.env.*
+
+# Git
+.git
+.gitignore
+
+# Editor
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Tests / debug artifacts that shouldn't go to prod
+test-dedup.mjs
+debug-dedup.cjs
+test-jobspy.ts
+
+# Local Mac-only run config
+scripts/com.internship-tracker.backup.plist.example

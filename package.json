@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p ${PORT:-3000} -H 0.0.0.0",
     "lint": "eslint",
     "poller": "npx tsx src/poller/index.ts",
     "poller:dev": "npx tsx --watch src/poller/index.ts",
+    "serve": "npx concurrently --kill-others-on-fail --names 'web,poll' --prefix-colors 'cyan,magenta' 'npm:start' 'npm:poller'",
     "test": "npx tsx src/poller/test.ts",
     "handshake:login": "npx tsx src/poller/handshake-login.ts"
   },
@@ -20,6 +21,7 @@
     "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "concurrently": "^9.1.0",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
     "lucide-react": "^1.7.0",
