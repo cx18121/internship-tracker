@@ -3,21 +3,17 @@
   "version": "1.0.0",
   "description": "Polls internship sources, filters/scores, Discord alerts, and a Next.js UI",
   "private": true,
-  "main": "src/poller/index.ts",
   "scripts": {
-    "start": "npx tsx src/poller/index.ts",
-    "dev": "npx tsx --watch src/poller/index.ts",
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
     "poller": "npx tsx src/poller/index.ts",
     "poller:dev": "npx tsx --watch src/poller/index.ts",
     "test": "npx tsx src/poller/test.ts",
-    "handshake:login": "npx tsx src/poller/handshake-login.ts",
-    "web:dev": "next dev",
-    "web:build": "next build",
-    "web:start": "next start",
-    "lint": "eslint"
+    "handshake:login": "npx tsx src/poller/handshake-login.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.82.0",
     "@base-ui/react": "^1.3.0",
     "axios": "^1.7.9",
     "better-sqlite3": "^12.8.0",
