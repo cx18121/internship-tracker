@@ -75,7 +75,11 @@ function main(): void {
   console.log(`\n=== Before ===\n${format(before)}`);
 
   const update = db.prepare(`
-    UPDATE internships SET score = @score, score_label = @scoreLabel WHERE id = @id
+    UPDATE internships
+       SET score = @score,
+           score_label = @scoreLabel,
+           matched_keywords = @matchedKeywords
+     WHERE id = @id
   `);
 
   const changedRows: Array<{ id: string; oldScore: number | null; newScore: number; oldLabel: string | null; newLabel: string }> = [];
@@ -83,26 +87,41 @@ function main(): void {
 
   const tx = db.transaction((rows: Row[]) => {
     for (const r of rows) {
-      const { score, scoreLabel } = scoreInternship({
+      const result = scoreInternship({
         title: r.title ?? '',
         company: r.company ?? '',
         location: r.location ?? '',
         description: r.description ?? undefined,
       });
       const before = r.score ?? -1;
-      if (score === before && scoreLabel === r.score_label) {
+      // Always re-write matched_keywords (even when score is unchanged) so a
+      // re-run after a code change populates them correctly.
+      if (result.score === before && result.scoreLabel === r.score_label) {
         unchanged++;
+        if (!DRY_RUN) {
+          update.run({
+            id: r.id,
+            score: result.score,
+            scoreLabel: result.scoreLabel,
+            matchedKeywords: JSON.stringify(result.matchedKeywords),
+          });
+        }
         continue;
       }
       changedRows.push({
         id: r.id,
         oldScore: r.score,
-        newScore: score,
+        newScore: result.score,
         oldLabel: r.score_label,
-        newLabel: scoreLabel,
+        newLabel: result.scoreLabel,
       });
       if (!DRY_RUN) {
-        update.run({ id: r.id, score, scoreLabel });
+        update.run({
+          id: r.id,
+          score: result.score,
+          scoreLabel: result.scoreLabel,
+          matchedKeywords: JSON.stringify(result.matchedKeywords),
+        });
       }
     }
   });

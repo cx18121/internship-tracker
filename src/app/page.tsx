@@ -69,15 +69,16 @@ interface Sources {
 type AppliedFilter = "all" | "applied" | "not-applied";
 type SortBy = "score" | "newest" | "posted";
 
-const SCORE_LABELS = ["Excellent", "Strong", "Good", "Low"];
+const SCORE_LABELS = ["A", "B", "C", "D", "F"];
 const LOCATION_PRESETS = ["Remote", "NYC", "SF", "Seattle", "Boston", "Austin"];
 const PAGE_SIZE = 50;
 
 const SCORE_BADGE: Record<string, string> = {
-  Excellent: "bg-green-500/20 text-green-400 border border-green-500/30",
-  Strong: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
-  Good: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
-  Low: "bg-white/5 text-white/40 border border-white/10",
+  A: "bg-green-500/20 text-green-400 border border-green-500/30",
+  B: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
+  C: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
+  D: "bg-white/10 text-white/50 border border-white/15",
+  F: "bg-white/5 text-white/30 border border-white/10",
 };
 
 const SOURCE_BADGE: Record<string, string> = {
