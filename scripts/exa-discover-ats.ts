@@ -46,9 +46,12 @@ interface ExaSearchResponse { results: ExaResult[] }
 async function exaSearch(query: string, numResults: number): Promise<string[]> {
   const apiKey = process.env.EXA_API_KEY;
   if (!apiKey) throw new Error('EXA_API_KEY not set');
+  // Neural mode (default — no `type` field). Empirically tested in
+  // scripts/exa-compare.ts: keyword search caps at 10 results, neural returns
+  // 50 and yields ~4× more new verified targets per call.
   const { data } = await axios.post<ExaSearchResponse>(
     EXA_SEARCH_URL,
-    { query, numResults, type: 'keyword' },
+    { query, numResults },
     { headers: { 'x-api-key': apiKey }, timeout: 30000 },
   );
   return (data.results ?? []).map(r => r.url).filter(Boolean);
