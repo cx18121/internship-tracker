@@ -1,4 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { Internship } from '../lib/types';
+import { getInternships } from '../lib/store';
 
 const SOURCE_EMOJIS: Record<string, string> = {
   SimplifyJobs: '⭐',
@@ -131,5 +134,111 @@ export async function sendBatchAlert(
 export async function sendSourceFailureAlert(): Promise<boolean> {
   console.warn(`[notifier] ${consecutiveSourceFailures} consecutive source failures detected`);
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Source-down detection + alerts
+// ---------------------------------------------------------------------------
+
+const ALERT_STATE_PATH = path.join(process.cwd(), 'data', 'source-alerts.json');
+const NOTIF_SETTINGS_PATH = path.join(process.cwd(), 'data', 'notif-settings.json');
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface AlertState {
+  // Map of source name → ISO timestamp when we alerted for this outage.
+  alertedSources: Record<string, string>;
+}
+
+function loadAlertState(): AlertState {
+  try {
+    return { alertedSources: {}, ...JSON.parse(fs.readFileSync(ALERT_STATE_PATH, 'utf-8')) };
+  } catch {
+    return { alertedSources: {} };
+  }
+}
+
+function saveAlertState(state: AlertState): void {
+  fs.writeFileSync(ALERT_STATE_PATH, JSON.stringify(state, null, 2));
+}
+
+function sourceDownAlertsEnabled(): boolean {
+  try {
+    const settings = JSON.parse(fs.readFileSync(NOTIF_SETTINGS_PATH, 'utf-8')) as { sourceDownAlerts?: boolean };
+    return settings.sourceDownAlerts === true;
+  } catch {
+    return false;
+  }
+}
+
+async function postDiscordMessage(content: string): Promise<boolean> {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_CHANNEL_INTERNSHIPS;
+  if (!token || !channelId) return false;
+  try {
+    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
+      body: JSON.stringify({ content }),
+    });
+    return res.ok;
+  } catch (err) {
+    console.error('[notifier] source-alert post failed:', err);
+    return false;
+  }
+}
+
+/**
+ * Compares per-source activity against the persisted alert state, fires new
+ * "down" / "recovered" Discord messages, and updates the state. Gated by the
+ * `sourceDownAlerts` toggle in data/notif-settings.json.
+ *
+ * "Down" rule: zero records in the last 24h while >0 in the last 7d. This
+ * means the source was active recently but has gone quiet — not a source
+ * we've simply never had data from.
+ */
+export async function checkAndAlertSourceHealth(): Promise<void> {
+  if (!sourceDownAlertsEnabled()) return;
+
+  const now = Date.now();
+  const allRecords = getInternships({ includeArchived: true });
+
+  type Counts = { last24h: number; last7d: number };
+  const counts = new Map<string, Counts>();
+  for (const r of allRecords) {
+    const c = counts.get(r.source) ?? { last24h: 0, last7d: 0 };
+    const age = now - new Date(r.seenAt).getTime();
+    if (age <= DAY_MS) c.last24h++;
+    if (age <= 7 * DAY_MS) c.last7d++;
+    counts.set(r.source, c);
+  }
+
+  const state = loadAlertState();
+  const downNow: string[] = [];
+  const recoveredNow: string[] = [];
+
+  for (const [source, c] of counts) {
+    const isDown = c.last24h === 0 && c.last7d > 0;
+    const alreadyAlerted = !!state.alertedSources[source];
+    if (isDown && !alreadyAlerted) {
+      downNow.push(source);
+      state.alertedSources[source] = new Date().toISOString();
+    } else if (!isDown && alreadyAlerted) {
+      recoveredNow.push(source);
+      delete state.alertedSources[source];
+    }
+  }
+
+  if (downNow.length === 0 && recoveredNow.length === 0) return;
+
+  if (downNow.length > 0) {
+    const msg = `⚠️ **Source(s) quiet for 24h+**: ${downNow.join(', ')}\nNo new records since the last cycle — check the poller logs.`;
+    await postDiscordMessage(msg);
+  }
+  if (recoveredNow.length > 0) {
+    const msg = `✅ **Source(s) back online**: ${recoveredNow.join(', ')}`;
+    await postDiscordMessage(msg);
+  }
+
+  saveAlertState(state);
 }
 

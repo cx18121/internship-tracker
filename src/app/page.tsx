@@ -23,6 +23,7 @@ import {
 
 import { InternshipCard } from "./_components/InternshipCard";
 import { NotifModal } from "./_components/NotifModal";
+import { SourceHealth } from "./_components/SourceHealth";
 import type { Internship, Stats, Sources, AppliedFilter, SortBy } from "./_lib/types";
 import {
   SCORE_LABELS,
@@ -432,6 +433,8 @@ export default function InternshipsPage() {
               </span>
             )}
           </div>
+
+          <SourceHealth />
 
           {/* Filters panel */}
           <div className="rounded-lg border border-white/10 bg-white/[0.03] p-4 space-y-4">

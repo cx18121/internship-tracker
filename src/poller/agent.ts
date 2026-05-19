@@ -17,7 +17,7 @@ import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { parseSalary } from '../lib/salary';
 import { normalizeKey } from '../lib/normalize-key';
-import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess } from './notifier';
+import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess, checkAndAlertSourceHealth } from './notifier';
 
 let consecutiveFailures = 0;
 
@@ -250,6 +250,15 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
   if (newInternships.length > 0) {
     const sent = await sendBatchAlert(newInternships, scoreThreshold);
     if (sent) stats.sent = newInternships.filter(i => (i.score ?? 0) >= scoreThreshold).length;
+  }
+
+  // Source-down detection — only after a full cycle (tier === 'all' or 'slow')
+  // since the fast cycle only hits SimplifyJobs and shouldn't trigger alerts on
+  // sources that weren't polled this round.
+  if (opts.tier !== 'fast') {
+    await checkAndAlertSourceHealth().catch(err =>
+      console.error('[agent] source-health alert check failed:', err),
+    );
   }
 
   logCycleStats(stats);

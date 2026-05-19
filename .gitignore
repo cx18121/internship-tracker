@@ -19,6 +19,7 @@ next-env.d.ts.bak
 *.db-*
 data/handshake-auth.json
 data/notif-settings.json
+data/source-alerts.json
 
 # Backups and migration cruft
 *.bak
