@@ -30,22 +30,40 @@ export async function sendBatchAlert(
     return false;
   }
 
+  const token = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_CHANNEL_INTERNSHIPS;
+  if (!token || !channelId) {
+    console.error('[notifier] DISCORD_BOT_TOKEN or DISCORD_CHANNEL_INTERNSHIPS not set; skipping alert');
+    return false;
+  }
+
   const settled = await Promise.allSettled(
-    eligible.map(posting =>
-      fetch('http://localhost:3000/api/discord/internship-alert', {
+    eligible.map(posting => {
+      const color = posting.scoreLabel === 'Excellent' ? 0x00ff88 : 0x5865f2;
+      const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
+      const body = {
+        embeds: [
+          {
+            title: `${sourceEmoji ? sourceEmoji + ' ' : ''}${posting.company} — ${posting.title}`.trim(),
+            url: posting.link || undefined,
+            color,
+            fields: [
+              { name: 'Score', value: `${posting.scoreLabel} (${posting.score ?? 0})`, inline: true },
+              { name: 'Location', value: posting.location || 'Unknown', inline: true },
+            ],
+            footer: { text: posting.id },
+          },
+        ],
+      };
+      return fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: posting.id,
-          company: posting.company,
-          role: posting.title,
-          score: posting.score ?? 0,
-          label: posting.scoreLabel,
-          location: posting.location,
-          url: posting.link,
-        }),
-      })
-    )
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bot ${token}`,
+        },
+        body: JSON.stringify(body),
+      });
+    })
   );
 
   let sentAny = false;
@@ -54,10 +72,11 @@ export async function sendBatchAlert(
       if (result.value.ok) {
         sentAny = true;
       } else {
-        console.error('[notifier] Discord internship-alert failed with status:', result.value.status);
+        const text = await result.value.text().catch(() => '');
+        console.error(`[notifier] Discord post failed ${result.value.status}: ${text}`);
       }
     } else {
-      console.error('[notifier] Discord internship-alert failed:', result.reason);
+      console.error('[notifier] Discord post failed:', result.reason);
     }
   }
 

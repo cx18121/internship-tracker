@@ -9,7 +9,6 @@ import { firefox } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as readline from 'readline';
-import axios from 'axios';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
@@ -39,53 +38,10 @@ async function main() {
   await context.storageState({ path: AUTH_PATH });
   console.log(`\n✓ Session saved to ${AUTH_PATH}`);
 
-  // Extract the _handshake_session cookie value to store in Mission Control vault
+  // Extract the _handshake_session cookie value to update .env
   const state = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf-8'));
   const sessionCookie = state.cookies?.find((c: any) => c.name === '_handshake_session');
   const cookieValue = sessionCookie?.value || '';
-  const savedAt = new Date().toISOString();
-
-  // Update Mission Control secrets vault
-  const MC_URL = process.env.MISSION_CONTROL_URL || 'http://localhost:3000';
-  try {
-    // Check if HANDSHAKE_TOKEN secret already exists
-    const existing = await axios.get(`${MC_URL}/api/secrets`).then(r => r.data as any[]);
-    const tokenSecret = existing.find((s: any) => s.name === 'HANDSHAKE_TOKEN');
-    const authPathSecret = existing.find((s: any) => s.name === 'HANDSHAKE_AUTH_PATH');
-
-    if (tokenSecret) {
-      await axios.patch(`${MC_URL}/api/secrets/${tokenSecret.id}`, {
-        value: cookieValue,
-        description: `Handshake Cornell SSO session token — refreshed ${savedAt}`,
-      });
-    } else {
-      await axios.post(`${MC_URL}/api/secrets`, {
-        name: 'HANDSHAKE_TOKEN',
-        value: cookieValue,
-        description: `Handshake Cornell SSO session token — refreshed ${savedAt}`,
-        category: 'api_key',
-      });
-    }
-
-    if (authPathSecret) {
-      await axios.patch(`${MC_URL}/api/secrets/${authPathSecret.id}`, {
-        value: AUTH_PATH,
-        description: `Path to Handshake Playwright session state — last saved ${savedAt}`,
-      });
-    } else {
-      await axios.post(`${MC_URL}/api/secrets`, {
-        name: 'HANDSHAKE_AUTH_PATH',
-        value: AUTH_PATH,
-        description: `Path to Handshake Playwright session state — last saved ${savedAt}`,
-        category: 'api_key',
-      });
-    }
-
-    console.log('✓ Mission Control vault updated (HANDSHAKE_TOKEN, HANDSHAKE_AUTH_PATH)');
-  } catch (e: any) {
-    console.warn('⚠ Could not update Mission Control vault:', e.message);
-    console.log('  (session file is still saved and the poller will work regardless)');
-  }
 
   // Update .env with refreshed token
   const envPath = path.join(process.cwd(), '.env');
