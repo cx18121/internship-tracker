@@ -383,7 +383,13 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   const csrfTargets = targets.filter(t => t.ats === 'workday' && t.wdCsrfRequired);
   const regularTargets = targets.filter(t => !(t.ats === 'workday' && t.wdCsrfRequired));
 
-  for (const target of regularTargets) {
+  // Worker pool — N targets processed in parallel. Network-bound work, so
+  // ramping concurrency well above CPU count is fine. Per-host load stays
+  // reasonable in practice because targets are spread across many ATS hosts.
+  const CONCURRENCY = parseInt(process.env.ATS_POLL_CONCURRENCY || '8', 10);
+  const queue = [...regularTargets];
+
+  async function pollOne(target: ATSTarget): Promise<void> {
     try {
       let jobs: Partial<Internship>[] = [];
       if (target.ats === 'greenhouse') jobs = await pollGreenhouse(target, now);
@@ -394,13 +400,25 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
       else if (target.ats === 'smartrecruiters') jobs = await pollSmartRecruiters(target, now);
       if (jobs.length > 0) {
         console.log(`[ats] ${target.name || target.slug}: ${jobs.length} internships`);
+        results.push(...jobs);
       }
-      results.push(...jobs);
     } catch (e: any) {
       const msg = e?.response?.status ? `HTTP ${e.response.status}` : e.message;
       console.warn(`[ats] ${target.name || target.slug} (${target.ats}): ${msg}`);
     }
   }
+
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, queue.length) },
+    async () => {
+      while (queue.length > 0) {
+        const target = queue.shift();
+        if (!target) return;
+        await pollOne(target);
+      }
+    },
+  );
+  await Promise.all(workers);
 
   // Playwright batch for CSRF-protected Workday instances
   if (csrfTargets.length > 0) {

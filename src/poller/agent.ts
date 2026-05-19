@@ -40,112 +40,117 @@ async function pollFastSources(stats: CycleStats, allRaw: Partial<Internship>[])
 }
 
 async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[]): Promise<void> {
-  // Slow tier — Playwright scrapes, full ATS sweeps, JobSpy. Minutes each.
-  // Poll Handshake
-  try {
-    const handshakeResults = await pollHandshake();
-    allRaw.push(...handshakeResults);
-    if (handshakeResults.length > 0) {
-      stats.sourcesPolled.push('Handshake');
-      recordSourceSuccess();
+  // Slow tier runs three lanes in parallel:
+  //   1. HTTP lane (pure JSON/HTTP, no headless browsers) — parallel within
+  //   2. Playwright lane (one browser at a time to cap memory) — serial within
+  //   3. JobSpy lane (spawns a Python subprocess) — one-shot
+  // Lanes themselves run concurrently. Playwright is the memory hog so we
+  // never run >1 of those at once; everything else can stack.
+
+  const httpLane = async (): Promise<void> => {
+    // Each task here runs in parallel — they hit different hosts, no contention.
+    await Promise.allSettled([
+      (async () => {
+        try {
+          const { listings, archivedByTarget } = await scanPortals();
+          allRaw.push(...listings);
+          const srcs = [...new Set(listings.map(r => r.source).filter(Boolean))] as string[];
+          stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));
+          for (const [target, count] of Object.entries(archivedByTarget)) {
+            console.log(`[agent] ATS portal ${target}: ${count} listing(s) disappeared and were archived`);
+          }
+        } catch (err: any) {
+          console.error('[agent] ATS poller failed:', err.message);
+        }
+      })(),
+      (async () => {
+        try {
+          const r = await pollGreenhouseDiscovery();
+          allRaw.push(...r);
+          if (r.length > 0) stats.sourcesPolled.push('Greenhouse');
+        } catch (err: any) {
+          console.error('[agent] Greenhouse discovery poller failed:', err.message);
+        }
+      })(),
+      (async () => {
+        try {
+          const r = await pollLeverDiscovery();
+          allRaw.push(...r);
+          if (r.length > 0) stats.sourcesPolled.push('Lever');
+        } catch (err: any) {
+          console.error('[agent] Lever discovery poller failed:', err.message);
+        }
+      })(),
+      (async () => {
+        try {
+          const r = await pollAshbyDiscovery();
+          allRaw.push(...r);
+          if (r.length > 0) stats.sourcesPolled.push('Ashby');
+        } catch (err: any) {
+          console.error('[agent] Ashby discovery poller failed:', err.message);
+        }
+      })(),
+      (async () => {
+        try {
+          const r = await pollWebsearchDiscovery();
+          if (r.length > 0) {
+            stats.sourcesPolled.push('WebSearchDiscovery');
+            console.log(`[agent] WebSearch discovery added ${r.length} new companies to registry`);
+          }
+        } catch (err: any) {
+          console.error('[agent] WebSearch discovery poller failed:', err.message);
+        }
+      })(),
+    ]);
+  };
+
+  const playwrightLane = async (): Promise<void> => {
+    // Strictly serial — each poller opens its own Chromium/Firefox instance and
+    // running two browsers at once will OOM the Railway container (~500MB-1GB each).
+    try {
+      const r = await pollHandshake();
+      allRaw.push(...r);
+      if (r.length > 0) { stats.sourcesPolled.push('Handshake'); recordSourceSuccess(); }
+    } catch (err: any) {
+      console.error('[agent] Handshake poller failed:', err.message);
+      recordSourceFailure();
+      consecutiveFailures++;
     }
-  } catch (err: any) {
-    console.error('[agent] Handshake poller failed:', err.message);
-    recordSourceFailure();
-    consecutiveFailures++;
-  }
-
-  // Poll ATS APIs (Greenhouse, Lever, Ashby) — fast, direct JSON
-  try {
-    const { listings: atsResults, archivedByTarget } = await scanPortals();
-    allRaw.push(...atsResults);
-    const atsSources = [...new Set(atsResults.map(r => r.source).filter(Boolean))] as string[];
-    stats.sourcesPolled.push(...atsSources.filter(s => !stats.sourcesPolled.includes(s)));
-    for (const [target, count] of Object.entries(archivedByTarget)) {
-      console.log(`[agent] ATS portal ${target}: ${count} listing(s) disappeared and were archived`);
+    try {
+      const r = await scanCareersPages();
+      allRaw.push(...r);
+      if (r.length > 0) stats.sourcesPolled.push('CareersScan');
+    } catch (err: any) {
+      console.error('[agent] Careers scan poller failed:', err.message);
     }
-  } catch (err: any) {
-    console.error('[agent] ATS poller failed:', err.message);
-  }
-
-  // Poll Greenhouse public boards (seed-based discovery)
-  try {
-    const ghResults = await pollGreenhouseDiscovery();
-    allRaw.push(...ghResults);
-    if (ghResults.length > 0) stats.sourcesPolled.push('Greenhouse');
-  } catch (err: any) {
-    console.error('[agent] Greenhouse discovery poller failed:', err.message);
-  }
-
-  // Poll Lever public boards (seed-based discovery)
-  try {
-    const leverResults = await pollLeverDiscovery();
-    allRaw.push(...leverResults);
-    if (leverResults.length > 0) stats.sourcesPolled.push('Lever');
-  } catch (err: any) {
-    console.error('[agent] Lever discovery poller failed:', err.message);
-  }
-
-  // Poll Ashby public boards (JSON API first, HTML scrape fallback)
-  try {
-    const ashbyResults = await pollAshbyDiscovery();
-    allRaw.push(...ashbyResults);
-    if (ashbyResults.length > 0) stats.sourcesPolled.push('Ashby');
-  } catch (err: any) {
-    console.error('[agent] Ashby discovery poller failed:', err.message);
-  }
-
-  // Grow company registry via WebSearch discovery (additive — does not collect listings)
-  try {
-    const websearchResults = await pollWebsearchDiscovery();
-    if (websearchResults.length > 0) {
-      stats.sourcesPolled.push('WebSearchDiscovery');
-      console.log(`[agent] WebSearch discovery added ${websearchResults.length} new companies to registry`);
+    try {
+      const r = await pollYCWaaS();
+      allRaw.push(...r);
+      if (r.length > 0) stats.sourcesPolled.push('YC WaaS');
+    } catch (err: any) {
+      console.error('[agent] YC WaaS poller failed:', err.message);
     }
-  } catch (err: any) {
-    console.error('[agent] WebSearch discovery poller failed:', err.message);
-  }
-
-  // Poll direct careers pages via Playwright (for companies not on Greenhouse/Lever/Ashby)
-  try {
-    const careersResults = await scanCareersPages();
-    allRaw.push(...careersResults);
-    if (careersResults.length > 0) stats.sourcesPolled.push('CareersScan');
-  } catch (err: any) {
-    console.error('[agent] Careers scan poller failed:', err.message);
-  }
-
-  // Poll YC Work at a Startup — intern postings from Y Combinator startups
-  try {
-    const ycResults = await pollYCWaaS();
-    allRaw.push(...ycResults);
-    if (ycResults.length > 0) {
-      stats.sourcesPolled.push('YC WaaS');
+    try {
+      const r = await pollInhouse();
+      allRaw.push(...r);
+      if (r.length > 0) stats.sourcesPolled.push('Inhouse');
+    } catch (err: any) {
+      console.error('[agent] Inhouse poller failed:', err.message);
     }
-  } catch (err: any) {
-    console.error('[agent] YC WaaS poller failed:', err.message);
-  }
+  };
 
-  // Poll in-house career pages (Netflix, Jane Street, Two Sigma, DE Shaw)
-  try {
-    const inhouseResults = await pollInhouse();
-    allRaw.push(...inhouseResults);
-    if (inhouseResults.length > 0) {
-      stats.sourcesPolled.push('Inhouse');
+  const jobspyLane = async (): Promise<void> => {
+    try {
+      const r = await pollJobSpy();
+      allRaw.push(...r);
+      const srcs = [...new Set(r.map(j => j.source).filter(Boolean))] as string[];
+      stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));
+    } catch (err: any) {
+      console.error('[agent] JobSpy poller failed:', err.message);
     }
-  } catch (err: any) {
-    console.error('[agent] Inhouse poller failed:', err.message);
-  }
+  };
 
-  // Poll JobSpy (LinkedIn, Indeed, Glassdoor, Google Jobs) — runs last, slowest
-  try {
-    const jobspyResults = await pollJobSpy();
-    allRaw.push(...jobspyResults);
-    const jsSources = [...new Set(jobspyResults.map(r => r.source).filter(Boolean))] as string[];
-    stats.sourcesPolled.push(...jsSources.filter(s => !stats.sourcesPolled.includes(s)));
-  } catch (err: any) {
-    console.error('[agent] JobSpy poller failed:', err.message);
-  }
+  await Promise.allSettled([httpLane(), playwrightLane(), jobspyLane()]);
 }
 
 export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleStats> {
