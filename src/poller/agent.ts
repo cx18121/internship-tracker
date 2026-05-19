@@ -21,22 +21,11 @@ import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSour
 
 let consecutiveFailures = 0;
 
-export async function runCycle(): Promise<CycleStats> {
-  const stats: CycleStats = {
-    timestamp: new Date().toISOString(),
-    sourcesPolled: [],
-    rawFetched: 0,
-    excludedNonUS: 0,
-    excludedPhDRequired: 0,
-    excludedClosed: 0,
-    excludedNonSWE: 0,
-    newScored: 0,
-    sent: 0,
-  };
+export type CycleTier = 'fast' | 'slow' | 'all';
 
-  const allRaw: Partial<Internship>[] = [];
-
-  // Poll GitHub (SimplifyJobs)
+async function pollFastSources(stats: CycleStats, allRaw: Partial<Internship>[]): Promise<void> {
+  // Fast tier — sources that finish in seconds and refresh often.
+  // SimplifyJobs RSS is the only one in this tier today (~10s total).
   try {
     const githubResults = await pollGitHub();
     allRaw.push(...githubResults);
@@ -48,7 +37,10 @@ export async function runCycle(): Promise<CycleStats> {
     recordSourceFailure();
     consecutiveFailures++;
   }
+}
 
+async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[]): Promise<void> {
+  // Slow tier — Playwright scrapes, full ATS sweeps, JobSpy. Minutes each.
   // Poll Handshake
   try {
     const handshakeResults = await pollHandshake();
@@ -154,6 +146,27 @@ export async function runCycle(): Promise<CycleStats> {
   } catch (err: any) {
     console.error('[agent] JobSpy poller failed:', err.message);
   }
+}
+
+export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleStats> {
+  const tier = opts.tier ?? 'all';
+  const stats: CycleStats = {
+    timestamp: new Date().toISOString(),
+    sourcesPolled: [],
+    rawFetched: 0,
+    excludedNonUS: 0,
+    excludedPhDRequired: 0,
+    excludedClosed: 0,
+    excludedNonSWE: 0,
+    newScored: 0,
+    sent: 0,
+  };
+
+  const allRaw: Partial<Internship>[] = [];
+
+  console.log(`[agent] Starting ${tier} cycle`);
+  if (tier === 'fast' || tier === 'all') await pollFastSources(stats, allRaw);
+  if (tier === 'slow' || tier === 'all') await pollSlowSources(stats, allRaw);
 
   stats.rawFetched = allRaw.length;
   console.log(`[agent] Fetched ${stats.rawFetched} raw postings from ${stats.sourcesPolled.join(', ')}`);
