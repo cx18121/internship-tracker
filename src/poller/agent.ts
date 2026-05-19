@@ -15,6 +15,7 @@ import { scanCareersPages } from './pollers/careers-scan';
 import { filterInternships } from './filter';
 import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
+import { parseSalary } from '../lib/salary';
 import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess } from './notifier';
 
 let consecutiveFailures = 0;
@@ -184,11 +185,15 @@ export async function runCycle(): Promise<CycleStats> {
   const scored: Internship[] = passed.map(p => {
     const { score, scoreLabel, matchedKeywords } = scoreInternship(p);
     const id = md5(`${p.company || ''}${p.title || ''}${stripUtm(p.link || '')}`);
+    // Parse salary from title + description (the two fields most likely to mention pay).
+    const salaryInput = `${p.title || ''} ${p.description || ''}`;
+    const salary = parseSalary(salaryInput);
     return {
       id,
       title: p.title || '',
       company: p.company || '',
       location: p.location || '',
+      description: p.description,
       link: p.link || '',
       source: p.source || 'Unknown',
       postedAt: p.postedAt || new Date().toISOString(),
@@ -198,6 +203,12 @@ export async function runCycle(): Promise<CycleStats> {
       matchedKeywords,
       isNew: true,
       applied: false,
+      ...(salary.text ? {
+        salaryText: salary.text,
+        salaryMin: salary.min ?? undefined,
+        salaryMax: salary.max ?? undefined,
+        salaryUnit: salary.unit ?? undefined,
+      } : {}),
     };
   });
 

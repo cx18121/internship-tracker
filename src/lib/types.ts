@@ -33,6 +33,11 @@ export interface Internship {
   applicationStatus?: string; // not_applied, applied, interviewing, rejected, offered
   /** Set when this entry covers multiple locations (e.g. SimplifyJobs "N locationsCity1, STCity2, ST...") */
   multiLocation?: string[];
+  /** Parsed salary info. Populated by src/lib/salary.ts when ingesting. */
+  salaryText?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  salaryUnit?: 'hourly' | 'monthly' | 'yearly';
 }
 
 export interface CycleStats {

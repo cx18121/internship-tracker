@@ -47,6 +47,10 @@ interface Internship {
   matchedKeywords?: string[];
   isNew: boolean;
   applied: boolean;
+  salaryText?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  salaryUnit?: 'hourly' | 'monthly' | 'yearly';
 }
 
 interface Stats {
@@ -872,6 +876,11 @@ function InternshipCard({
         >
           {item.source}
         </span>
+        {item.salaryText && (
+          <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+            {item.salaryText}
+          </span>
+        )}
         {item.postedAt && (
           <span className="flex items-center gap-1.5 text-white/30">
             {formatDate(item.postedAt)}

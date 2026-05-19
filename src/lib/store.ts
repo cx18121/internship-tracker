@@ -115,6 +115,25 @@ CREATE TABLE IF NOT EXISTS seen_ids (
 );
 `;
 
+// Columns added after the initial schema. Run idempotently on every boot —
+// ALTER TABLE ADD COLUMN throws if the column exists, which we swallow.
+const LATER_COLUMNS: Array<{ col: string; def: string }> = [
+  { col: 'salary_text', def: 'TEXT' },
+  { col: 'salary_min',  def: 'REAL' },
+  { col: 'salary_max',  def: 'REAL' },
+  { col: 'salary_unit', def: 'TEXT' },
+];
+
+function applyColumnMigrations(db: Database.Database): void {
+  const cols = db.prepare(`PRAGMA table_info(internships)`).all() as { name: string }[];
+  const existing = new Set(cols.map(c => c.name));
+  for (const { col, def } of LATER_COLUMNS) {
+    if (!existing.has(col)) {
+      db.exec(`ALTER TABLE internships ADD COLUMN ${col} ${def}`);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Database singleton + auto-migration from JSON if first run
 // ---------------------------------------------------------------------------
@@ -138,6 +157,7 @@ function getDb(): Database.Database {
   _db.pragma('synchronous = NORMAL');     // fast + still durable
   _db.pragma('foreign_keys = ON');
   _db.exec(SCHEMA);
+  applyColumnMigrations(_db);
   return _db;
 }
 
@@ -152,6 +172,7 @@ function autoMigrateFromJson(): void {
     const db = new Database(DB_PATH);
     db.pragma('journal_mode = WAL');
     db.exec(SCHEMA);
+    applyColumnMigrations(db);
 
     const insert = db.prepare(`
       INSERT OR IGNORE INTO internships
@@ -159,12 +180,14 @@ function autoMigrateFromJson(): void {
          ats_job_id, ats_target, posted_at, seen_at, score, score_label,
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
-         first_failed_at, last_checked_at, multi_location)
+         first_failed_at, last_checked_at, multi_location,
+         salary_text, salary_min, salary_max, salary_unit)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
-        @lastCheckedAt, @multiLocation)
+        @lastCheckedAt, @multiLocation,
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit)
     `);
     const insertMany = db.transaction((records: Internship[]) => {
       for (const r of records) insert.run(toRow(r));
@@ -214,6 +237,10 @@ interface Row {
   first_failed_at: string | null;
   last_checked_at: string | null;
   multi_location: string | null;
+  salary_text: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  salary_unit: string | null;
 }
 
 function fromRow(r: Row): Internship {
@@ -243,6 +270,10 @@ function fromRow(r: Row): Internship {
     firstFailedAt: r.first_failed_at ?? undefined,
     lastCheckedAt: r.last_checked_at ?? undefined,
     multiLocation: r.multi_location ? JSON.parse(r.multi_location) : undefined,
+    salaryText: r.salary_text ?? undefined,
+    salaryMin: r.salary_min ?? undefined,
+    salaryMax: r.salary_max ?? undefined,
+    salaryUnit: (r.salary_unit as Internship['salaryUnit']) ?? undefined,
   };
 }
 
@@ -273,6 +304,10 @@ function toRow(i: Internship): Record<string, unknown> {
     firstFailedAt: i.firstFailedAt ?? null,
     lastCheckedAt: i.lastCheckedAt ?? null,
     multiLocation: i.multiLocation ? JSON.stringify(i.multiLocation) : null,
+    salaryText: i.salaryText ?? null,
+    salaryMin: i.salaryMin ?? null,
+    salaryMax: i.salaryMax ?? null,
+    salaryUnit: i.salaryUnit ?? null,
   };
 }
 
@@ -310,12 +345,14 @@ export function saveInternships(internships: Internship[]): void {
        ats_job_id, ats_target, posted_at, seen_at, score, score_label,
        matched_keywords, is_new, applied, archived, applied_at,
        application_url, application_status, failed_check_count,
-       first_failed_at, last_checked_at, multi_location)
+       first_failed_at, last_checked_at, multi_location,
+       salary_text, salary_min, salary_max, salary_unit)
     VALUES (@id, @title, @company, @location, @description, @link, @source,
       @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
       @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
       @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
-      @lastCheckedAt, @multiLocation)
+      @lastCheckedAt, @multiLocation,
+      @salaryText, @salaryMin, @salaryMax, @salaryUnit)
     ON CONFLICT(id) DO UPDATE SET
       title              = excluded.title,
       company            = excluded.company,
@@ -340,7 +377,11 @@ export function saveInternships(internships: Internship[]): void {
       failed_check_count = excluded.failed_check_count,
       first_failed_at    = excluded.first_failed_at,
       last_checked_at    = excluded.last_checked_at,
-      multi_location     = excluded.multi_location
+      multi_location     = excluded.multi_location,
+      salary_text        = excluded.salary_text,
+      salary_min         = excluded.salary_min,
+      salary_max         = excluded.salary_max,
+      salary_unit        = excluded.salary_unit
   `);
   const upsertMany = db.transaction((records: Internship[]) => {
     for (const r of records) upsert.run(toRow(r));
@@ -370,12 +411,14 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
          ats_job_id, ats_target, posted_at, seen_at, score, score_label,
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
-         first_failed_at, last_checked_at, multi_location)
+         first_failed_at, last_checked_at, multi_location,
+         salary_text, salary_min, salary_max, salary_unit)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
-        @lastCheckedAt, @multiLocation)
+        @lastCheckedAt, @multiLocation,
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit)
     `);
 
     const newInternships: Internship[] = [];
