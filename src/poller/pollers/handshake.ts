@@ -225,6 +225,13 @@ export async function pollHandshake(): Promise<Partial<Internship>[]> {
       viewport: { width: 1280, height: 800 },
     });
 
+    // tsx transpiles named arrow functions with a __name() helper that doesn't
+    // exist in the browser context — polyfill it before any page.evaluate runs.
+    await context.addInitScript(() => {
+      // @ts-expect-error injecting helper into browser global
+      globalThis.__name = (fn: unknown) => fn;
+    });
+
     const results = await scrapeJobsPage(context);
 
     // Enrich top 100 jobs with direct ATS links from detail pages

@@ -38,9 +38,14 @@ async function main() {
   await context.storageState({ path: AUTH_PATH });
   console.log(`\n✓ Session saved to ${AUTH_PATH}`);
 
-  // Extract the _handshake_session cookie value to update .env
+  // Extract the Handshake session cookie value to update .env.
+  // Handshake renamed _handshake_session → _trajectory_session at some point;
+  // prefer the cornell.* domain copy (it's the SSO-authenticated one).
   const state = JSON.parse(fs.readFileSync(AUTH_PATH, 'utf-8'));
-  const sessionCookie = state.cookies?.find((c: any) => c.name === '_handshake_session');
+  const sessionCookie =
+    state.cookies?.find((c: any) => c.name === '_trajectory_session' && c.domain?.startsWith('cornell.')) ??
+    state.cookies?.find((c: any) => c.name === '_trajectory_session') ??
+    state.cookies?.find((c: any) => c.name === '_handshake_session');
   const cookieValue = sessionCookie?.value || '';
 
   // Update .env with refreshed token
