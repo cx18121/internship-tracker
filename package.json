@@ -9,7 +9,6 @@
     "dev": "npx tsx --watch src/poller/index.ts",
     "poller": "npx tsx src/poller/index.ts",
     "poller:dev": "npx tsx --watch src/poller/index.ts",
-    "server": "npx tsx src/server.ts",
     "test": "npx tsx src/poller/test.ts",
     "handshake:login": "npx tsx src/poller/handshake-login.ts",
     "web:dev": "next dev",
@@ -27,7 +26,6 @@
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
     "exceljs": "^4.4.0",
-    "express": "^4.21.2",
     "lucide-react": "^1.7.0",
     "md5": "^2.3.0",
     "next": "16.2.1",
@@ -45,7 +43,6 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.2.2",
     "@types/better-sqlite3": "^7.6.13",
-    "@types/express": "^5.0.0",
     "@types/md5": "^2.3.5",
     "@types/node": "^22.10.7",
     "@types/react": "^19",

@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { ApplicantProfile, AutoApplySettings } from './types.js';
+import { ApplicantProfile, AutoApplySettings } from './types';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const PROFILE_PATH = path.join(DATA_DIR, 'applicant-profile.json');

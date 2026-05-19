@@ -8,7 +8,7 @@
  * LinkedIn uses a mix of HTML input names and data-test attributes for form fields.
  */
 
-import { ApplicantProfile, FillField } from './types.js';
+import { ApplicantProfile, FillField } from './types';
 
 // ── URL / form detection ────────────────────────────────────────────────────
 

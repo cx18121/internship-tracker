@@ -1,4 +1,4 @@
-import { Internship } from '../lib/types.js';
+import { Internship } from '../lib/types';
 
 // Known US cities that share names with international locations — exclude from international flagging
 const US_CITY_AMBIGUITY_MAP: Record<string, boolean> = {

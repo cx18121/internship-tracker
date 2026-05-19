@@ -14,9 +14,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../../lib/types.js';
-import { pollATS, ATSTarget } from './ats.js';
-import { loadInternships, saveInternships } from '../../lib/store.js';
+import { Internship } from '../../lib/types';
+import { pollATS, ATSTarget } from './ats';
+import { loadInternships, saveInternships } from '../../lib/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -284,5 +284,5 @@ export async function scanPortals(): Promise<PortalScanOutput> {
 // ---------------------------------------------------------------------------
 // Re-export everything from ats.ts so callers only need to import from here
 // ---------------------------------------------------------------------------
-export { pollATS, ATSTarget } from './ats.js';
-export { isInternTitle } from './ats.js';
+export { pollATS, ATSTarget } from './ats';
+export { isInternTitle } from './ats';

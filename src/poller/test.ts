@@ -1,10 +1,10 @@
 import assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
-import { applyHardFilters } from './filter.js';
-import { scoreInternship } from '../lib/scorer.js';
-import { deduplicateAndStore, archiveStalePostings, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store.js';
-import type { Internship } from '../lib/types.js';
+import { applyHardFilters } from './filter';
+import { scoreInternship } from '../lib/scorer';
+import { deduplicateAndStore, archiveStalePostings, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store';
+import type { Internship } from '../lib/types';
 
 let passed = 0;
 let total = 0;
@@ -283,7 +283,7 @@ test('scoring-config.json has all required fields', () => {
 
 console.log('\n── ATS targets config integrity ──────────────────────────');
 
-import { discoverATSTarget } from '../lib/utils/ats-discovery.js';
+import { discoverATSTarget } from '../lib/utils/ats-discovery';
 
 test('ats-targets.json: NVIDIA has board and wdInstance configured', () => {
   const configPath = path.join(process.cwd(), 'data', 'ats-targets.json');

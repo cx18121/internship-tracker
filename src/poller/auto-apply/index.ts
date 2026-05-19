@@ -1,11 +1,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../../lib/types.js';
-import { AutoApplySettings, FillReport } from './types.js';
-import { loadProfile, loadSettings } from './profile.js';
-import { analyzeGreenhouseForm } from './greenhouse.js';
-import { analyzeLeverForm } from './lever.js';
-import { analyzeAshbyForm } from './ashby.js';
+import { Internship } from '../../lib/types';
+import { AutoApplySettings, FillReport } from './types';
+import { loadProfile, loadSettings } from './profile';
+import { analyzeGreenhouseForm } from './greenhouse';
+import { analyzeLeverForm } from './lever';
+import { analyzeAshbyForm } from './ashby';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const REPORTS_PATH = path.join(DATA_DIR, 'auto-fill-reports.json');

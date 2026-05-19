@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { Internship } from "./types.js";
+import type { Internship } from "./types";
 
 // ---------------------------------------------------------------------------
 // Role Match (0-50 pts) — SWE / Backend / ML / QA all equal

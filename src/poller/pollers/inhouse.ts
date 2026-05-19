@@ -1,8 +1,8 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../../lib/types.js';
-import { isInternTitle } from './ats.js';
+import { Internship } from '../../lib/types';
+import { isInternTitle } from './ats';
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'inhouse-targets.json');
 const REQUEST_TIMEOUT = 15_000;

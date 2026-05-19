@@ -1,4 +1,4 @@
-import { ApplicantProfile, FillField } from './types.js';
+import { ApplicantProfile, FillField } from './types';
 
 function parseLeverUrl(link: string): { company: string; jobId: string } | null {
   // https://jobs.lever.co/{company}/{job-uuid}

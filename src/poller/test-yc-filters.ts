@@ -1,5 +1,5 @@
-import { pollYCWaaS } from './pollers/yc-waas.js';
-import { filterInternships } from './filter.js';
+import { pollYCWaaS } from './pollers/yc-waas';
+import { filterInternships } from './filter';
 
 async function main() {
   const jobs = await pollYCWaaS();

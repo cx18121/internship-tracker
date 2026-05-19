@@ -1,4 +1,4 @@
-import { pollHandshake } from './pollers/handshake.js';
+import { pollHandshake } from './pollers/handshake';
 
 async function main() {
   const results = await pollHandshake();

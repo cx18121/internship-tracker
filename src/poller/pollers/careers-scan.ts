@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 // @ts-ignore
 import * as yaml from 'js-yaml';
-import { Internship } from '../../lib/types.js';
+import { Internship } from '../../lib/types';
 
 // ── Paths ──────────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Internship } from '../../lib/types.js';
+import { Internship } from '../../lib/types';
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'jobspy-config.json');
 const SCRIPT_PATH = path.join(process.cwd(), 'scripts', 'jobspy_runner.py');

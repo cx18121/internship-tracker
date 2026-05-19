@@ -16,7 +16,7 @@
 import { firefox } from 'playwright';
 import axios from 'axios';
 import * as path from 'path';
-import { discoverATSTarget, saveDiscoveredTargets } from '../lib/utils/ats-discovery.js';
+import { discoverATSTarget, saveDiscoveredTargets } from '../lib/utils/ats-discovery';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'internships.db');
 const TIMEOUT = 20_000;

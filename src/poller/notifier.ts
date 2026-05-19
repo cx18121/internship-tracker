@@ -1,4 +1,4 @@
-import { Internship } from '../lib/types.js';
+import { Internship } from '../lib/types';
 
 const SOURCE_EMOJIS: Record<string, string> = {
   SimplifyJobs: '⭐',

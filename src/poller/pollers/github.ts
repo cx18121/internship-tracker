@@ -1,6 +1,6 @@
 import axios from 'axios';
-import { Internship } from '../../lib/types.js';
-import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery.js';
+import { Internship } from '../../lib/types';
+import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';

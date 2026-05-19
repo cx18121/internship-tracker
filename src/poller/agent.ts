@@ -1,21 +1,21 @@
 import md5 from 'md5';
-import { Internship, CycleStats } from '../lib/types.js';
-import { stripUtm } from '../lib/utils/normalize.js';
-import { pollGitHub } from './pollers/github.js';
-import { pollHandshake } from './pollers/handshake.js';
-import { pollJobSpy } from './pollers/jobspy.js';
-import { scanPortals } from './pollers/portal-scanner.js';
-import { pollYCWaaS } from './pollers/yc-waas.js';
-import { pollInhouse } from './pollers/inhouse.js';
-import { pollGreenhouseDiscovery } from './pollers/greenhouse.js';
-import { pollLeverDiscovery } from './pollers/lever.js';
-import { pollAshbyDiscovery } from './pollers/ashby.js';
-import { pollWebsearchDiscovery } from './pollers/websearch-discovery.js';
-import { scanCareersPages } from './pollers/careers-scan.js';
-import { filterInternships } from './filter.js';
-import { scoreInternship } from '../lib/scorer.js';
-import { deduplicateAndStore, savePollStats } from '../lib/store.js';
-import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess } from './notifier.js';
+import { Internship, CycleStats } from '../lib/types';
+import { stripUtm } from '../lib/utils/normalize';
+import { pollGitHub } from './pollers/github';
+import { pollHandshake } from './pollers/handshake';
+import { pollJobSpy } from './pollers/jobspy';
+import { scanPortals } from './pollers/portal-scanner';
+import { pollYCWaaS } from './pollers/yc-waas';
+import { pollInhouse } from './pollers/inhouse';
+import { pollGreenhouseDiscovery } from './pollers/greenhouse';
+import { pollLeverDiscovery } from './pollers/lever';
+import { pollAshbyDiscovery } from './pollers/ashby';
+import { pollWebsearchDiscovery } from './pollers/websearch-discovery';
+import { scanCareersPages } from './pollers/careers-scan';
+import { filterInternships } from './filter';
+import { scoreInternship } from '../lib/scorer';
+import { deduplicateAndStore, savePollStats } from '../lib/store';
+import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess } from './notifier';
 
 let consecutiveFailures = 0;
 

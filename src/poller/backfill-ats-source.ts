@@ -3,7 +3,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { discoverATSTarget, saveDiscoveredTargets } from '../lib/utils/ats-discovery.js';
+import { discoverATSTarget, saveDiscoveredTargets } from '../lib/utils/ats-discovery';
 
 const INTERNSHIPS_PATH = path.join(process.cwd(), 'data', 'internships.json');
 

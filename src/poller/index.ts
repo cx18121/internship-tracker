@@ -1,7 +1,6 @@
 import 'dotenv/config';
-import '../server.js';
-import { runCycle } from './agent.js';
-import { archiveStalePostings, revalidateLinks } from '../lib/store.js';
+import { runCycle } from './agent';
+import { archiveStalePostings, revalidateLinks } from '../lib/store';
 
 const POLL_INTERVAL_MS = parseInt(process.env.POLL_INTERVAL_MS || '900000', 10);
 const REVALIDATE_INTERVAL_MS = parseInt(process.env.REVALIDATE_INTERVAL_MS || String(24 * 60 * 60 * 1000), 10); // default: 24h

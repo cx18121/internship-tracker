@@ -1,4 +1,4 @@
-import { pollATS } from './pollers/ats.js';
+import { pollATS } from './pollers/ats';
 pollATS().then(r => {
   console.log('ATS total:', r.length);
   const bySrc = r.reduce((a: any, j) => { a[j.source!] = (a[j.source!]||0)+1; return a; }, {});

@@ -12,16 +12,16 @@
 
 import { firefox, Browser, Page } from 'playwright';
 import * as path from 'path';
-import { ApplicantProfile, FillField, FillReport } from './types.js';
-import { loadProfile } from './profile.js';
+import { ApplicantProfile, FillField, FillReport } from './types';
+import { loadProfile } from './profile';
 import {
   analyzeLinkedInForm,
   fillLinkedInForm,
   isLinkedInEasyApplyUrl,
-} from './linkedin.js';
-import { analyzeGreenhouseForm } from './greenhouse.js';
-import { analyzeLeverForm } from './lever.js';
-import { analyzeAshbyForm } from './ashby.js';
+} from './linkedin';
+import { analyzeGreenhouseForm } from './greenhouse';
+import { analyzeLeverForm } from './lever';
+import { analyzeAshbyForm } from './ashby';
 
 // ── Browser management ────────────────────────────────────────────────────
 

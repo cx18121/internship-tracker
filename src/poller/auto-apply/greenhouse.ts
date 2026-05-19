@@ -1,4 +1,4 @@
-import { ApplicantProfile, FillField } from './types.js';
+import { ApplicantProfile, FillField } from './types';
 
 interface GhQuestion {
   label: string;

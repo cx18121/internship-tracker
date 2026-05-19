@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from './types.js';
-import { stripUtm } from './utils/normalize.js';
+import { Internship } from './types';
+import { stripUtm } from './utils/normalize';
 
 // ---------------------------------------------------------------------------
 // Link revalidation constants
