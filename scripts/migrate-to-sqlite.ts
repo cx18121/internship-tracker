@@ -73,25 +73,31 @@ interface Internship {
 // ---------------------------------------------------------------------------
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS internships (
-  id                 TEXT    PRIMARY KEY,
-  title              TEXT    NOT NULL,
-  company            TEXT    NOT NULL,
-  location           TEXT    NOT NULL,
-  description        TEXT,
-  link               TEXT    NOT NULL,
-  source             TEXT    NOT NULL,
-  ats_source         TEXT,
-  posted_at          TEXT    NOT NULL,
-  seen_at            TEXT    NOT NULL,
-  score              INTEGER,
-  score_label        TEXT,
-  matched_keywords   TEXT    NOT NULL DEFAULT '[]',
-  is_new             INTEGER NOT NULL DEFAULT 1,
-  applied            INTEGER NOT NULL DEFAULT 0,
-  archived           INTEGER NOT NULL DEFAULT 0,
-  applied_at         TEXT,
-  application_url    TEXT,
-  application_status TEXT
+  id                   TEXT    PRIMARY KEY,
+  title                TEXT    NOT NULL,
+  company              TEXT    NOT NULL,
+  location             TEXT    NOT NULL,
+  description          TEXT,
+  link                 TEXT    NOT NULL,
+  source               TEXT    NOT NULL,
+  ats_source           TEXT,
+  ats_job_id           TEXT,
+  ats_target           TEXT,
+  posted_at            TEXT    NOT NULL,
+  seen_at              TEXT    NOT NULL,
+  score                INTEGER,
+  score_label          TEXT,
+  matched_keywords     TEXT    NOT NULL DEFAULT '[]',
+  is_new               INTEGER NOT NULL DEFAULT 1,
+  applied              INTEGER NOT NULL DEFAULT 0,
+  archived             INTEGER NOT NULL DEFAULT 0,
+  applied_at           TEXT,
+  application_url      TEXT,
+  application_status   TEXT,
+  failed_check_count   INTEGER NOT NULL DEFAULT 0,
+  first_failed_at      TEXT,
+  last_checked_at      TEXT,
+  multi_location       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_internships_score       ON internships(score DESC);
@@ -213,15 +219,19 @@ function main() {
   const insertInternship = db.prepare(`
     INSERT OR IGNORE INTO internships
       (id, title, company, location, description, link, source, ats_source,
+       ats_job_id, ats_target,
        posted_at, seen_at, score, score_label, matched_keywords,
-       is_new, applied, archived, applied_at, application_url, application_status)
+       is_new, applied, archived, applied_at, application_url, application_status,
+       failed_check_count, first_failed_at, last_checked_at, multi_location)
     VALUES
       (@id, @title, @company, @location, @description, @link, @source, @atsSource,
+       @atsJobId, @atsTarget,
        @postedAt, @seenAt, @score, @scoreLabel, @matchedKeywords,
-       @isNew, @applied, @archived, @appliedAt, @applicationUrl, @applicationStatus)
+       @isNew, @applied, @archived, @appliedAt, @applicationUrl, @applicationStatus,
+       @failedCheckCount, @firstFailedAt, @lastCheckedAt, @multiLocation)
   `);
 
-  const insertMany = db.transaction((records: Internship[]) => {
+  const insertMany = db.transaction((records: any[]) => {
     for (const r of records) {
       insertInternship.run({
         id:                r.id,
@@ -232,6 +242,8 @@ function main() {
         link:              r.link,
         source:            r.source,
         atsSource:         r.atsSource ?? null,
+        atsJobId:          r.atsJobId ?? null,
+        atsTarget:         r.atsTarget ?? null,
         postedAt:          r.postedAt,
         seenAt:            r.seenAt,
         score:             r.score ?? null,
@@ -241,6 +253,10 @@ function main() {
         applied:           r.applied ? 1 : 0,
         archived:          r.archived ? 1 : 0,
         appliedAt:         r.appliedAt ?? null,
+        failedCheckCount:  r.failedCheckCount ?? 0,
+        firstFailedAt:     r.firstFailedAt ?? null,
+        lastCheckedAt:     r.lastCheckedAt ?? null,
+        multiLocation:     r.multiLocation ? JSON.stringify(r.multiLocation) : null,
         applicationUrl:    r.applicationUrl ?? null,
         applicationStatus: r.applicationStatus ?? null,
       });

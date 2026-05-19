@@ -1,17 +1,9 @@
-import * as fs from "fs";
-import * as path from "path";
-import type { Internship } from "@/lib/types";
+import { getInternships } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const internshipsPath = path.join(process.cwd(), "data", "internships.json");
-  let internships: Internship[] = [];
-  try {
-    internships = JSON.parse(fs.readFileSync(internshipsPath, "utf-8"));
-  } catch {
-    /* empty */
-  }
+  const internships = getInternships({ includeArchived: true });
 
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;

@@ -1,20 +1,22 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import Database from 'better-sqlite3';
 import { Internship } from './types';
 import { stripUtm } from './utils/normalize';
 
 // ---------------------------------------------------------------------------
-// Link revalidation constants
+// Paths
 // ---------------------------------------------------------------------------
 
-const seenPath = path.join(process.cwd(), 'data', 'seen.json');
-const internshipsPath = path.join(process.cwd(), 'data', 'internships.json');
+const DATA_DIR = path.join(process.cwd(), 'data');
+const DB_PATH = path.join(DATA_DIR, 'internships.db');
+const internshipsJsonPath = path.join(DATA_DIR, 'internships.json');
+const seenJsonPath = path.join(DATA_DIR, 'seen.json');
 
-/**
- * Known aggregator/job-board domains that republish listings rather than
- * host direct applications. Links from these domains are treated as invalid
- * regardless of HTTP response code.
- */
+// ---------------------------------------------------------------------------
+// Aggregator domains (link-utility, doesn't touch storage)
+// ---------------------------------------------------------------------------
+
 const AGGREGATOR_DOMAINS = new Set([
   'trabajo.org', 'recruit.net', 'jooble.org', 'jooble.com',
   'indeed.co.uk', 'indeed.com.my', 'glassdoor.com.au',
@@ -26,18 +28,9 @@ const AGGREGATOR_DOMAINS = new Set([
   'careerjet.com', 'instahyre.com', 'workopolis.com', 'elut.ca',
   'trovit.com', 'kariera.gr', 'jobbol.com',
   'jobleads.com', 'learn4good.com',
-  // Additional
-  'talent.apple.com', 'jobs.disneycareers.com',  // branded career portals = direct
+  'talent.apple.com', 'jobs.disneycareers.com',
 ]);
 
-// ---------------------------------------------------------------------------
-// Link validation helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Returns true if the URL hostname matches a known aggregator domain.
- * Uses simple substring matching so subdomains (e.g. us.trabajo.org) also match.
- */
 export function isAggregatorLink(url: string): boolean {
   try {
     const { hostname } = new URL(url);
@@ -47,40 +40,28 @@ export function isAggregatorLink(url: string): boolean {
     }
     return false;
   } catch {
-    return true; // Malformed URL → treat as invalid
+    return true;
   }
 }
 
-/**
- * Performs an HTTP check on a URL.
- * Tries HEAD first; falls back to GET on error.
- * Follows up to 5 redirects.
- * @returns HTTP status code (e.g. 200, 404), or -1 on network/timeout error
- */
 export async function checkLinkStatus(url: string, timeoutMs = 3000): Promise<number> {
   try {
-    // Dynamic import to avoid pulling in http for non-Node targets
     const http = await import('http');
     const https = await import('https');
-
     return await new Promise((resolve) => {
       const isHttps = url.startsWith('https://');
       const mod = isHttps ? https : http;
-
-      const req = mod.request(url, { method: 'HEAD', timeout: timeoutMs }, (res: import('http').IncomingMessage) => {
+      const req = mod.request(url, { method: 'HEAD', timeout: timeoutMs }, (res) => {
         resolve(res.statusCode ?? -1);
       });
-
       req.on('error', () => {
-        // Fall back to GET for servers that reject HEAD
-        const getReq = mod.request(url, { method: 'GET', timeout: timeoutMs }, (res: import('http').IncomingMessage) => {
+        const getReq = mod.request(url, { method: 'GET', timeout: timeoutMs }, (res) => {
           resolve(res.statusCode ?? -1);
         });
         getReq.on('error', () => resolve(-1));
         getReq.on('timeout', () => { getReq.destroy(); resolve(-1); });
         getReq.end();
       });
-
       req.on('timeout', () => { req.destroy(); resolve(-1); });
       req.end();
     });
@@ -89,24 +70,469 @@ export async function checkLinkStatus(url: string, timeoutMs = 3000): Promise<nu
   }
 }
 
-/**
- * Result of a single revalidation run.
- */
-export interface RevalidationResult {
-  checked: number;       // total entries checked
-  stale: number;          // always 0 (one-strike policy — 404 → immediate archive)
-  stillStale: number;    // always 0 (one-strike policy — 404 → immediate archive)
-  recovered: number;     // entries whose links recovered (count > 0 → 0)
-  archived: number;      // entries archived (count reached 2)
-  aggregatorFound: number;// entries flagged as aggregator links
-  errors: number;         // HTTP/network errors (transient — don't increment count)
-  kept: number;           // entries confirmed good
+// ---------------------------------------------------------------------------
+// Schema (must match scripts/migrate-to-sqlite.ts)
+// ---------------------------------------------------------------------------
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS internships (
+  id                   TEXT    PRIMARY KEY,
+  title                TEXT    NOT NULL,
+  company              TEXT    NOT NULL,
+  location             TEXT    NOT NULL,
+  description          TEXT,
+  link                 TEXT    NOT NULL,
+  source               TEXT    NOT NULL,
+  ats_source           TEXT,
+  ats_job_id           TEXT,
+  ats_target           TEXT,
+  posted_at            TEXT    NOT NULL,
+  seen_at              TEXT    NOT NULL,
+  score                INTEGER,
+  score_label          TEXT,
+  matched_keywords     TEXT    NOT NULL DEFAULT '[]',
+  is_new               INTEGER NOT NULL DEFAULT 1,
+  applied              INTEGER NOT NULL DEFAULT 0,
+  archived             INTEGER NOT NULL DEFAULT 0,
+  applied_at           TEXT,
+  application_url      TEXT,
+  application_status   TEXT,
+  failed_check_count   INTEGER NOT NULL DEFAULT 0,
+  first_failed_at      TEXT,
+  last_checked_at      TEXT,
+  multi_location       TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_internships_score       ON internships(score DESC);
+CREATE INDEX IF NOT EXISTS idx_internships_source      ON internships(source);
+CREATE INDEX IF NOT EXISTS idx_internships_seen_at     ON internships(seen_at DESC);
+CREATE INDEX IF NOT EXISTS idx_internships_applied     ON internships(applied);
+CREATE INDEX IF NOT EXISTS idx_internships_archived    ON internships(archived);
+CREATE INDEX IF NOT EXISTS idx_internships_score_label ON internships(score_label);
+CREATE INDEX IF NOT EXISTS idx_internships_is_new      ON internships(is_new);
+CREATE INDEX IF NOT EXISTS idx_internships_company     ON internships(company);
+CREATE TABLE IF NOT EXISTS seen_ids (
+  id TEXT PRIMARY KEY
+);
+`;
+
+// ---------------------------------------------------------------------------
+// Database singleton + auto-migration from JSON if first run
+// ---------------------------------------------------------------------------
+
+let _db: Database.Database | null = null;
+
+function getDb(): Database.Database {
+  if (_db) return _db;
+
+  const dbExists = fs.existsSync(DB_PATH);
+  const jsonExists = fs.existsSync(internshipsJsonPath);
+
+  // First-boot auto-migration: if no DB but JSON exists, run the migration once.
+  if (!dbExists && jsonExists) {
+    console.log('[store] No internships.db found but internships.json exists — auto-migrating...');
+    autoMigrateFromJson();
+  }
+
+  _db = new Database(DB_PATH);
+  _db.pragma('journal_mode = WAL');       // concurrent reads while one writer
+  _db.pragma('synchronous = NORMAL');     // fast + still durable
+  _db.pragma('foreign_keys = ON');
+  _db.exec(SCHEMA);
+  return _db;
+}
+
+function autoMigrateFromJson(): void {
+  try {
+    const internshipsRaw = fs.readFileSync(internshipsJsonPath, 'utf-8');
+    const internships: Internship[] = JSON.parse(internshipsRaw);
+    const seen: string[] = fs.existsSync(seenJsonPath)
+      ? JSON.parse(fs.readFileSync(seenJsonPath, 'utf-8'))
+      : [];
+
+    const db = new Database(DB_PATH);
+    db.pragma('journal_mode = WAL');
+    db.exec(SCHEMA);
+
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO internships
+        (id, title, company, location, description, link, source, ats_source,
+         ats_job_id, ats_target, posted_at, seen_at, score, score_label,
+         matched_keywords, is_new, applied, archived, applied_at,
+         application_url, application_status, failed_check_count,
+         first_failed_at, last_checked_at, multi_location)
+      VALUES (@id, @title, @company, @location, @description, @link, @source,
+        @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
+        @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
+        @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
+        @lastCheckedAt, @multiLocation)
+    `);
+    const insertMany = db.transaction((records: Internship[]) => {
+      for (const r of records) insert.run(toRow(r));
+    });
+    insertMany(internships);
+
+    const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
+    const insertSeenMany = db.transaction((ids: string[]) => {
+      for (const id of ids) insertSeen.run(id);
+    });
+    insertSeenMany(seen);
+
+    db.close();
+    console.log(`[store] Auto-migrated ${internships.length} internships + ${seen.length} seen IDs to SQLite.`);
+  } catch (err) {
+    console.error('[store] Auto-migration failed; starting with empty DB:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Row ↔ Internship mappers
+// ---------------------------------------------------------------------------
+
+interface Row {
+  id: string;
+  title: string;
+  company: string;
+  location: string;
+  description: string | null;
+  link: string;
+  source: string;
+  ats_source: string | null;
+  ats_job_id: string | null;
+  ats_target: string | null;
+  posted_at: string;
+  seen_at: string;
+  score: number | null;
+  score_label: string | null;
+  matched_keywords: string;
+  is_new: number;
+  applied: number;
+  archived: number;
+  applied_at: string | null;
+  application_url: string | null;
+  application_status: string | null;
+  failed_check_count: number;
+  first_failed_at: string | null;
+  last_checked_at: string | null;
+  multi_location: string | null;
+}
+
+function fromRow(r: Row): Internship {
+  return {
+    id: r.id,
+    title: r.title,
+    company: r.company,
+    location: r.location,
+    description: r.description ?? undefined,
+    link: r.link,
+    source: r.source,
+    atsSource: r.ats_source ?? undefined,
+    atsJobId: r.ats_job_id ?? undefined,
+    atsTarget: r.ats_target ?? undefined,
+    postedAt: r.posted_at,
+    seenAt: r.seen_at,
+    score: r.score,
+    scoreLabel: r.score_label ?? '',
+    matchedKeywords: r.matched_keywords ? JSON.parse(r.matched_keywords) : [],
+    isNew: r.is_new === 1,
+    applied: r.applied === 1,
+    archived: r.archived === 1,
+    appliedAt: r.applied_at ?? undefined,
+    applicationUrl: r.application_url ?? undefined,
+    applicationStatus: r.application_status ?? undefined,
+    failedCheckCount: r.failed_check_count,
+    firstFailedAt: r.first_failed_at ?? undefined,
+    lastCheckedAt: r.last_checked_at ?? undefined,
+    multiLocation: r.multi_location ? JSON.parse(r.multi_location) : undefined,
+  };
+}
+
+function toRow(i: Internship): Record<string, unknown> {
+  return {
+    id: i.id,
+    title: i.title,
+    company: i.company,
+    location: i.location,
+    description: i.description ?? null,
+    link: i.link,
+    source: i.source,
+    atsSource: i.atsSource ?? null,
+    atsJobId: i.atsJobId ?? null,
+    atsTarget: i.atsTarget ?? null,
+    postedAt: i.postedAt,
+    seenAt: i.seenAt,
+    score: i.score ?? null,
+    scoreLabel: i.scoreLabel ?? '',
+    matchedKeywords: JSON.stringify(i.matchedKeywords ?? []),
+    isNew: i.isNew ? 1 : 0,
+    applied: i.applied ? 1 : 0,
+    archived: i.archived ? 1 : 0,
+    appliedAt: i.appliedAt ?? null,
+    applicationUrl: i.applicationUrl ?? null,
+    applicationStatus: i.applicationStatus ?? null,
+    failedCheckCount: i.failedCheckCount ?? 0,
+    firstFailedAt: i.firstFailedAt ?? null,
+    lastCheckedAt: i.lastCheckedAt ?? null,
+    multiLocation: i.multiLocation ? JSON.stringify(i.multiLocation) : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// In-process mutex for the polling cycle (prevents concurrent dedup races)
+// ---------------------------------------------------------------------------
+
+let storeLock: Promise<void> = Promise.resolve();
+function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
+  const next = storeLock.then(() => fn() as Promise<T>);
+  storeLock = next.then(() => {}, (err) => { console.error('[store] lock error:', err); });
+  return next;
+}
+
+// ---------------------------------------------------------------------------
+// Public storage API
+// ---------------------------------------------------------------------------
+
+export function loadInternships(): Internship[] {
+  const db = getDb();
+  const rows = db.prepare('SELECT * FROM internships ORDER BY seen_at DESC').all() as Row[];
+  return rows.map(fromRow);
 }
 
 /**
- * Process entries in parallel batches with controlled concurrency.
- * Yields results as each batch completes.
+ * Full-replace write — kept for callers that still expect array semantics.
+ * Slower than targeted updates; prefer `patchInternship` / `archiveStalePostings`
+ * / `deduplicateAndStore` for hot paths.
  */
+export function saveInternships(internships: Internship[]): void {
+  const db = getDb();
+  const upsert = db.prepare(`
+    INSERT INTO internships
+      (id, title, company, location, description, link, source, ats_source,
+       ats_job_id, ats_target, posted_at, seen_at, score, score_label,
+       matched_keywords, is_new, applied, archived, applied_at,
+       application_url, application_status, failed_check_count,
+       first_failed_at, last_checked_at, multi_location)
+    VALUES (@id, @title, @company, @location, @description, @link, @source,
+      @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
+      @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
+      @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
+      @lastCheckedAt, @multiLocation)
+    ON CONFLICT(id) DO UPDATE SET
+      title              = excluded.title,
+      company            = excluded.company,
+      location           = excluded.location,
+      description        = excluded.description,
+      link               = excluded.link,
+      source             = excluded.source,
+      ats_source         = excluded.ats_source,
+      ats_job_id         = excluded.ats_job_id,
+      ats_target         = excluded.ats_target,
+      posted_at          = excluded.posted_at,
+      seen_at            = excluded.seen_at,
+      score              = excluded.score,
+      score_label        = excluded.score_label,
+      matched_keywords   = excluded.matched_keywords,
+      is_new             = excluded.is_new,
+      applied            = excluded.applied,
+      archived           = excluded.archived,
+      applied_at         = excluded.applied_at,
+      application_url    = excluded.application_url,
+      application_status = excluded.application_status,
+      failed_check_count = excluded.failed_check_count,
+      first_failed_at    = excluded.first_failed_at,
+      last_checked_at    = excluded.last_checked_at,
+      multi_location     = excluded.multi_location
+  `);
+  const upsertMany = db.transaction((records: Internship[]) => {
+    for (const r of records) upsert.run(toRow(r));
+  });
+  upsertMany(internships);
+}
+
+export interface StoreResult {
+  newInternships: Internship[];
+  totalStored: number;
+}
+
+export async function deduplicateAndStore(incoming: Internship[]): Promise<StoreResult> {
+  return withLock(() => {
+    const db = getDb();
+
+    // Build seenLinks set from existing rows for cross-source UTM-dedup
+    const seenLinkRows = db.prepare('SELECT link FROM internships WHERE link IS NOT NULL AND link != \'\'').all() as { link: string }[];
+    const seenLinks = new Set<string>();
+    for (const row of seenLinkRows) seenLinks.add(stripUtm(row.link));
+
+    const existingIdRow = db.prepare('SELECT id FROM seen_ids WHERE id = ?');
+    const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
+    const insertInternship = db.prepare(`
+      INSERT OR IGNORE INTO internships
+        (id, title, company, location, description, link, source, ats_source,
+         ats_job_id, ats_target, posted_at, seen_at, score, score_label,
+         matched_keywords, is_new, applied, archived, applied_at,
+         application_url, application_status, failed_check_count,
+         first_failed_at, last_checked_at, multi_location)
+      VALUES (@id, @title, @company, @location, @description, @link, @source,
+        @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
+        @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
+        @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
+        @lastCheckedAt, @multiLocation)
+    `);
+
+    const newInternships: Internship[] = [];
+
+    const txn = db.transaction((items: Internship[]) => {
+      for (const i of items) {
+        // Exact id seen?
+        if (existingIdRow.get(i.id)) continue;
+
+        // Same posting via different UTM params?
+        const normalizedLink = stripUtm(i.link || '');
+        if (i.link && seenLinks.has(normalizedLink)) continue;
+        if (i.link) seenLinks.add(normalizedLink);
+
+        const stored: Internship = { ...i, link: normalizedLink || i.link, isNew: true };
+        insertInternship.run(toRow(stored));
+        insertSeen.run(stored.id);
+        newInternships.push(stored);
+      }
+    });
+    txn(incoming);
+
+    const totalStored = (db.prepare('SELECT COUNT(*) as n FROM internships').get() as { n: number }).n;
+    return { newInternships, totalStored };
+  });
+}
+
+export function patchInternship(id: string, patch: Partial<Internship>): Internship | null {
+  const db = getDb();
+  const existing = db.prepare('SELECT * FROM internships WHERE id = ?').get(id) as Row | undefined;
+  if (!existing) return null;
+
+  const merged: Internship = { ...fromRow(existing), ...patch };
+  saveInternships([merged]);
+  return merged;
+}
+
+export function archiveStalePostings(daysOld = 30): number {
+  const db = getDb();
+  const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
+  const result = db.prepare('UPDATE internships SET archived = 1 WHERE archived = 0 AND seen_at < ?').run(cutoff);
+  const count = result.changes;
+  if (count > 0) {
+    console.log(`[store] Archived ${count} stale postings older than ${daysOld} days`);
+  }
+  return count;
+}
+
+export function getStats(): {
+  total: number;
+  bySource: Record<string, number>;
+  byLabel: Record<string, number>;
+  lastPolledAt: string | null;
+  exclusionCounts: Record<string, number>;
+} {
+  const db = getDb();
+  const total = (db.prepare('SELECT COUNT(*) as n FROM internships').get() as { n: number }).n;
+
+  const bySourceRows = db.prepare(`
+    SELECT source, COUNT(*) as n FROM internships GROUP BY source
+  `).all() as { source: string; n: number }[];
+  const bySource: Record<string, number> = {};
+  for (const r of bySourceRows) bySource[r.source] = r.n;
+
+  const byLabelRows = db.prepare(`
+    SELECT score_label, COUNT(*) as n FROM internships GROUP BY score_label
+  `).all() as { score_label: string; n: number }[];
+  const byLabel: Record<string, number> = {};
+  for (const r of byLabelRows) byLabel[r.score_label || ''] = r.n;
+
+  const lastSeen = db.prepare(`SELECT seen_at FROM internships ORDER BY seen_at DESC LIMIT 1`).get() as { seen_at: string } | undefined;
+  const lastPolledAt = lastSeen?.seen_at ?? null;
+
+  let exclusionCounts: Record<string, number> = {};
+  try {
+    const raw = fs.readFileSync(path.join(DATA_DIR, 'poll-stats.json'), 'utf-8');
+    exclusionCounts = JSON.parse(raw).exclusionCounts ?? {};
+  } catch {}
+
+  return { total, bySource, byLabel, lastPolledAt, exclusionCounts };
+}
+
+/**
+ * Persisted per-poll exclusion counts. Stays as a flat JSON file — it's tiny
+ * latest-only state, no need to occupy a DB table.
+ */
+export function savePollStats(stats: {
+  polledAt: string;
+  sourceCounts?: Record<string, number>;
+  exclusionCounts: Record<string, number>;
+}): void {
+  const statsPath = path.join(DATA_DIR, 'poll-stats.json');
+  fs.writeFileSync(statsPath, JSON.stringify({
+    polledAt: stats.polledAt,
+    sourceCounts: stats.sourceCounts ?? {},
+    exclusionCounts: stats.exclusionCounts,
+  }, null, 2));
+}
+
+export { getStats as getLatestPollStats };
+
+export function getInternships(filters?: {
+  source?: string;
+  minScore?: number;
+  label?: string;
+  includeArchived?: boolean;
+  sort?: 'newest' | 'posted' | 'score';
+  search?: string;
+}): Internship[] {
+  const db = getDb();
+  const where: string[] = [];
+  const params: Record<string, unknown> = {};
+
+  if (!filters?.includeArchived) where.push('archived = 0');
+  if (filters?.source) {
+    where.push('LOWER(source) = @source');
+    params.source = filters.source.toLowerCase();
+  }
+  if (filters?.minScore !== undefined) {
+    where.push('COALESCE(score, 0) >= @minScore');
+    params.minScore = filters.minScore;
+  }
+  if (filters?.label) {
+    where.push('LOWER(score_label) = @label');
+    params.label = filters.label.toLowerCase();
+  }
+  if (filters?.search) {
+    where.push('(LOWER(title) LIKE @q OR LOWER(company) LIKE @q OR LOWER(location) LIKE @q)');
+    params.q = `%${filters.search.toLowerCase()}%`;
+  }
+
+  const orderBy = filters?.sort === 'newest'
+    ? 'seen_at DESC'
+    : filters?.sort === 'posted'
+    ? 'posted_at DESC'
+    : 'COALESCE(score, 0) DESC';
+
+  const sql = `SELECT * FROM internships${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ${orderBy}`;
+  const rows = db.prepare(sql).all(params) as Row[];
+  return rows.map(fromRow);
+}
+
+// ---------------------------------------------------------------------------
+// Link revalidation (uses storage layer via patches)
+// ---------------------------------------------------------------------------
+
+export interface RevalidationResult {
+  checked: number;
+  stale: number;
+  stillStale: number;
+  recovered: number;
+  archived: number;
+  aggregatorFound: number;
+  errors: number;
+  kept: number;
+}
+
 async function processBatch<T, R>(
   items: T[],
   batchSize: number,
@@ -121,47 +547,39 @@ async function processBatch<T, R>(
   return results;
 }
 
-/**
- * Revalidates all non-archived internship links.
- *
- * Policy:
- *   - First failed HTTP check → failedCheckCount: 0 → 1 (stale, not yet removed)
- *   - Second consecutive failure → failedCheckCount: 1 → 2 (archived)
- *   - Successful check → failedCheckCount resets to 0
- *   - Network/HTTP error → error count not incremented (transient failure)
- *
- * Links on known aggregator domains are archived immediately (count = 2).
- *
- * HTTP checks run in parallel batches of 20 to balance speed vs. server load.
- * With 4800 entries and ~200ms average response, full run completes in ~1-2 minutes.
- */
 export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<RevalidationResult> {
-  const internships = loadInternships();
+  const db = getDb();
   const now = new Date().toISOString();
   const BATCH_SIZE = 20;
 
-  const active = internships.filter(e => !e.archived);
+  const activeRows = db.prepare('SELECT * FROM internships WHERE archived = 0').all() as Row[];
+  const active = activeRows.map(fromRow);
   console.log(`[revalidate] Starting${opts.dryRun ? ' (DRY RUN)' : ''}: ${active.length} entries to check in batches of ${BATCH_SIZE}`);
 
-  // First pass: instant aggregator checks (no HTTP needed)
+  const result: RevalidationResult = {
+    checked: active.length,
+    stale: 0, stillStale: 0, recovered: 0, archived: 0,
+    aggregatorFound: 0, errors: 0, kept: 0,
+  };
+
+  const updates: Internship[] = [];
+
+  // First pass: aggregator domains → archive immediately
   for (const entry of active) {
     if (isAggregatorLink(entry.link)) {
       entry.failedCheckCount = 2;
       entry.firstFailedAt = entry.firstFailedAt ?? now;
       entry.lastCheckedAt = now;
       if (!opts.dryRun) entry.archived = true;
+      result.aggregatorFound++;
+      updates.push(entry);
     }
   }
 
   const toHttpCheck = active.filter(e => !e.archived && !isAggregatorLink(e.link));
-  console.log(`[revalidate] ${toHttpCheck.length} need HTTP checks (${active.length - toHttpCheck.length} are aggregators or already archived)`);
+  console.log(`[revalidate] ${toHttpCheck.length} need HTTP checks (${result.aggregatorFound} are aggregators)`);
 
-
-  // Build the actual set to check — reference original array entries
-  const toCheck = new Set(toHttpCheck);
-
-  // Second pass: HTTP checks in parallel batches
-  await processBatch(Array.from(toCheck), BATCH_SIZE, async (entry) => {
+  await processBatch(toHttpCheck, BATCH_SIZE, async (entry) => {
     let status: number;
     try {
       status = await checkLinkStatus(entry.link, 3000);
@@ -170,79 +588,45 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
     }
     entry.lastCheckedAt = now;
 
-    if (status >= 400) {
-      // Determine failure type: permanent (likely removed) vs. transient (bot protection / rate-limit)
-      // 404, 410, 451 = genuinely gone — increment failure count
-      // 403, 429, 500-599, 999 = transient block / server error — treat as transient error
-      const PERMANENT_FAIL_CODES = new Set([404, 410, 451]);
-      const isPermanent = PERMANENT_FAIL_CODES.has(status);
-
-      if (isPermanent) {
-        // First 404/410/451 → immediately archive (remove from active list)
-        entry.failedCheckCount = 2;
-        if (!opts.dryRun) entry.archived = true;
-      } else {
-        // Transient block/error — log but don't increment failure count
-        // These are likely anti-bot pages, not dead links
-        entry.lastCheckedAt = now;
-      }
+    const PERMANENT = new Set([404, 410, 451]);
+    if (status >= 400 && PERMANENT.has(status)) {
+      entry.failedCheckCount = 2;
+      if (!opts.dryRun) entry.archived = true;
+      result.archived++;
+    } else if (status >= 400) {
+      // Transient (403/429/5xx) — don't increment count
     } else if (status === -1) {
-      // Network/timeout error — don't change count (transient)
+      result.errors++;
+    } else if (entry.failedCheckCount !== undefined && entry.failedCheckCount > 0) {
+      entry.failedCheckCount = 0;
+      entry.firstFailedAt = undefined;
+      result.recovered++;
+      result.kept++;
     } else {
-      // Link OK (2xx) — reset any existing failure count
-      if (entry.failedCheckCount !== undefined && entry.failedCheckCount > 0) {
-        entry.failedCheckCount = 0;
-        entry.firstFailedAt = undefined;
-      }
+      result.kept++;
     }
+    updates.push(entry);
     return entry;
   });
 
-  // Compute result stats — iterate over original array so we capture real state
-  const result: RevalidationResult = {
-    checked: active.length,
-    stale: 0, stillStale: 0, recovered: 0, archived: 0,
-    aggregatorFound: active.length - toHttpCheck.length,
-    errors: 0, kept: 0,
-  };
-
-  for (const e of internships) {
-    if (e.archived) result.archived++;
-    else if (e.failedCheckCount === 1) result.stale++;
-    else if (e.failedCheckCount === 2) result.archived++;
-    else if (e.failedCheckCount === 0) result.recovered++;
-    else result.kept++;
+  if (!opts.dryRun && updates.length > 0) {
+    saveInternships(updates);
   }
 
-  if (!opts.dryRun) saveInternships(internships);
-
   console.log(
-    `[revalidate] checked=${result.checked} kept=${result.kept} stale=${result.stale} ` +
-    `stillStale=${result.stillStale} archived=${result.archived} aggregatorFound=${result.aggregatorFound} ` +
+    `[revalidate] checked=${result.checked} kept=${result.kept} ` +
+    `archived=${result.archived} aggregatorFound=${result.aggregatorFound} ` +
     `errors=${result.errors} recovered=${result.recovered}${opts.dryRun ? ' [DRY RUN]' : ''}`
   );
 
   return result;
 }
 
-/**
- * Ingest-time link validation.
- * Returns null if the link should be SKIPPED (not stored).
- * Returns the original Internship if the link is acceptable.
- *
- * Checks:
- *   1. Known aggregator domain → skip immediately
- *   2. HTTP 4xx/5xx on the URL → skip (don't let bad links into the DB)
- *
- * Note: HTTP check is fast (8s timeout). Links that time out are accepted
- * and revalidated daily — they may be behind slow servers, not dead.
- */
 export async function validateLinkForIngest(entry: Internship): Promise<Internship | null> {
   if (isAggregatorLink(entry.link)) {
     console.warn(`[store] Skipping aggregator link: ${entry.link}`);
     return null;
   }
-
   try {
     const status = await checkLinkStatus(entry.link, 3000);
     if (status >= 400) {
@@ -250,265 +634,12 @@ export async function validateLinkForIngest(entry: Internship): Promise<Internsh
       return null;
     }
   } catch {
-    // Network error at ingest time — accept optimistically; revalidation will catch it
+    // Transient error — accept; revalidation will catch dead links later.
   }
-
   return entry;
 }
 
-// In-process mutex — prevents concurrent poll cycles from clobbering each other
-let storeLock: Promise<void> = Promise.resolve();
-// NOTE: errors from fn() propagate to the caller — callers must handle rejections.
-function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
-  const next = storeLock.then(() => fn() as Promise<T>);
-  storeLock = next.then(() => {}, (err) => { console.error('[store] lock error:', err); });
-  return next;
-}
-
-function loadSeen(): Set<string> {
-  try {
-    const raw = fs.readFileSync(seenPath, 'utf-8');
-    return new Set(JSON.parse(raw));
-  } catch {
-    return new Set();
-  }
-}
-
-// Atomic write: write to .tmp then rename. On Linux/Mac, rename(2) is atomic,
-// so a crash mid-write cannot produce a corrupt or empty file.
-function atomicWrite(filePath: string, data: string): void {
-  const tmp = filePath + '.tmp';
-  fs.writeFileSync(tmp, data);
-  fs.renameSync(tmp, filePath);
-}
-
-function saveSeen(seen: Set<string>): void {
-  atomicWrite(seenPath, JSON.stringify([...seen], null, 2));
-}
-
-export function loadInternships(): Internship[] {
-  try {
-    const raw = fs.readFileSync(internshipsPath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error('not an array');
-    return parsed;
-  } catch {
-    // If the file is missing or corrupt, check for a leftover .tmp file from
-    // a crash mid-rename and try to recover from it.
-    try {
-      const tmp = internshipsPath + '.tmp';
-      const raw = fs.readFileSync(tmp, 'utf-8');
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        console.warn('[store] internships.json corrupt/missing — recovered from .tmp file');
-        fs.renameSync(tmp, internshipsPath);
-        return parsed;
-      }
-    } catch { /* no tmp file either */ }
-    return [];
-  }
-}
-
-export function saveInternships(internships: Internship[]): void {
-  atomicWrite(internshipsPath, JSON.stringify(internships, null, 2));
-}
-
-export interface StoreResult {
-  newInternships: Internship[];
-  totalStored: number;
-}
-
-// ROOT CAUSE NOTE (2026-04-03): Previously used non-atomic writeFileSync. A crash
-// mid-write corrupted internships.json to empty/partial, but seen.json stayed intact,
-// so the scraper never re-added the 5000+ lost records. Fixed with atomic writes.
-// The 20% safeguard below catches any future case where a bug would cause mass deletion.
-const DELETION_SAFEGUARD_THRESHOLD = 0.2;
-
-export async function deduplicateAndStore(incoming: Internship[]): Promise<StoreResult> {
-  return withLock(async () => {
-    const seen = loadSeen();
-    const existing = loadInternships();
-
-    // Reconcile: if seen.json has far more IDs than internships.json has records,
-    // it means a previous crash wiped internships.json. Rebuild seen from existing
-    // so new records can be re-discovered.
-    if (seen.size > existing.length * 2 && existing.length < 100) {
-      console.warn(`[store] seen.json (${seen.size} IDs) >> internships.json (${existing.length} records) — likely crash corruption. Rebuilding seen from current internships to allow re-discovery.`);
-      seen.clear();
-      for (const i of existing) seen.add(i.id);
-    }
-
-    const newInternships: Internship[] = [];
-
-    // Secondary dedup by link — catches same listing with different title/location formatting
-    // Secondary dedup by normalized link — same posting with different UTM params
-    // should not be stored twice. Use stripUtm() to strip tracking parameters.
-    const seenLinks = new Set<string>();
-    for (const entry of existing) {
-      if (entry.link) seenLinks.add(stripUtm(entry.link));
-    }
-
-    for (const i of incoming) {
-      // Skip if id already seen (exact match on company+title+normalized-link hash)
-      if (seen.has(i.id)) continue;
-      // Skip if normalized link already stored (same posting, different UTM formatting)
-      const normalizedLink = stripUtm(i.link || '');
-      if (i.link && seenLinks.has(normalizedLink)) continue;
-      if (i.link) seenLinks.add(normalizedLink);
-
-      // ---- Ingest-time link validation ----
-      // Skip HTTP check for known aggregator domains — daily revalidation handles dead links.
-      // Ingest-time HTTP checking was causing timeouts for large batches (3000+ listings × 8s = 8+ hours).
-      // Aggregator links (Greenhouse/Lever/Ashby/Workday) are trusted — they're ATS platforms, not random job boards.
-      // Non-aggregator links still get checked via daily revalidation before archival.
-      // ------------------------------------
-
-      seen.add(i.id);
-      // Store normalized link (UTM stripped) so future dedup comparisons are clean
-      newInternships.push({ ...i, link: normalizedLink || i.link, isNew: true });
-    }
-
-    const updated = [...existing, ...newInternships];
-
-    // Safeguard: if the new list would be more than 20% smaller than existing, something
-    // is wrong — abort rather than silently shrink the store.
-    if (existing.length > 50 && updated.length < existing.length * (1 - DELETION_SAFEGUARD_THRESHOLD)) {
-      console.error(`[store] SAFEGUARD TRIGGERED: would reduce ${existing.length} → ${updated.length} records (>${DELETION_SAFEGUARD_THRESHOLD * 100}% drop). Aborting save.`);
-      return { newInternships: [], totalStored: existing.length };
-    }
-
-    saveInternships(updated);
-    saveSeen(seen);
-
-    return { newInternships, totalStored: updated.length };
-  });
-}
-
-export function getStats(): {
-  total: number;
-  bySource: Record<string, number>;
-  byLabel: Record<string, number>;
-  lastPolledAt: string | null;
-  exclusionCounts: Record<string, number>;
-} {
-  const internships = loadInternships();
-
-  const bySource: Record<string, number> = {};
-  const byLabel: Record<string, number> = {};
-
-  for (const i of internships) {
-    bySource[i.source] = (bySource[i.source] || 0) + 1;
-    byLabel[i.scoreLabel] = (byLabel[i.scoreLabel] || 0) + 1;
-  }
-
-  const lastPolledAt = internships.length > 0
-    ? internships[internships.length - 1].seenAt
-    : null;
-
-  // Load persisted exclusion counts from last poll
-  let exclusionCounts: Record<string, number> = {};
-  try {
-    const raw = fs.readFileSync(path.join(process.cwd(), 'data', 'poll-stats.json'), 'utf-8');
-    const saved = JSON.parse(raw);
-    exclusionCounts = saved.exclusionCounts ?? {};
-  } catch {}
-
-  return {
-    total: internships.length,
-    bySource,
-    byLabel,
-    lastPolledAt,
-    exclusionCounts,
-  };
-}
-
-/**
- * Persist per-poll exclusion counts so the stats API can surface them.
- * Stored in data/poll-stats.json (single latest poll, not historical).
- */
-export function savePollStats(stats: {
-  polledAt: string;
-  sourceCounts?: Record<string, number>;
-  exclusionCounts: Record<string, number>;
-}): void {
-  const statsPath = path.join(process.cwd(), 'data', 'poll-stats.json');
-  fs.writeFileSync(statsPath, JSON.stringify({
-    polledAt: stats.polledAt,
-    sourceCounts: stats.sourceCounts ?? {},
-    exclusionCounts: stats.exclusionCounts,
-  }, null, 2));
-}
-
-export function patchInternship(id: string, patch: Partial<Internship>): Internship | null {
-  const internships = loadInternships();
-  const idx = internships.findIndex(i => i.id === id);
-  if (idx === -1) return null;
-  internships[idx] = { ...internships[idx], ...patch };
-  saveInternships(internships);
-  return internships[idx];
-}
-
-export function archiveStalePostings(daysOld = 30): number {
-  const internships = loadInternships();
-  const cutoff = Date.now() - daysOld * 24 * 60 * 60 * 1000;
-  let count = 0;
-
-  for (const i of internships) {
-    if (!i.archived && new Date(i.seenAt).getTime() < cutoff) {
-      i.archived = true;
-      count++;
-    }
-  }
-
-  if (count > 0) {
-    saveInternships(internships);
-    console.log(`[store] Archived ${count} stale postings older than ${daysOld} days`);
-  }
-
-  return count;
-}
-
-// Alias for REST handler compatibility
-export { getStats as getLatestPollStats };
-
-export function getInternships(filters?: {
-  source?: string;
-  minScore?: number;
-  label?: string;
-  includeArchived?: boolean;
-  sort?: 'newest' | 'posted' | 'score';
-  search?: string;  // q= — case-insensitive substring search across title, company, location
-}): Internship[] {
-  let internships = loadInternships();
-
-  if (!filters?.includeArchived) {
-    internships = internships.filter(i => !i.archived);
-  }
-  if (filters?.source) {
-    internships = internships.filter(i => i.source.toLowerCase() === filters.source!.toLowerCase());
-  }
-  if (filters?.minScore !== undefined) {
-    internships = internships.filter(i => (i.score ?? 0) >= filters.minScore!);
-  }
-  if (filters?.label) {
-    internships = internships.filter(i => i.scoreLabel.toLowerCase() === filters.label!.toLowerCase());
-  }
-  if (filters?.search) {
-    const q = filters.search.toLowerCase();
-    internships = internships.filter(i =>
-      i.title.toLowerCase().includes(q) ||
-      i.company.toLowerCase().includes(q) ||
-      i.location.toLowerCase().includes(q)
-    );
-  }
-
-  switch (filters?.sort) {
-    case 'newest':
-      return internships.sort((a, b) => (b.seenAt > a.seenAt ? 1 : b.seenAt < a.seenAt ? -1 : 0));
-    case 'posted':
-      return internships.sort((a, b) => (b.postedAt > a.postedAt ? 1 : b.postedAt < a.postedAt ? -1 : 0));
-    case 'score':
-    default:
-      return internships.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
-  }
+// Test-only helper: kept for compatibility with src/poller/test.ts
+export function _deleteInternshipForTest(id: string): void {
+  getDb().prepare('DELETE FROM internships WHERE id = ?').run(id);
 }
