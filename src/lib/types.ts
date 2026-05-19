@@ -40,6 +40,8 @@ export interface Internship {
   salaryUnit?: 'hourly' | 'monthly' | 'yearly';
   /** Cross-source dedup key (company + normalized title). See src/lib/normalize-key.ts. */
   normalizedKey?: string;
+  /** Hidden from UI + alerts via the Discord ❌ Not interested button. */
+  hidden?: boolean;
 }
 
 export interface CycleStats {

@@ -123,10 +123,15 @@ const LATER_COLUMNS: Array<{ col: string; def: string }> = [
   { col: 'salary_max',     def: 'REAL' },
   { col: 'salary_unit',    def: 'TEXT' },
   { col: 'normalized_key', def: 'TEXT' },
+  // "Not interested" flag (set by the Discord ❌ button). Hidden postings
+  // stop showing in the UI and won't re-alert. Independent of `archived`,
+  // which is used for stale / dead-link postings.
+  { col: 'hidden',         def: 'INTEGER NOT NULL DEFAULT 0' },
 ];
 
 const LATER_INDEXES: Array<{ name: string; sql: string }> = [
   { name: 'idx_internships_normalized_key', sql: 'CREATE INDEX IF NOT EXISTS idx_internships_normalized_key ON internships(normalized_key)' },
+  { name: 'idx_internships_hidden',         sql: 'CREATE INDEX IF NOT EXISTS idx_internships_hidden ON internships(hidden)' },
 ];
 
 function applyColumnMigrations(db: Database.Database): void {
@@ -187,13 +192,13 @@ function autoMigrateFromJson(): void {
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
          first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit, normalized_key)
+         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
         @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey)
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden)
     `);
     const insertMany = db.transaction((records: Internship[]) => {
       for (const r of records) insert.run(toRow(r));
@@ -248,6 +253,7 @@ interface Row {
   salary_max: number | null;
   salary_unit: string | null;
   normalized_key: string | null;
+  hidden: number;
 }
 
 function fromRow(r: Row): Internship {
@@ -282,6 +288,7 @@ function fromRow(r: Row): Internship {
     salaryMax: r.salary_max ?? undefined,
     salaryUnit: (r.salary_unit as Internship['salaryUnit']) ?? undefined,
     normalizedKey: r.normalized_key ?? undefined,
+    hidden: r.hidden === 1,
   };
 }
 
@@ -317,6 +324,7 @@ function toRow(i: Internship): Record<string, unknown> {
     salaryMax: i.salaryMax ?? null,
     salaryUnit: i.salaryUnit ?? null,
     normalizedKey: i.normalizedKey ?? null,
+    hidden: i.hidden ? 1 : 0,
   };
 }
 
@@ -355,13 +363,13 @@ export function saveInternships(internships: Internship[]): void {
        matched_keywords, is_new, applied, archived, applied_at,
        application_url, application_status, failed_check_count,
        first_failed_at, last_checked_at, multi_location,
-       salary_text, salary_min, salary_max, salary_unit, normalized_key)
+       salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden)
     VALUES (@id, @title, @company, @location, @description, @link, @source,
       @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
       @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
       @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
       @lastCheckedAt, @multiLocation,
-      @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey)
+      @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden)
     ON CONFLICT(id) DO UPDATE SET
       title              = excluded.title,
       company            = excluded.company,
@@ -391,7 +399,8 @@ export function saveInternships(internships: Internship[]): void {
       salary_min         = excluded.salary_min,
       salary_max         = excluded.salary_max,
       salary_unit        = excluded.salary_unit,
-      normalized_key     = excluded.normalized_key
+      normalized_key     = excluded.normalized_key,
+      hidden             = excluded.hidden
   `);
   const upsertMany = db.transaction((records: Internship[]) => {
     for (const r of records) upsert.run(toRow(r));
@@ -426,13 +435,13 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
          first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit, normalized_key)
+         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
         @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey)
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden)
     `);
 
     const newInternships: Internship[] = [];
@@ -544,6 +553,7 @@ export function getInternships(filters?: {
   minScore?: number;
   label?: string;
   includeArchived?: boolean;
+  includeHidden?: boolean;
   sort?: 'newest' | 'posted' | 'score';
   search?: string;
 }): Internship[] {
@@ -552,6 +562,7 @@ export function getInternships(filters?: {
   const params: Record<string, unknown> = {};
 
   if (!filters?.includeArchived) where.push('archived = 0');
+  if (!filters?.includeHidden) where.push('hidden = 0');
   if (filters?.source) {
     where.push('LOWER(source) = @source');
     params.source = filters.source.toLowerCase();
@@ -614,7 +625,7 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
   const now = new Date().toISOString();
   const BATCH_SIZE = 20;
 
-  const activeRows = db.prepare('SELECT * FROM internships WHERE archived = 0').all() as Row[];
+  const activeRows = db.prepare('SELECT * FROM internships WHERE archived = 0 AND hidden = 0').all() as Row[];
   const active = activeRows.map(fromRow);
   console.log(`[revalidate] Starting${opts.dryRun ? ' (DRY RUN)' : ''}: ${active.length} entries to check in batches of ${BATCH_SIZE}`);
 
