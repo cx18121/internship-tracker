@@ -82,56 +82,60 @@ test('SWE role (Backend Engineer Intern) → passes', () => {
 
 console.log('\n── Scorer tests ──────────────────────────────────────────');
 
-// T1(4) + typescript(3) + python(3) + rag(3) + postgresql(3) + remote(2) = 18 → 100
-test('T1 role + strong tech stack + Remote → Excellent (>= 85)', () => {
+// T1(40) + elite(55) + tech(11+ from Python/RAG/PostgreSQL in description) +
+// preferred(6) = 100+ → clamp 100 → A
+test('T1 role + elite company + strong tech in description → A', () => {
   const r = scoreInternship({
-    title: 'Software Engineer Intern TypeScript Python RAG PostgreSQL',
+    title: 'Software Engineer Intern',
     company: 'Anthropic',
-    location: 'Remote',
+    location: 'San Francisco, CA',
+    description: 'We use Python, RAG, PostgreSQL, vector search.',
   });
   assert.ok(r.score >= 85, `Expected >= 85, got ${r.score}`);
-  assert.strictEqual(r.scoreLabel, 'Excellent');
+  assert.strictEqual(r.scoreLabel, 'A');
 });
 
-// T2(3) + python(2)+docker(1)+sql(1)=4 capped + preferred(1) = 8 → 80 → Strong (ceiling=10)
-test('T2 role + tech keywords + preferred city → Strong (no company prestige)', () => {
+// T2(27) + top(35 — Snowflake) + tech(Python+Docker+SQL) + preferred(6) → solid B/A
+test('T2 role + top company + tech keywords + preferred city → B or A', () => {
   const r = scoreInternship({
-    title: 'Data Engineer Intern Python Docker SQL',
-    company: 'TechCorp',
+    title: 'Data Engineer Intern',
+    company: 'Snowflake',
     location: 'New York',
+    description: 'Python, Docker, SQL pipelines.',
   });
-  assert.ok(r.score >= 70 && r.score <= 90, `Expected 70–90, got ${r.score}`);
-  assert.strictEqual(r.scoreLabel, 'Strong', `Expected Strong, got ${r.scoreLabel}`);
+  assert.ok(r.score >= 60 && r.score <= 100, `Expected 60–100, got ${r.score}`);
+  assert.ok(r.scoreLabel === 'A' || r.scoreLabel === 'B', `Expected A or B, got ${r.scoreLabel}`);
 });
 
-// No matching keywords → raw 0 → score 0 → Low
-test('No tech match, generic location → Low (<= 30)', () => {
+// No T1/T2/T3 role keyword + unknown company + no tech → low score, F or D
+test('No role/company/tech match → F or D', () => {
   const r = scoreInternship({
     title: 'General Business Intern',
     company: 'Corp LLC',
     location: 'Columbus, OH',
   });
-  assert.ok(r.score <= 30, `Expected <= 30, got ${r.score}`);
-  assert.strictEqual(r.scoreLabel, 'Low');
+  assert.ok(r.score < 25, `Expected < 25, got ${r.score}`);
+  assert.strictEqual(r.scoreLabel, 'F');
 });
 
-// "finance intern" hits penalty(-2), raw max is -2 → floored at 0
-test('Penalty keyword (Finance Intern) → score floored at 0', () => {
+// "Software Engineer Intern" at any company → at least the T1 role tier (40 pts).
+// Score never goes negative — penalty section removed (handled by filter.ts).
+test('Bare T1 SWE intern → score = role tier only (40)', () => {
   const r = scoreInternship({
-    title: 'Finance Intern with some coding experience',
-    company: 'Goldman Sachs',
-    location: 'New York',
+    title: 'Software Engineer Intern',
+    company: 'Corp LLC',
+    location: '',
   });
-  assert.ok(r.score >= 0, `Score must not be negative, got ${r.score}`);
+  assert.strictEqual(r.score, 40);
 });
 
-// elite(8) + T1(4) + tech capped(4) + domain signals(3) + remote(2) = 21 → 100
-test('Max raw score → finalScore = 100', () => {
+// All signals firing on an elite SWE role → clamps to ceiling (100)
+test('Max raw score → finalScore clamped to 100', () => {
   const r = scoreInternship({
-    title: 'Software Engineer Intern TypeScript Python RAG PostgreSQL',
-    company: 'Anthropic AI',
-    location: 'Remote',
-    description: 'generative ai open source observability platform',
+    title: 'Software Engineer Intern',
+    company: 'Anthropic',
+    location: 'San Francisco, CA',
+    description: 'Python, RAG, PostgreSQL, vector search, AI safety, open source, observability.',
   });
   assert.strictEqual(r.score, 100);
 });
@@ -219,13 +223,13 @@ async function runApiTests(): Promise<void> {
     }
   });
 
-  await testAsync('GET /api/internships?label=Excellent → all items have scoreLabel=Excellent', async () => {
-    const res = await fetch(`${base}?label=Excellent`);
+  await testAsync('GET /api/internships?label=A → all items have scoreLabel=A', async () => {
+    const res = await fetch(`${base}?label=A`);
     assert.ok(res.ok, `HTTP ${res.status}`);
     const body = await res.json() as { data: Internship[] };
     assert.ok(Array.isArray(body.data));
     for (const item of body.data) {
-      assert.strictEqual(item.scoreLabel, 'Excellent', `Item "${item.title}" has label ${item.scoreLabel}`);
+      assert.strictEqual(item.scoreLabel, 'A', `Item "${item.title}" has label ${item.scoreLabel}`);
     }
   });
 }
@@ -240,41 +244,47 @@ test('scoring-config.json has all required fields', () => {
   const configPath = path.join(process.cwd(), 'data', 'scoring-config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-  // Top-level required fields
-  for (const field of ['scoringCeiling', 'companyTiers', 'techStackCap', 'roleTiers', 'techStack', 'domainSignals', 'locationBonus', 'penalties']) {
+  for (const field of ['scoringCeiling', 'companyTiers', 'techStackCap', 'roleTiers', 'techStack', 'locationBonus']) {
     assert.ok(field in config, `Missing top-level field: ${field}`);
   }
 
-  // scoringCeiling must be 21
-  assert.strictEqual(config.scoringCeiling, 10, `scoringCeiling should be 10, got ${config.scoringCeiling}`);
+  assert.strictEqual(config.scoringCeiling, 100, `scoringCeiling should be 100, got ${config.scoringCeiling}`);
 
-  // companyTiers must have elite and top
   assert.ok('elite' in config.companyTiers, 'companyTiers must have elite tier');
   assert.ok('top' in config.companyTiers, 'companyTiers must have top tier');
   assert.ok(Array.isArray(config.companyTiers.elite.companies), 'elite.companies must be an array');
   assert.ok(Array.isArray(config.companyTiers.top.companies), 'top.companies must be an array');
+  assert.ok(config.companyTiers.elite.points > config.companyTiers.top.points,
+    'elite should be worth more than top');
 
-  // techStackCap must be a number
   assert.strictEqual(typeof config.techStackCap, 'number', 'techStackCap must be a number');
 
-  // roleTiers must have T1, T2, T3 with keywords arrays
   for (const tier of ['T1', 'T2', 'T3']) {
     assert.ok(tier in config.roleTiers, `Missing role tier: ${tier}`);
     assert.ok(Array.isArray(config.roleTiers[tier].keywords), `${tier}.keywords must be an array`);
     assert.ok(config.roleTiers[tier].keywords.length > 0, `${tier}.keywords must not be empty`);
   }
+  assert.ok(config.roleTiers.T1.points > config.roleTiers.T2.points, 'T1 > T2');
+  assert.ok(config.roleTiers.T2.points > config.roleTiers.T3.points, 'T2 > T3');
 
-  // techStack must have high, medium, low tiers with keywords arrays
   for (const level of ['high', 'medium', 'low']) {
     assert.ok(level in config.techStack, `Missing techStack tier: ${level}`);
     assert.ok(Array.isArray(config.techStack[level].keywords), `techStack.${level}.keywords must be an array`);
   }
 
-  // domainSignals, locationBonus, penalties
-  assert.ok(Array.isArray(config.domainSignals.keywords), 'domainSignals.keywords must be an array');
-  assert.ok(Array.isArray(config.penalties.keywords), 'penalties.keywords must be an array');
-  assert.ok('remote' in config.locationBonus, 'locationBonus must have remote');
   assert.ok('preferred' in config.locationBonus, 'locationBonus must have preferred');
+
+  // domainSignals is optional but if present, must be well-formed
+  if (config.domainSignals) {
+    assert.ok(Array.isArray(config.domainSignals.keywords), 'domainSignals.keywords must be an array');
+    assert.strictEqual(typeof config.domainSignals.pointsEach, 'number');
+    assert.strictEqual(typeof config.domainSignals.cap, 'number');
+  }
+
+  // penalties and locationBonus.remote were removed — assert they are NOT present
+  // (hard-filter in filter.ts handles non-SWE roles; remote is no longer a quality signal).
+  assert.ok(!('penalties' in config), 'penalties section should be removed');
+  assert.ok(!('remote' in config.locationBonus), 'locationBonus.remote should be removed');
 });
 
 // ==============================================================

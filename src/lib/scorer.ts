@@ -3,163 +3,149 @@ import path from "path";
 import type { Internship } from "./types";
 
 // ---------------------------------------------------------------------------
-// Role Match (0-50 pts) — SWE / Backend / ML / QA all equal
+// Config loading
 // ---------------------------------------------------------------------------
 
-function scoreRoleMatch(title: string): number {
-  const lower = title.toLowerCase();
+interface TieredKeywords { points: number; keywords: string[] }
+interface CompanyTier   { points: number; companies: string[] }
 
-  const isRelevantIntern =
-    /\bswe\s*intern\b/i.test(lower)
-    || /\bsoftware\s*engineer(?:ing)?\s*intern(?:ship)?\b/i.test(lower)
-    || /\bsummer\s*intern\b/i.test(lower)
-    || /\bsoftware\s*developer\s*intern\b/i.test(lower)
-    || /\bcs\s*intern\b/i.test(lower)
-    || /\bcomputer\s*science\s*intern\b/i.test(lower)
-    || /\b(backend|back-end|ml|machine\s*learning|ai|data\s*engineer|data\s*scientist)\s*intern/i.test(lower)
-    || /\bintern.*\b(backend|back-end|ml|machine\s*learning|ai|data\s*engineer|data\s*scientist)/i.test(lower)
-    || /\b(qa|devops|sre|platform|reliability|infrastructure)\s*intern/i.test(lower)
-    || /\bintern.*\b(qa|devops|sre|platform|reliability|infrastructure)/i.test(lower);
-
-  const generic = /\bintern/i.test(lower);
-  if (!generic) return 0;
-  return isRelevantIntern ? 50 : 15;
+interface ScoringConfig {
+  scoringCeiling: number;
+  companyTiers: Record<string, CompanyTier>;
+  roleTiers: Record<string, TieredKeywords>;
+  techStack: Record<string, TieredKeywords>;
+  techStackCap: number;
+  domainSignals?: { pointsEach: number; cap: number; keywords: string[] };
+  locationBonus: Record<string, TieredKeywords>;
 }
 
-// ---------------------------------------------------------------------------
-// Tech Keywords in Title (0-25 pts)
-// ---------------------------------------------------------------------------
+const CONFIG_PATH = path.join(process.cwd(), "data", "scoring-config.json");
+let _config: ScoringConfig | null = null;
 
-const TECH_KEYWORDS: [string, number][] = [
-  ['python',5],['golang',5],['javascript',5],['typescript',5],
-  ['react',5],['reactjs',5],['vue',4],['angular',4],['node',4],['nodejs',4],
-  ['java ',5],['c++',4],['c#',4],['rust',5],['swift',4],['kotlin',4],
-  ['sql',5],['aws',5],['amazon web services',5],['gcp',5],['google cloud',5],
-  ['azure',4],['docker',5],['kubernetes',5],['k8s',5],
-  ['tensorflow',5],['pytorch',5],['spark',4],['hadoop',3],['flink',3],
-  ['kafka',4],['ml ',4],['ai ',4],['machine learning',5],
-  ['backend',5],['full-stack',5],['frontend',4],['cloud',4],
-  ['devops',5],['sre',4],['security',3],['cyber',3],
-  ['network',3],['systems',3],['distributed',4],
-  ['infrastructure',4],['platform',3],['api',3],['microservice',4],
-  ['postgres',4],['postgresql',4],['mongodb',4],['redis',4],
-];
-
-function scoreTechKeywords(title: string, company: string): number {
-  const text = `${title} ${company}`.toLowerCase();
-  let pts = 0;
-  for (const [kw, p] of TECH_KEYWORDS) {
-    if (text.includes(kw)) { pts += p; if (pts >= 25) break; }
+function loadConfig(): ScoringConfig {
+  if (!_config) {
+    const raw = fs.readFileSync(CONFIG_PATH, "utf-8");
+    _config = JSON.parse(raw) as ScoringConfig;
   }
-  return Math.min(pts, 25);
+  return _config;
 }
 
 // ---------------------------------------------------------------------------
-// Company Tier (0-15 pts) — now part of base
+// Per-component scoring
 // ---------------------------------------------------------------------------
 
-const YC_COMPANIES = new Set([
-  'airbnb','stripe','dropbox','reddit','coinbase','doordash','instacart',
-  'notion','brex','ramp','linear','vercel','figma','databricks','plaid',
-  'optimizely','heroku','docker','kickstarter','discourse','humu','lattice',
-  'rippling','runway','scale','together','anyscale','cohere','convex',
-  'descript','inngest','mistral','neon','openai','perplexity','pinecone',
-  'planetscale','playwright','replicate','supabase','typebot','sweep',
-  'tailscale','llmstack','merge','prisma','amplitude','zendesk','twilio',
-  'groupon','hubspot','intercom','keen','loyal','braintree','balance',
-  'sentry','segment','workato','zapier','calendly','carrd','chainalysis',
-  'crunchbase','dbt','duckduckgo','easypost','freshworks','gong','greenhouse',
-  'guidewheel','gusto','hippo','homebound','hired','incident','jasper',
-  'klaviyo','launchdarkly','lean','letta','luma','lyft','matter','mercari',
-  'mercury','miro','mongodb','netlify','okta','opensea','openphone',
-  'pinterest','plex','public','redfin','rest','retool','rocket','salesforce',
-  'samsara','shopify','shutterstock','slack','snapchat','spotify','squares',
-  'statuspage','support','tesla','tiktok','trello','twitch','uber','webflow',
-  'yelp','youtube','zilla','zip','zoom',
-]);
+function scoreRole(title: string, config: ScoringConfig): number {
+  if (!title) return 0;
+  const lower = title.toLowerCase();
+  // Iterate tiers in priority order so a T1 keyword wins over a T2/T3 keyword.
+  // Object.keys is insertion-ordered in modern V8 — JSON keys preserve order.
+  for (const tier of Object.keys(config.roleTiers)) {
+    const info = config.roleTiers[tier];
+    for (const kw of info.keywords) {
+      if (lower.includes(kw.toLowerCase())) return info.points;
+    }
+  }
+  return 0;
+}
 
-const FAANG_UNICORN = new Set([
-  'amazon','amzn','google','alphabet','meta','facebook','apple',
-  'microsoft','nvidia','netflix','snowflake','salesforce','oracle','adobe',
-  'intel','amd','qualcomm','spacex','twitter','uber','lyft','chime',
-  'robinhood','etsy','cloudflare','fastly','datadog','new relic','hashicorp',
-  'cockroachdb','yugabyte','timescale','hasura','appwrite','netlify','miro',
-  'loom','asana','monday','github','gitlab','atlassian','spotify','discord',
-  'shopify','square','block','plaid','instacart','coinbase','airbnb','snap',
-  'pinterest','linkedin','twilio',
-]);
-
-function scoreCompany(company: string): number {
+function scoreCompany(company: string, config: ScoringConfig): number {
   if (!company) return 0;
   const lower = company.toLowerCase().trim();
-  if (YC_COMPANIES.has(lower)) return 15;
-  if (FAANG_UNICORN.has(lower)) return 15;
-  // Partial match
-  for (const n of YC_COMPANIES) {
-    if (lower.includes(n) || n.includes(lower)) return 15;
-  }
-  for (const n of FAANG_UNICORN) {
-    if (lower.includes(n) || n.includes(lower)) return 15;
+  for (const tier of Object.keys(config.companyTiers)) {
+    const info = config.companyTiers[tier];
+    for (const name of info.companies) {
+      const n = name.toLowerCase();
+      if (lower === n) return info.points;
+      // Substring match catches "Stripe, Inc." → "stripe" or "Two Sigma Securities" → "two sigma"
+      if (lower.includes(n) || n.includes(lower)) return info.points;
+    }
   }
   return 0;
 }
 
-// ---------------------------------------------------------------------------
-// Location (0-5 pts)
-// ---------------------------------------------------------------------------
+function scoreTech(text: string, config: ScoringConfig): number {
+  if (!text) return 0;
+  const lower = text.toLowerCase();
+  let pts = 0;
+  // Iterate high → medium → low; each match adds the tier's points up to the cap.
+  for (const level of Object.keys(config.techStack)) {
+    const info = config.techStack[level];
+    for (const kw of info.keywords) {
+      if (lower.includes(kw.toLowerCase())) {
+        pts += info.points;
+        if (pts >= config.techStackCap) return config.techStackCap;
+      }
+    }
+  }
+  return Math.min(pts, config.techStackCap);
+}
 
-const US_HUBS = new Set([
-  'new york','nyc','sf','san francisco','seattle','austin','boston',
-  'los angeles','la','chicago','denver','atlanta','washington','dc',
-  'mountain view','palo alto','menlo park','cupertino','sunnyvale',
-  'berkeley','san jose','portland','san diego','phoenix','charlotte',
-]);
+function scoreDomain(text: string, config: ScoringConfig): number {
+  if (!text || !config.domainSignals) return 0;
+  const lower = text.toLowerCase();
+  let pts = 0;
+  for (const kw of config.domainSignals.keywords) {
+    if (lower.includes(kw.toLowerCase())) {
+      pts += config.domainSignals.pointsEach;
+      if (pts >= config.domainSignals.cap) return config.domainSignals.cap;
+    }
+  }
+  return pts;
+}
 
-function scoreLocation(location: string): number {
+function scoreLocation(location: string, config: ScoringConfig): number {
   if (!location) return 0;
   const lower = location.toLowerCase();
-  if (lower.includes('remote') || lower.includes('work from home')) return 5;
-  if (US_HUBS.has(lower)) return 5;
-  for (const hub of US_HUBS) {
-    if (lower.includes(hub)) return 4;
+  let best = 0;
+  // Iterate all location tiers (preferred, etc.) — take the highest matching points.
+  for (const tier of Object.keys(config.locationBonus)) {
+    const info = config.locationBonus[tier];
+    for (const kw of info.keywords) {
+      if (lower.includes(kw.toLowerCase())) {
+        if (info.points > best) best = info.points;
+        break;
+      }
+    }
   }
-  if (lower.includes('usa') || lower.includes('united states') || /\bUS\b/.test(location)) return 3;
-  return 1; // international
-}
-
-// ---------------------------------------------------------------------------
-// Freshness (0-5 pts)
-// ---------------------------------------------------------------------------
-
-function scoreFreshness(postedAt: string | undefined): number {
-  if (!postedAt) return 0;
-  const ageDays = (Date.now() - new Date(postedAt).getTime()) / 86400000;
-  if (ageDays <= 7)  return 5;
-  if (ageDays <= 14) return 4;
-  if (ageDays <= 30) return 3;
-  if (ageDays <= 60) return 1;
-  return 0;
+  return best;
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+export interface ScoreBreakdown {
+  role: number;
+  company: number;
+  tech: number;
+  domain: number;
+  location: number;
+}
+
 export interface ScoreResult {
   score: number;
   scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F';
-  breakdown: { roleMatch: number; techKeywords: number; company: number; location: number; freshness: number; };
+  breakdown: ScoreBreakdown;
   matchedKeywords: string[];
 }
 
 export function scoreInternship(entry: Partial<Internship>): ScoreResult {
-  const rolePts   = scoreRoleMatch(entry.title ?? '');
-  const techPts   = scoreTechKeywords(entry.title ?? '', entry.company ?? '');
-  const coPts     = scoreCompany(entry.company ?? '');
-  const locPts    = scoreLocation(entry.location ?? '');
-  const freshPts  = scoreFreshness(entry.postedAt);
+  const config = loadConfig();
+  const title = entry.title ?? '';
+  const company = entry.company ?? '';
+  const description = entry.description ?? '';
 
-  const score = rolePts + techPts + coPts + locPts + freshPts;
+  const role = scoreRole(title, config);
+  const coPts = scoreCompany(company, config);
+  // Tech keywords can appear in either title or description (descriptions often
+  // list a stack while titles rarely do).
+  const tech = scoreTech(`${title} ${description}`, config);
+  // Domain signals are usually only in the description (about-the-team blurbs).
+  const domain = scoreDomain(description, config);
+  const loc = scoreLocation(entry.location ?? '', config);
+
+  const raw = role + coPts + tech + domain + loc;
+  const score = Math.max(0, Math.min(raw, config.scoringCeiling));
 
   let scoreLabel: ScoreResult['scoreLabel'];
   if      (score >= 75) scoreLabel = 'A';
@@ -169,38 +155,9 @@ export function scoreInternship(entry: Partial<Internship>): ScoreResult {
   else                  scoreLabel = 'F';
 
   return {
-    score, scoreLabel,
-    breakdown: { roleMatch: rolePts, techKeywords: techPts, company: coPts, location: locPts, freshness: freshPts },
+    score,
+    scoreLabel,
+    breakdown: { role, company: coPts, tech, domain, location: loc },
     matchedKeywords: [],
   };
-}
-
-const isMain = require.main === module;
-if (isMain) {
-  const STORE = path.join(process.cwd(), 'data', 'internships.json');
-  let data: Internship[] = JSON.parse(fs.readFileSync(STORE, 'utf8'));
-
-  const scored: (Internship & { score: number; scoreLabel: string })[] = [];
-  for (const e of data) {
-    const r = scoreInternship(e);
-    e.score = r.score;
-    e.scoreLabel = r.scoreLabel;
-    e.matchedKeywords = [];
-    scored.push(e as Internship & { score: number; scoreLabel: string });
-  }
-
-  const gradeCounts: Record<string, number> = {};
-  for (const p of scored) gradeCounts[p.scoreLabel] = (gradeCounts[p.scoreLabel]||0)+1;
-  const sorted = scored.sort((a,b)=>b.score-a.score);
-  const avg = (scored.reduce((s,p)=>s+p.score,0)/scored.length).toFixed(1);
-
-  console.log(`\n=== Scoring Complete ===`);
-  console.log(`Total: ${scored.length}  |  Avg: ${avg}`);
-  console.log(`A:${gradeCounts['A']??0}  B:${gradeCounts['B']??0}  C:${gradeCounts['C']??0}  D:${gradeCounts['D']??0}  F:${gradeCounts['F']??0}`);
-  console.log(`Max score: ${sorted[0]?.score}`);
-  console.log(`\nTop 10:`);
-  for (const p of sorted.slice(0,10))
-    console.log(`  [${p.scoreLabel}] ${p.score} — ${p.company} | ${p.title.slice(0,45)} | ${p.location}`);
-
-  fs.writeFileSync(STORE, JSON.stringify(scored, null, 2));
 }
