@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import {
   Select,
@@ -13,125 +12,27 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
-import {
   Briefcase,
-  MapPin,
-  ExternalLink,
   RefreshCw,
   WifiOff,
   X,
   Bell,
-  StickyNote,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 
-interface Internship {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  link: string;
-  source: string;
-  postedAt: string;
-  seenAt: string;
-  score: number | null;
-  scoreLabel: string;
-  matchedKeywords?: string[];
-  isNew: boolean;
-  applied: boolean;
-  salaryText?: string;
-  salaryMin?: number;
-  salaryMax?: number;
-  salaryUnit?: 'hourly' | 'monthly' | 'yearly';
-}
-
-interface Stats {
-  total: number;
-  bySource: Record<string, number>;
-  byLabel: Record<string, number>;
-  lastPolledAt: string | null;
-  exclusionCounts: Record<string, number>;
-}
-
-interface Sources {
-  total: number;
-  byType: Record<string, number>;
-}
-
-type AppliedFilter = "all" | "applied" | "not-applied";
-type SortBy = "score" | "newest" | "posted";
-
-const SCORE_LABELS = ["A", "B", "C", "D", "F"];
-const LOCATION_PRESETS = ["Remote", "NYC", "SF", "Seattle", "Boston", "Austin"];
-const PAGE_SIZE = 50;
-
-const SCORE_BADGE: Record<string, string> = {
-  A: "bg-green-500/20 text-green-400 border border-green-500/30",
-  B: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
-  C: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
-  D: "bg-white/10 text-white/50 border border-white/15",
-  F: "bg-white/5 text-white/30 border border-white/10",
-};
-
-const SOURCE_BADGE: Record<string, string> = {
-  SimplifyJobs: "bg-blue-500/20 text-blue-400 border border-blue-500/30",
-  Handshake:    "bg-purple-500/20 text-purple-400 border border-purple-500/30",
-  Greenhouse:   "bg-green-500/20 text-green-400 border border-green-500/30",
-  Lever:        "bg-teal-500/20 text-teal-400 border border-teal-500/30",
-  Ashby:        "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30",
-  Linkedin:     "bg-sky-500/20 text-sky-400 border border-sky-500/30",
-  Indeed:       "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30",
-  Glassdoor:    "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
-  Google:       "bg-rose-500/20 text-rose-400 border border-rose-500/30",
-};
-
-function timeAgo(iso: string | null): string {
-  if (!iso) return "never";
-  const diff = Date.now() - new Date(iso).getTime();
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.floor(h / 24)}d ago`;
-}
-
-function formatDate(iso: string): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
-
-function isStale(iso: string | null): boolean {
-  if (!iso) return false;
-  return Date.now() - new Date(iso).getTime() > 30 * 24 * 60 * 60 * 1000;
-}
-
-const LS_DATES_KEY = "internship-applied-dates";
-const LS_NOTES_KEY = "internship-notes";
-
-function lsGet<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function lsSet(key: string, val: unknown) {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-  } catch {}
-}
+import { InternshipCard } from "./_components/InternshipCard";
+import { NotifModal } from "./_components/NotifModal";
+import type { Internship, Stats, Sources, AppliedFilter, SortBy } from "./_lib/types";
+import {
+  SCORE_LABELS,
+  LOCATION_PRESETS,
+  PAGE_SIZE,
+  SCORE_BADGE,
+  SCORE_BADGE_FALLBACK,
+} from "./_lib/constants";
+import { timeAgo } from "./_lib/format";
+import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -820,210 +721,17 @@ export default function InternshipsPage() {
         </>
       )}
 
-      {/* Notification settings modal */}
-      <Dialog open={notifModalOpen} onOpenChange={setNotifModalOpen}>
-        <DialogContent className="max-w-sm bg-zinc-900 border-white/10 text-white">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-white/80">
-              <Bell className="h-4 w-4" />
-              Notification Settings
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label className="text-xs text-white/40 uppercase tracking-wider">
-                Min score for alert notifications
-              </label>
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                value={notifMinScore}
-                onChange={(e) => setNotifMinScore(Number(e.target.value))}
-                className="w-24 h-8 text-sm bg-white/5 border-white/10"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSourceDownAlerts((v) => !v)}
-                className={`relative inline-flex h-4 w-8 shrink-0 rounded-full transition-colors ${
-                  sourceDownAlerts ? "bg-white/40" : "bg-white/10"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                    sourceDownAlerts ? "translate-x-4" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-              <span className="text-xs text-white/50">Alert when a source goes down</span>
-            </div>
-          </div>
-          <DialogFooter showCloseButton={false}>
-            <Button
-              size="sm"
-              onClick={saveNotifSettings}
-              disabled={notifSaving}
-              className="bg-white/10 hover:bg-white/20 text-white/80 border border-white/10"
-            >
-              {notifSaved ? "Saved!" : notifSaving ? "Saving…" : "Save settings"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <NotifModal
+        open={notifModalOpen}
+        onOpenChange={setNotifModalOpen}
+        minScore={notifMinScore}
+        onMinScoreChange={setNotifMinScore}
+        sourceDownAlerts={sourceDownAlerts}
+        onSourceDownAlertsChange={setSourceDownAlerts}
+        onSave={saveNotifSettings}
+        saving={notifSaving}
+        saved={notifSaved}
+      />
     </div>
-  );
-}
-
-function InternshipCard({
-  item,
-  appliedDate,
-  notes,
-  onNotesChange,
-  onToggleApplied,
-}: {
-  item: Internship;
-  appliedDate: string | null;
-  notes: string;
-  onNotesChange: (note: string) => void;
-  onToggleApplied: () => void;
-}) {
-  const [notesOpen, setNotesOpen] = useState(false);
-
-  return (
-    <Card
-      className={`relative flex flex-col gap-3 p-4 border-white/10 bg-white/[0.03] transition-opacity ${
-        item.applied ? "opacity-50" : ""
-      }`}
-    >
-      {/* Applied stamp */}
-      {item.applied && (
-        <span className="absolute top-3 right-3 text-[10px] font-bold uppercase tracking-widest text-white/30 border border-white/20 px-2 py-0.5 rounded rotate-[-6deg]">
-          Applied
-        </span>
-      )}
-
-      {/* Top row */}
-      <div className="flex items-start justify-between gap-2 pr-16">
-        <div>
-          <p className="font-semibold text-sm text-white leading-tight">{item.company}</p>
-          <p className="text-xs text-white/60 mt-0.5">{item.title}</p>
-        </div>
-        <div className="flex flex-col items-end gap-1 shrink-0">
-          {item.seenAt && (
-            <span className="text-[10px] font-medium text-white/40 px-1.5 py-0.5">
-              {timeAgo(item.seenAt)}
-            </span>
-          )}
-          {item.scoreLabel && (
-            <span
-              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                SCORE_BADGE[item.scoreLabel] ?? SCORE_BADGE.Low
-              }`}
-            >
-              {item.scoreLabel}
-              {item.score != null ? ` · ${item.score}` : ""}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Meta row */}
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-white/40">
-        {item.location && (
-          <span className="flex items-center gap-1">
-            <MapPin className="h-3 w-3" />
-            {item.location}
-          </span>
-        )}
-        <span
-          className={`px-1.5 py-0.5 rounded text-[10px] ${
-            SOURCE_BADGE[item.source] ?? "bg-white/5 text-white/40 border border-white/10"
-          }`}
-        >
-          {item.source}
-        </span>
-        {item.salaryText && (
-          <span className="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
-            {item.salaryText}
-          </span>
-        )}
-        {item.postedAt && (
-          <span className="flex items-center gap-1.5 text-white/30">
-            {formatDate(item.postedAt)}
-            {isStale(item.postedAt) && (
-              <span className="px-1 py-0.5 rounded text-[9px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
-                Stale?
-              </span>
-            )}
-          </span>
-        )}
-      </div>
-
-      {/* Keywords */}
-      {(item.matchedKeywords ?? []).length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {(item.matchedKeywords ?? []).slice(0, 6).map((kw) => (
-            <span
-              key={kw}
-              className="px-1.5 py-0.5 rounded bg-white/[0.06] text-[10px] text-white/50"
-            >
-              {kw}
-            </span>
-          ))}
-          {(item.matchedKeywords ?? []).length > 6 && (
-            <span className="text-[10px] text-white/30">
-              +{(item.matchedKeywords ?? []).length - 6}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Actions */}
-      <div className="flex items-center gap-2 pt-1">
-        <a
-          href={item.link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={cn(
-            buttonVariants({ variant: "outline", size: "sm" }),
-            "h-7 px-3 text-xs border-white/10 bg-white/5 hover:bg-white/10"
-          )}
-        >
-          <ExternalLink className="h-3 w-3 mr-1" />
-          Apply
-        </a>
-        <button
-          onClick={onToggleApplied}
-          className="text-xs text-white/30 hover:text-white/60 transition-colors"
-        >
-          {item.applied ? "Mark unapplied" : "Mark applied"}
-        </button>
-        {appliedDate && (
-          <span className="text-[10px] text-white/30">
-            Applied {formatDate(appliedDate)}
-          </span>
-        )}
-        <button
-          onClick={() => setNotesOpen((v) => !v)}
-          className={`ml-auto text-white/30 hover:text-white/60 transition-colors ${
-            notes ? "text-white/50" : ""
-          }`}
-          title="Notes"
-        >
-          <StickyNote className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* Inline notes */}
-      {notesOpen && (
-        <Textarea
-          placeholder="Add notes…"
-          value={notes}
-          onChange={(e) => onNotesChange(e.target.value)}
-          className="text-xs bg-white/5 border-white/10 text-white/70 placeholder:text-white/20 resize-none h-16"
-        />
-      )}
-    </Card>
   );
 }
