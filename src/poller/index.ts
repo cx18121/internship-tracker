@@ -92,7 +92,7 @@ async function main(): Promise<void> {
 // try to wait for an in-flight cycle to finish (slow cycles take minutes) —
 // SQLite writes are synchronous, so anything mid-cycle has either committed or
 // will be re-fetched next cycle. We just close the DB cleanly so WAL gets
-// checkpointed, then exit 0 to keep `concurrently` quiet.
+// checkpointed, then exit 0 to keep the supervisor quiet.
 let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
