@@ -16,6 +16,7 @@ import { filterInternships } from './filter';
 import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { parseSalary } from '../lib/salary';
+import { normalizeKey } from '../lib/normalize-key';
 import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess } from './notifier';
 
 let consecutiveFailures = 0;
@@ -203,6 +204,7 @@ export async function runCycle(): Promise<CycleStats> {
       matchedKeywords,
       isNew: true,
       applied: false,
+      normalizedKey: normalizeKey(p.company || '', p.title || ''),
       ...(salary.text ? {
         salaryText: salary.text,
         salaryMin: salary.min ?? undefined,

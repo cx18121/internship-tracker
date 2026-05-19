@@ -118,10 +118,15 @@ CREATE TABLE IF NOT EXISTS seen_ids (
 // Columns added after the initial schema. Run idempotently on every boot —
 // ALTER TABLE ADD COLUMN throws if the column exists, which we swallow.
 const LATER_COLUMNS: Array<{ col: string; def: string }> = [
-  { col: 'salary_text', def: 'TEXT' },
-  { col: 'salary_min',  def: 'REAL' },
-  { col: 'salary_max',  def: 'REAL' },
-  { col: 'salary_unit', def: 'TEXT' },
+  { col: 'salary_text',    def: 'TEXT' },
+  { col: 'salary_min',     def: 'REAL' },
+  { col: 'salary_max',     def: 'REAL' },
+  { col: 'salary_unit',    def: 'TEXT' },
+  { col: 'normalized_key', def: 'TEXT' },
+];
+
+const LATER_INDEXES: Array<{ name: string; sql: string }> = [
+  { name: 'idx_internships_normalized_key', sql: 'CREATE INDEX IF NOT EXISTS idx_internships_normalized_key ON internships(normalized_key)' },
 ];
 
 function applyColumnMigrations(db: Database.Database): void {
@@ -132,6 +137,7 @@ function applyColumnMigrations(db: Database.Database): void {
       db.exec(`ALTER TABLE internships ADD COLUMN ${col} ${def}`);
     }
   }
+  for (const { sql } of LATER_INDEXES) db.exec(sql);
 }
 
 // ---------------------------------------------------------------------------
@@ -181,13 +187,13 @@ function autoMigrateFromJson(): void {
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
          first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit)
+         salary_text, salary_min, salary_max, salary_unit, normalized_key)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
         @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit)
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey)
     `);
     const insertMany = db.transaction((records: Internship[]) => {
       for (const r of records) insert.run(toRow(r));
@@ -241,6 +247,7 @@ interface Row {
   salary_min: number | null;
   salary_max: number | null;
   salary_unit: string | null;
+  normalized_key: string | null;
 }
 
 function fromRow(r: Row): Internship {
@@ -274,6 +281,7 @@ function fromRow(r: Row): Internship {
     salaryMin: r.salary_min ?? undefined,
     salaryMax: r.salary_max ?? undefined,
     salaryUnit: (r.salary_unit as Internship['salaryUnit']) ?? undefined,
+    normalizedKey: r.normalized_key ?? undefined,
   };
 }
 
@@ -308,6 +316,7 @@ function toRow(i: Internship): Record<string, unknown> {
     salaryMin: i.salaryMin ?? null,
     salaryMax: i.salaryMax ?? null,
     salaryUnit: i.salaryUnit ?? null,
+    normalizedKey: i.normalizedKey ?? null,
   };
 }
 
@@ -346,13 +355,13 @@ export function saveInternships(internships: Internship[]): void {
        matched_keywords, is_new, applied, archived, applied_at,
        application_url, application_status, failed_check_count,
        first_failed_at, last_checked_at, multi_location,
-       salary_text, salary_min, salary_max, salary_unit)
+       salary_text, salary_min, salary_max, salary_unit, normalized_key)
     VALUES (@id, @title, @company, @location, @description, @link, @source,
       @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
       @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
       @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
       @lastCheckedAt, @multiLocation,
-      @salaryText, @salaryMin, @salaryMax, @salaryUnit)
+      @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey)
     ON CONFLICT(id) DO UPDATE SET
       title              = excluded.title,
       company            = excluded.company,
@@ -381,7 +390,8 @@ export function saveInternships(internships: Internship[]): void {
       salary_text        = excluded.salary_text,
       salary_min         = excluded.salary_min,
       salary_max         = excluded.salary_max,
-      salary_unit        = excluded.salary_unit
+      salary_unit        = excluded.salary_unit,
+      normalized_key     = excluded.normalized_key
   `);
   const upsertMany = db.transaction((records: Internship[]) => {
     for (const r of records) upsert.run(toRow(r));
@@ -398,10 +408,14 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
   return withLock(() => {
     const db = getDb();
 
-    // Build seenLinks set from existing rows for cross-source UTM-dedup
-    const seenLinkRows = db.prepare('SELECT link FROM internships WHERE link IS NOT NULL AND link != \'\'').all() as { link: string }[];
+    // Build seenLinks + seenKeys sets from existing rows for cross-source dedup
+    const seenLinkRows = db.prepare('SELECT link, normalized_key FROM internships WHERE archived = 0').all() as { link: string; normalized_key: string | null }[];
     const seenLinks = new Set<string>();
-    for (const row of seenLinkRows) seenLinks.add(stripUtm(row.link));
+    const seenKeys = new Set<string>();
+    for (const row of seenLinkRows) {
+      if (row.link) seenLinks.add(stripUtm(row.link));
+      if (row.normalized_key) seenKeys.add(row.normalized_key);
+    }
 
     const existingIdRow = db.prepare('SELECT id FROM seen_ids WHERE id = ?');
     const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
@@ -412,18 +426,18 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
          first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit)
+         salary_text, salary_min, salary_max, salary_unit, normalized_key)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
         @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit)
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey)
     `);
 
     const newInternships: Internship[] = [];
 
-    const txn = db.transaction((items: Internship[]) => {
+        const txn = db.transaction((items: Internship[]) => {
       for (const i of items) {
         // Exact id seen?
         if (existingIdRow.get(i.id)) continue;
@@ -431,7 +445,12 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         // Same posting via different UTM params?
         const normalizedLink = stripUtm(i.link || '');
         if (i.link && seenLinks.has(normalizedLink)) continue;
+
+        // Same role posted by another source (normalized company + title)?
+        if (i.normalizedKey && seenKeys.has(i.normalizedKey)) continue;
+
         if (i.link) seenLinks.add(normalizedLink);
+        if (i.normalizedKey) seenKeys.add(i.normalizedKey);
 
         const stored: Internship = { ...i, link: normalizedLink || i.link, isNew: true };
         insertInternship.run(toRow(stored));

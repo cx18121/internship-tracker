@@ -38,6 +38,8 @@ export interface Internship {
   salaryMin?: number;
   salaryMax?: number;
   salaryUnit?: 'hourly' | 'monthly' | 'yearly';
+  /** Cross-source dedup key (company + normalized title). See src/lib/normalize-key.ts. */
+  normalizedKey?: string;
 }
 
 export interface CycleStats {
