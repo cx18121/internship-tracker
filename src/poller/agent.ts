@@ -17,9 +17,7 @@ import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { parseSalary } from '../lib/salary';
 import { normalizeKey } from '../lib/normalize-key';
-import { sendBatchAlert, sendSourceFailureAlert, recordSourceFailure, recordSourceSuccess, checkAndAlertSourceHealth } from './notifier';
-
-let consecutiveFailures = 0;
+import { sendBatchAlert, checkAndAlertSourceHealth } from './notifier';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
@@ -30,12 +28,8 @@ async function pollFastSources(stats: CycleStats, allRaw: Partial<Internship>[])
     const githubResults = await pollGitHub();
     allRaw.push(...githubResults);
     stats.sourcesPolled.push('SimplifyJobs');
-    recordSourceSuccess();
-    consecutiveFailures = 0;
   } catch (err: any) {
     console.error('[agent] GitHub poller failed:', err.message);
-    recordSourceFailure();
-    consecutiveFailures++;
   }
 }
 
@@ -61,8 +55,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           }
         } catch (err: any) {
           console.error('[agent] ATS poller failed:', err.message);
-          recordSourceFailure();
-          consecutiveFailures++;
         }
       })(),
       (async () => {
@@ -72,8 +64,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           if (r.length > 0) stats.sourcesPolled.push('Greenhouse');
         } catch (err: any) {
           console.error('[agent] Greenhouse discovery poller failed:', err.message);
-          recordSourceFailure();
-          consecutiveFailures++;
         }
       })(),
       (async () => {
@@ -83,8 +73,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           if (r.length > 0) stats.sourcesPolled.push('Lever');
         } catch (err: any) {
           console.error('[agent] Lever discovery poller failed:', err.message);
-          recordSourceFailure();
-          consecutiveFailures++;
         }
       })(),
       (async () => {
@@ -94,8 +82,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           if (r.length > 0) stats.sourcesPolled.push('Ashby');
         } catch (err: any) {
           console.error('[agent] Ashby discovery poller failed:', err.message);
-          recordSourceFailure();
-          consecutiveFailures++;
         }
       })(),
       (async () => {
@@ -107,8 +93,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           }
         } catch (err: any) {
           console.error('[agent] WebSearch discovery poller failed:', err.message);
-          recordSourceFailure();
-          consecutiveFailures++;
         }
       })(),
     ]);
@@ -120,11 +104,9 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
     try {
       const r = await pollHandshake();
       allRaw.push(...r);
-      if (r.length > 0) { stats.sourcesPolled.push('Handshake'); recordSourceSuccess(); }
+      if (r.length > 0) stats.sourcesPolled.push('Handshake');
     } catch (err: any) {
       console.error('[agent] Handshake poller failed:', err.message);
-      recordSourceFailure();
-      consecutiveFailures++;
     }
     try {
       const r = await scanCareersPages();
@@ -132,8 +114,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       if (r.length > 0) stats.sourcesPolled.push('CareersScan');
     } catch (err: any) {
       console.error('[agent] Careers scan poller failed:', err.message);
-      recordSourceFailure();
-      consecutiveFailures++;
     }
     try {
       const r = await pollYCWaaS();
@@ -141,8 +121,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       if (r.length > 0) stats.sourcesPolled.push('YC WaaS');
     } catch (err: any) {
       console.error('[agent] YC WaaS poller failed:', err.message);
-      recordSourceFailure();
-      consecutiveFailures++;
     }
     try {
       const r = await pollInhouse();
@@ -150,8 +128,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       if (r.length > 0) stats.sourcesPolled.push('Inhouse');
     } catch (err: any) {
       console.error('[agent] Inhouse poller failed:', err.message);
-      recordSourceFailure();
-      consecutiveFailures++;
     }
   };
 
@@ -163,8 +139,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));
     } catch (err: any) {
       console.error('[agent] JobSpy poller failed:', err.message);
-      recordSourceFailure();
-      consecutiveFailures++;
     }
   };
 
@@ -193,13 +167,6 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
 
   stats.rawFetched = allRaw.length;
   console.log(`[agent] Fetched ${stats.rawFetched} raw postings from ${stats.sourcesPolled.join(', ')}`);
-
-  // Check for consecutive source failures
-  if (consecutiveFailures >= 2) {
-    console.error('[agent] 2+ consecutive source failures — sending alert');
-    await sendSourceFailureAlert();
-    consecutiveFailures = 0;
-  }
 
   // Apply hard filters
   const { passed, counts } = filterInternships(allRaw);

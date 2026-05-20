@@ -9,16 +9,6 @@ const SOURCE_EMOJIS: Record<string, string> = {
   Handshake: '🤝',
 };
 
-let consecutiveSourceFailures = 0;
-
-export function recordSourceFailure(): void {
-  consecutiveSourceFailures++;
-}
-
-export function recordSourceSuccess(): void {
-  consecutiveSourceFailures = 0;
-}
-
 export async function sendBatchAlert(
   newInternships: Internship[],
   scoreThreshold: number
@@ -132,11 +122,6 @@ export async function sendBatchAlert(
   }
 
   return sentAny;
-}
-
-export async function sendSourceFailureAlert(): Promise<boolean> {
-  console.warn(`[notifier] ${consecutiveSourceFailures} consecutive source failures detected`);
-  return false;
 }
 
 // ---------------------------------------------------------------------------
