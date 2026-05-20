@@ -12,6 +12,8 @@ interface SourceEntry {
   last24h: number;
   last7d: number;
   lastSeenAt: string | null;
+  lastCycleRaw?: number;     // items fetched by this source last cycle (pre-dedup)
+  lastCycleNetNew?: number;  // items that actually got stored (post-dedup)
 }
 
 interface HealthResponse {
@@ -106,12 +108,25 @@ export function SourceHealth() {
                     {s.lastSeenAt ? timeAgo(s.lastSeenAt) : "never"}
                   </span>
                 </div>
-                <div className="text-[10px] text-white/40 shrink-0 tabular-nums">
-                  <span className={down ? "text-red-400/80" : "text-white/60"}>{s.last24h}</span>
-                  <span className="text-white/20"> / </span>
-                  <span>{s.last7d}</span>
-                  <span className="text-white/20"> / </span>
-                  <span>{s.total}</span>
+                <div className="text-[10px] text-white/40 shrink-0 tabular-nums flex items-center gap-1.5">
+                  <span>
+                    <span className={down ? "text-red-400/80" : "text-white/60"}>{s.last24h}</span>
+                    <span className="text-white/20"> / </span>
+                    <span>{s.last7d}</span>
+                    <span className="text-white/20"> / </span>
+                    <span>{s.total}</span>
+                  </span>
+                  {(s.lastCycleRaw ?? 0) > 0 && (
+                    <span
+                      className="text-white/30 border-l border-white/10 pl-1.5"
+                      title={`Last cycle: ${s.lastCycleNetNew ?? 0} net-new / ${s.lastCycleRaw} fetched`}
+                    >
+                      <span className={(s.lastCycleNetNew ?? 0) > 0 ? "text-emerald-400/80" : "text-white/40"}>
+                        +{s.lastCycleNetNew ?? 0}
+                      </span>
+                      <span className="text-white/20">/{s.lastCycleRaw}</span>
+                    </span>
+                  )}
                 </div>
               </div>
             );
@@ -121,8 +136,11 @@ export function SourceHealth() {
 
       {!collapsed && (
         <p className="text-[10px] text-white/30 mt-2 px-1">
-          Counts shown as <span className="text-white/50">24h / 7d / total</span>. Sources highlighted
-          red haven&apos;t produced any records in 7+ days; amber means quiet for &gt;24h.
+          Counts shown as <span className="text-white/50">24h / 7d / total</span> · last-cycle{" "}
+          <span className="text-emerald-400/70">+net-new</span>
+          <span className="text-white/40">/fetched</span>. Sources highlighted red haven&apos;t produced any records in 7+ days;
+          amber means quiet for &gt;24h. A source fetching but with <span className="text-emerald-400/70">+0</span> net-new is
+          alive but only finding duplicates of other sources.
         </p>
       )}
     </Card>

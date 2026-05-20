@@ -1,18 +1,42 @@
-import { getInternships } from "@/lib/store";
+import { getInternships, getStats } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const internships = getInternships({ includeArchived: true });
+  const { lastCycleSourceCounts, lastCycleNetNewBySource } = getStats();
 
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
 
-  type Entry = { total: number; last24h: number; last7d: number; lastSeenAt: string | null };
+  type Entry = {
+    total: number;
+    last24h: number;
+    last7d: number;
+    lastSeenAt: string | null;
+    lastCycleRaw: number;
+    lastCycleNetNew: number;
+  };
   const sourceMap = new Map<string, Entry>();
 
+  function getOrInit(name: string): Entry {
+    let entry = sourceMap.get(name);
+    if (!entry) {
+      entry = {
+        total: 0,
+        last24h: 0,
+        last7d: 0,
+        lastSeenAt: null,
+        lastCycleRaw: 0,
+        lastCycleNetNew: 0,
+      };
+      sourceMap.set(name, entry);
+    }
+    return entry;
+  }
+
   for (const i of internships) {
-    const entry = sourceMap.get(i.source) ?? { total: 0, last24h: 0, last7d: 0, lastSeenAt: null };
+    const entry = getOrInit(i.source);
     entry.total++;
     const seenAt = i.seenAt;
     const age = now - new Date(seenAt).getTime();
@@ -21,7 +45,15 @@ export async function GET() {
     if (!entry.lastSeenAt || new Date(seenAt) > new Date(entry.lastSeenAt)) {
       entry.lastSeenAt = seenAt;
     }
-    sourceMap.set(i.source, entry);
+  }
+
+  // Layer in last-cycle counts, including sources that fetched but contributed
+  // zero net-new (those won't show up via stored rows alone).
+  for (const [name, raw] of Object.entries(lastCycleSourceCounts ?? {})) {
+    getOrInit(name).lastCycleRaw = raw;
+  }
+  for (const [name, n] of Object.entries(lastCycleNetNewBySource ?? {})) {
+    getOrInit(name).lastCycleNetNew = n;
   }
 
   const sources = Array.from(sourceMap.entries())

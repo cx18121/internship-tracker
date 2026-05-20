@@ -233,14 +233,23 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
   });
 
   // Dedup and store
-  const { newInternships, totalStored } = await deduplicateAndStore(scored);
+  const { newInternships, totalStored, netNewBySource } = await deduplicateAndStore(scored);
   stats.newScored = newInternships.length;
   console.log(`[agent] ${newInternships.length} new postings stored (total: ${totalStored})`);
 
-  // Persist exclusion counts so the stats API can surface them
+  // Log per-source net-new contribution so we can see which sources are
+  // actually pulling weight vs. always deduping against existing rows.
+  const netNewSummary = Object.entries(netNewBySource)
+    .sort(([, a], [, b]) => b - a)
+    .map(([s, n]) => `${s}=${n}`)
+    .join(' ');
+  if (netNewSummary) console.log(`[agent] Net-new by source: ${netNewSummary}`);
+
+  // Persist exclusion counts + per-source net-new so the stats API can surface them
   savePollStats({
     polledAt: new Date().toISOString(),
     sourceCounts,
+    netNewBySource,
     exclusionCounts: {
       'non-us':         counts.excludedNonUS,
       'phd-required':   counts.excludedPhDRequired,

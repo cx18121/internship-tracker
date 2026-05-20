@@ -419,6 +419,13 @@ export function saveInternships(internships: Internship[]): void {
 export interface StoreResult {
   newInternships: Internship[];
   totalStored: number;
+  // Per-source counts of items entering dedup (post-filter). Useful when paired
+  // with netNewBySource to see whether a source is fetching but always
+  // deduping against existing rows — i.e., contributing zero new coverage.
+  incomingBySource: Record<string, number>;
+  // Per-source counts of items that actually got stored (passed all three
+  // dedup checks). The genuine "coverage contribution" of each source per cycle.
+  netNewBySource: Record<string, number>;
 }
 
 export async function deduplicateAndStore(incoming: Internship[]): Promise<StoreResult> {
@@ -453,6 +460,13 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
     `);
 
     const newInternships: Internship[] = [];
+    const incomingBySource: Record<string, number> = {};
+    const netNewBySource: Record<string, number> = {};
+
+    for (const i of incoming) {
+      const src = i.source || 'Unknown';
+      incomingBySource[src] = (incomingBySource[src] || 0) + 1;
+    }
 
         const txn = db.transaction((items: Internship[]) => {
       for (const i of items) {
@@ -473,12 +487,14 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         insertInternship.run(toRow(stored));
         insertSeen.run(stored.id);
         newInternships.push(stored);
+        const src = stored.source || 'Unknown';
+        netNewBySource[src] = (netNewBySource[src] || 0) + 1;
       }
     });
     txn(incoming);
 
     const totalStored = (db.prepare('SELECT COUNT(*) as n FROM internships').get() as { n: number }).n;
-    return { newInternships, totalStored };
+    return { newInternships, totalStored, incomingBySource, netNewBySource };
   });
 }
 
@@ -509,6 +525,8 @@ export function getStats(): {
   byLabel: Record<string, number>;
   lastPolledAt: string | null;
   exclusionCounts: Record<string, number>;
+  lastCycleSourceCounts: Record<string, number>;
+  lastCycleNetNewBySource: Record<string, number>;
 } {
   const db = getDb();
   const total = (db.prepare('SELECT COUNT(*) as n FROM internships').get() as { n: number }).n;
@@ -529,27 +547,37 @@ export function getStats(): {
   const lastPolledAt = lastSeen?.seen_at ?? null;
 
   let exclusionCounts: Record<string, number> = {};
+  let lastCycleSourceCounts: Record<string, number> = {};
+  let lastCycleNetNewBySource: Record<string, number> = {};
   try {
     const raw = fs.readFileSync(path.join(DATA_DIR, 'poll-stats.json'), 'utf-8');
-    exclusionCounts = JSON.parse(raw).exclusionCounts ?? {};
+    const parsed = JSON.parse(raw);
+    exclusionCounts = parsed.exclusionCounts ?? {};
+    lastCycleSourceCounts = parsed.sourceCounts ?? {};
+    lastCycleNetNewBySource = parsed.netNewBySource ?? {};
   } catch {}
 
-  return { total, bySource, byLabel, lastPolledAt, exclusionCounts };
+  return { total, bySource, byLabel, lastPolledAt, exclusionCounts, lastCycleSourceCounts, lastCycleNetNewBySource };
 }
 
 /**
  * Persisted per-poll exclusion counts. Stays as a flat JSON file — it's tiny
  * latest-only state, no need to occupy a DB table.
+ *
+ * sourceCounts = raw fetched per source (pre-filter); netNewBySource = items
+ * that survived dedup and got stored (the real coverage contribution).
  */
 export function savePollStats(stats: {
   polledAt: string;
   sourceCounts?: Record<string, number>;
+  netNewBySource?: Record<string, number>;
   exclusionCounts: Record<string, number>;
 }): void {
   const statsPath = path.join(DATA_DIR, 'poll-stats.json');
   fs.writeFileSync(statsPath, JSON.stringify({
     polledAt: stats.polledAt,
     sourceCounts: stats.sourceCounts ?? {},
+    netNewBySource: stats.netNewBySource ?? {},
     exclusionCounts: stats.exclusionCounts,
   }, null, 2));
 }
