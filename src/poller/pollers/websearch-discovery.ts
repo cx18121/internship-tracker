@@ -266,6 +266,11 @@ async function discoverPlatform(
  * and return the new verified entries.
  */
 export async function pollWebsearchDiscovery(): Promise<DiscoveredCompany[]> {
+  if (!BRAVE_API_KEY) {
+    console.warn('[websearch-discovery] BRAVE_API_KEY not set — websearch discovery disabled (set it in Railway env to activate)');
+    return [];
+  }
+
   const existingCompanies = loadExistingCompanies();
   const alreadyDiscovered = loadScanHistory(existingCompanies);
 
