@@ -1742,13 +1742,6 @@
       "name": "Impinj"
     },
     {
-      "slug": "kar",
-      "ats": "workday",
-      "name": "OPENLANE",
-      "board": "OPENLANE_Careers",
-      "wdInstance": "wd1"
-    },
-    {
       "slug": "autodesk",
       "ats": "workday",
       "name": "Autodesk",
@@ -2783,13 +2776,6 @@
       "wdInstance": "wd5"
     },
     {
-      "slug": "netflix",
-      "ats": "workday",
-      "name": "🔥 Netflix",
-      "board": "Netflix",
-      "wdInstance": "wd1"
-    },
-    {
       "slug": "bjswholesaleclub",
       "ats": "workday",
       "name": "BJ's Wholesale Club",
@@ -3027,13 +3013,6 @@
       "name": "Bloom Energy",
       "board": "bloomenergycareers",
       "wdInstance": "wd1"
-    },
-    {
-      "slug": "evrazna",
-      "ats": "workday",
-      "name": "Orion Steel Group",
-      "board": "EVRAZ",
-      "wdInstance": "wd5"
     },
     {
       "slug": "asmglobal",
@@ -4079,13 +4058,6 @@
       "slug": "Visa",
       "ats": "smartrecruiters",
       "name": "🔥 Visa"
-    },
-    {
-      "slug": "cambiahealth",
-      "ats": "workday",
-      "board": "External",
-      "wdInstance": "wd1",
-      "name": "Cambia Health Solutions"
     },
     {
       "slug": "snapchat",
