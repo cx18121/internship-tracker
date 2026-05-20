@@ -8,7 +8,10 @@ const REQUEST_TIMEOUT = 20_000;
 interface RawJob {
   id: number;
   title: string;
-  jobType: 'intern' | 'fulltime' | 'parttime' | 'contract';
+  // YC's actual values are capitalized: 'Intern' | 'Fulltime' | 'Parttime' | 'Contract'.
+  // Compare case-insensitively below — lowercased typedef in earlier code was wrong
+  // and silently filtered every intern out.
+  jobType: string;
   location: string;
   roleType: string;
   companyName: string;
@@ -52,7 +55,7 @@ async function fetchViaPlaywright(now: string): Promise<Partial<Internship>[]> {
       }
       const jobs: RawJob[] = data?.props?.jobs || [];
       return jobs
-        .filter((j) => j.jobType === 'intern')
+        .filter((j) => (j.jobType || '').toLowerCase() === 'intern')
         .map((j) => ({
           title: j.title,
           company: j.companyName,
@@ -101,7 +104,7 @@ async function fetchViaSSR(now: string): Promise<Partial<Internship>[]> {
 
   const jobs: RawJob[] = data?.props?.jobs || [];
   return jobs
-    .filter((j) => j.jobType === 'intern')
+    .filter((j) => (j.jobType || '').toLowerCase() === 'intern')
     .map((j) => ({
       title: j.title,
       company: j.companyName,
