@@ -293,27 +293,40 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
   return results;
 }
 
-async function pollWorkdayPlaywright(csrfTargets: ATSTarget[], now: string): Promise<Partial<Internship>[]> {
-  if (csrfTargets.length === 0) return [];
+async function pollWorkdayPlaywright(
+  csrfTargets: ATSTarget[],
+  now: string,
+): Promise<{ jobs: Partial<Internship>[]; csrfConfirmedSlugs: string[] }> {
+  if (csrfTargets.length === 0) return { jobs: [], csrfConfirmedSlugs: [] };
   const { firefox } = await import('playwright');
   const browser = await firefox.launch({ headless: true });
-  const results: Partial<Internship>[] = [];
+  const jobs: Partial<Internship>[] = [];
+  const csrfConfirmedSlugs: string[] = [];
 
-  for (const target of csrfTargets) {
+  const CONCURRENCY = parseInt(process.env.WORKDAY_PLAYWRIGHT_CONCURRENCY || '4', 10);
+  const queue = [...csrfTargets];
+
+  async function pollOnePw(target: ATSTarget): Promise<void> {
     const tenant = target.slug;
-    const wdInstance = target.wdInstance || 'wd5';
+    const wdInstance = target.wdInstance || 'wd1';
     const board = target.board || '';
+    const isSiteVariant = target.wdDomain === 'myworkdaysite.com';
     if (!board) {
       console.warn(`[ats] Workday Playwright ${tenant}: no board name configured — skipping`);
-      continue;
+      return;
     }
-    const boardUrl = `https://${tenant}.${wdInstance}.myworkdayjobs.com/${board}`;
+    const baseHost = isSiteVariant
+      ? `${wdInstance}.myworkdaysite.com`
+      : `${tenant}.${wdInstance}.myworkdayjobs.com`;
+    const boardUrl = isSiteVariant
+      ? `https://${baseHost}/${tenant}/${board}`
+      : `https://${baseHost}/${board}`;
     const apiPath = `/wday/cxs/${tenant}/${board}/jobs`;
+
     const page = await browser.newPage();
     try {
       await page.goto(boardUrl, { waitUntil: 'networkidle', timeout: 30000 });
       const data: any = await page.evaluate(async (path: string) => {
-        // Extract CSRF token from cookies (Workday sets CSRF-Token or similar)
         const csrfToken = document.cookie.split(';')
           .map(c => c.trim())
           .find(c => /^(CSRF-Token|CALYPSO_CSRF_TOKEN|csrf_token)=/i.test(c))
@@ -332,40 +345,79 @@ async function pollWorkdayPlaywright(csrfTargets: ATSTarget[], now: string): Pro
       }, apiPath);
 
       if (!data) {
-        console.warn(`[ats] Workday Playwright ${target.slug}: API returned null`);
-        continue;
+        console.warn(`[ats] Workday Playwright ${tenant}: API returned null`);
+        return;
       }
+      // API call worked — CSRF path confirmed for this tenant
+      csrfConfirmedSlugs.push(tenant);
+
       const postings: any[] = data.jobPostings || [];
-      const company = target.name || target.slug;
-      const jobs = postings
+      const company = target.name || tenant;
+      const tJobs = postings
         .filter((j) => isInternTitle(j.title || ''))
         .map((j) => {
           const rawLoc = j.locationsText || '';
           const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
           return {
-          title: j.title || '',
-          company,
-          location,
-          link: `https://${tenant}.${wdInstance}.myworkdayjobs.com${j.externalPath}`,
-          source: 'Workday',
-          postedAt: now,
-          seenAt: now,
-          applied: false,
+            title: j.title || '',
+            company,
+            location,
+            link: `https://${baseHost}${j.externalPath}`,
+            source: 'Workday',
+            postedAt: now,
+            seenAt: now,
+            applied: false,
           };
         });
-      if (jobs.length > 0) {
-        console.log(`[ats] ${company} (Workday/Playwright): ${jobs.length} internships`);
+      if (tJobs.length > 0) {
+        console.log(`[ats] ${company} (Workday/Playwright): ${tJobs.length} internships`);
       }
-      results.push(...jobs);
+      jobs.push(...tJobs);
     } catch (e: any) {
-      console.warn(`[ats] Workday Playwright ${target.slug}: ${e.message}`);
+      console.warn(`[ats] Workday Playwright ${tenant}: ${e.message}`);
     } finally {
       await page.close();
     }
   }
 
+  const workers = Array.from(
+    { length: Math.min(CONCURRENCY, queue.length) },
+    async () => {
+      while (queue.length > 0) {
+        const target = queue.shift();
+        if (!target) return;
+        await pollOnePw(target);
+      }
+    },
+  );
+  await Promise.all(workers);
   await browser.close();
-  return results;
+  return { jobs, csrfConfirmedSlugs };
+}
+
+// Persist wdCsrfRequired:true for tenants whose Playwright fallback succeeded, so
+// future cycles skip the doomed direct CXS call. Re-reads the config at write
+// time to avoid clobbering concurrent saveDiscoveredTargets writes.
+function cacheWdCsrfRequired(slugs: string[]): void {
+  if (slugs.length === 0) return;
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    const existing: ATSTarget[] = raw.targets || [];
+    const slugSet = new Set(slugs);
+    let updated = 0;
+    for (const t of existing) {
+      if (t.ats === 'workday' && slugSet.has(t.slug) && !t.wdCsrfRequired) {
+        t.wdCsrfRequired = true;
+        updated++;
+      }
+    }
+    if (updated > 0) {
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify({ targets: existing }, null, 2));
+      console.log(`[ats] Cached wdCsrfRequired:true for ${updated} Workday tenant(s)`);
+    }
+  } catch (e: any) {
+    console.warn(`[ats] Failed to cache wdCsrfRequired flags: ${e.message}`);
+  }
 }
 
 export async function pollATS(): Promise<Partial<Internship>[]> {
@@ -382,6 +434,9 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   // Separate Playwright-required Workday targets to batch browser startup
   const csrfTargets = targets.filter(t => t.ats === 'workday' && t.wdCsrfRequired);
   const regularTargets = targets.filter(t => !(t.ats === 'workday' && t.wdCsrfRequired));
+  // Workday targets that 422 in the direct CXS call get queued here for the
+  // Playwright/CSRF fallback (and cached as wdCsrfRequired after first success).
+  const csrfFallback: ATSTarget[] = [];
 
   // Worker pool — N targets processed in parallel. Network-bound work, so
   // ramping concurrency well above CPU count is fine. Per-host load stays
@@ -403,7 +458,13 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
         results.push(...jobs);
       }
     } catch (e: any) {
-      const msg = e?.response?.status ? `HTTP ${e.response.status}` : e.message;
+      const status = e?.response?.status;
+      // Workday tenants that 422 here have CSRF enforcement enabled — try Playwright fallback
+      if (target.ats === 'workday' && status === 422) {
+        csrfFallback.push(target);
+        return;
+      }
+      const msg = status ? `HTTP ${status}` : e.message;
       console.warn(`[ats] ${target.name || target.slug} (${target.ats}): ${msg}`);
     }
   }
@@ -420,12 +481,17 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   );
   await Promise.all(workers);
 
-  // Playwright batch for CSRF-protected Workday instances
-  if (csrfTargets.length > 0) {
+  // Playwright batch for CSRF-protected Workday instances (pre-flagged + newly-detected 422 fallbacks)
+  const allCsrfTargets = [...csrfTargets, ...csrfFallback];
+  if (allCsrfTargets.length > 0) {
+    if (csrfFallback.length > 0) {
+      console.log(`[ats] Workday: ${csrfFallback.length} target(s) returned HTTP 422 — queuing for Playwright fallback`);
+    }
     try {
-      const playwrightJobs = await pollWorkdayPlaywright(csrfTargets, now);
+      const { jobs: playwrightJobs, csrfConfirmedSlugs } = await pollWorkdayPlaywright(allCsrfTargets, now);
       results.push(...playwrightJobs);
-      console.log(`[ats] Workday/Playwright total: ${playwrightJobs.length} from ${csrfTargets.length} targets`);
+      console.log(`[ats] Workday/Playwright total: ${playwrightJobs.length} from ${allCsrfTargets.length} targets`);
+      cacheWdCsrfRequired(csrfConfirmedSlugs);
     } catch (e: any) {
       console.warn(`[ats] Workday/Playwright batch failed: ${e.message}`);
     }
