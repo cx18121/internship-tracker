@@ -20,7 +20,7 @@ export function stripUtm(url: string): string {
     const TRACKING_PARAMS = new Set([
       'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
       'utm_id', 'utm_cid', 'utm_reader', 'utm_viz_id',
-      'ref', 'referrer', 'ref_', ' affiliated', 'affiliate', 'partner',
+      'ref', 'referrer', 'ref_', 'affiliated', 'affiliate', 'partner',
       'source', 'trk', 'trkInfo', 'trkCampaign',
       'ic', 'i',  // LinkedIn tracking
       'jk',       // Indeed viewjob encryption key

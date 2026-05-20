@@ -24,7 +24,7 @@ const SEED_SLUGS = [
   'vercel', 'linear', 'descript', 'milo', 'loom', 'cal',
   'loops', 'braintrust', 'calendly', 'make', 'asana',
   'pagerduty', 'razorpay', 'intercom', 'retool', 'person',
-  'lattice', 'vanta', ' DR', 'anchor', 'タイプの', 'rippling',
+  'lattice', 'vanta', 'anchor', 'rippling',
   'runway', 'outsite', 'mongodb', 'databricks', 'snowflake',
   'planetscale', 'neon', 'supabase', 'turso', 'luma',
   'algolia', 'fastapi', 'june', 'posthog', 'logrocket',

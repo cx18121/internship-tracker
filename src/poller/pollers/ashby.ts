@@ -25,7 +25,7 @@ const SEED_SLUGS = [
   'notion', 'linear', 'ramp', 'retool', 'vercel', 'mercury',
   'modal', 'openai', 'perplexity', 'cohere', 'elevenlabs', 'replit',
   'langchain', 'posthog', 'supabase', 'character', 'clerk', 'railway',
-  'browserbase', 'e2b', 'windsurf', 'codeium', ' TogetherAI', 'together',
+  'browserbase', 'e2b', 'windsurf', 'codeium', 'togetherai', 'together',
   'anyscale', 'assembla', 'bee', 'breaker', 'bright', 'cal',
   'canny', 'cargo', 'cedar', 'certik', 'chaos', 'checkr',
   'circle', 'clever', 'clover', 'cobalt', 'codecademy', 'codestream',

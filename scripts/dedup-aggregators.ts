@@ -45,7 +45,7 @@ interface Internship {
 const ATS_SOURCES = new Set([
   'greenhouse', 'lever', 'ashby', 'workday', 'icims',
   'smartrecruiters', 'bamboohr', 'jobvite', 'taleo',
-  ' BrassRing', 'applyto', 'halogensoftware'
+  'brassring', 'applyto', 'halogensoftware'
 ]);
 
 function isAtsSource(source: string): boolean {
