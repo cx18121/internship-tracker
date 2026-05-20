@@ -3,13 +3,8 @@ import { Internship } from '../../lib/types';
 
 const parser = new Parser({ timeout: 15000 });
 
-// LinkedIn Jobs RSS feed for software engineering internships (public feed)
-const RSS_FEEDS = [
-  'https://www.linkedin.com/jobs/search/?keywords=software+engineer+intern&f_JT=I&f_WT=1%2C2%2C3&f_C=&geoId=103644278&trk=public_jobs_jobs-search-bar_search-submit&position=1&pageNum=0',
-];
-
 // LinkedIn doesn't provide a real RSS feed for jobs easily, so we use a workaround
-// with their public job search. If that fails, we try an alternative approach.
+// via their public job-search .rss endpoint.
 const LINKEDIN_RSS_URL =
   'https://www.linkedin.com/jobs/search.rss?keywords=software+engineer+intern&location=United+States&f_JT=I&sortBy=DD';
 

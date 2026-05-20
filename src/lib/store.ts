@@ -36,7 +36,9 @@ export function isAggregatorLink(url: string): boolean {
     const { hostname } = new URL(url);
     const lower = hostname.toLowerCase().replace(/^www\./, '');
     for (const agg of AGGREGATOR_DOMAINS) {
-      if (lower.includes(agg)) return true;
+      // Match the hostname exactly or as a subdomain. Plain .includes()
+      // produced false positives like "my-dice.com" matching "dice.com".
+      if (lower === agg || lower.endsWith('.' + agg)) return true;
     }
     return false;
   } catch {

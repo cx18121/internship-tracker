@@ -63,8 +63,12 @@ export function parseSalary(input: string | null | undefined): Salary {
     if (!m) continue;
 
     const minRaw = num(m[1]);
-    const maxRaw = m[2] !== undefined ? num(m[2]) : minRaw;
+    let maxRaw = m[2] !== undefined ? num(m[2]) : minRaw;
     if (!Number.isFinite(minRaw)) continue;
+    // Fall back to min if the max capture group parsed to NaN/Infinity, else
+    // downstream multiplication propagates NaN past the min>max swap check
+    // (NaN comparisons are always false) and a garbage salary lands in storage.
+    if (!Number.isFinite(maxRaw)) maxRaw = minRaw;
 
     const mul = multiplier ?? 1;
     let min = minRaw * mul;
