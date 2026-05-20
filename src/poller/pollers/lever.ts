@@ -157,8 +157,12 @@ async function fetchBoard(
         seenAt: now,
         applied: false,
       }));
-  } catch {
-    // 404 / 403 / network error → company not on Lever or blocked
+  } catch (e: any) {
+    const status = e?.response?.status;
+    // 404 = company not on Lever — expected outcome from the probe pattern, stay quiet
+    if (status === 404) return [];
+    const msg = status ? `HTTP ${status}` : (e?.code || e?.message || 'unknown error');
+    console.warn(`[lever-discovery] ${slug}: ${msg}`);
     return [];
   }
 }
