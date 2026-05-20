@@ -12,6 +12,7 @@ import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { parseSalary } from '../lib/salary';
 import { normalizeKey } from '../lib/normalize-key';
 import { sendBatchAlert, checkAndAlertSourceHealth } from './notifier';
+import { loadNotifSettings } from '../lib/notifSettings';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
@@ -186,10 +187,12 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
     },
   });
 
-  // Send notifications
-  const scoreThreshold = parseInt(process.env.SCORE_THRESHOLD || '50', 10);
+  // Send notifications. notif-settings.json (user-edited in the UI) is the
+  // source of truth for minScore; SCORE_THRESHOLD env is the legacy fallback.
+  const envThreshold = parseInt(process.env.SCORE_THRESHOLD || '50', 10);
+  const scoreThreshold = loadNotifSettings().minScore ?? envThreshold;
   if (newInternships.length > 0) {
-    const sent = await sendBatchAlert(newInternships, scoreThreshold);
+    const sent = await sendBatchAlert(newInternships, envThreshold);
     if (sent) stats.sent = newInternships.filter(i => (i.score ?? 0) >= scoreThreshold).length;
   }
 
