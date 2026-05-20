@@ -24,7 +24,7 @@ import {
 import { InternshipCard } from "./_components/InternshipCard";
 import { NotifModal } from "./_components/NotifModal";
 import { SourceHealth } from "./_components/SourceHealth";
-import type { Internship, Stats, Sources, AppliedFilter, SortBy } from "./_lib/types";
+import type { Internship, Stats, Sources, AppliedFilter, SortBy, TierFilter } from "./_lib/types";
 import {
   SCORE_LABELS,
   LOCATION_PRESETS,
@@ -34,6 +34,7 @@ import {
 } from "./_lib/constants";
 import { timeAgo } from "./_lib/format";
 import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
+import { isElite, isTopOrBetter, ELITE_COUNT, TOP_COUNT } from "./_lib/tiers";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -52,6 +53,7 @@ export default function InternshipsPage() {
   const [includeKeywords, setIncludeKeywords] = useState<string[]>([]);
   const [excludeKeywords, setExcludeKeywords] = useState<string[]>([]);
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
+  const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [kwIncludeInput, setKwIncludeInput] = useState("");
   const [kwExcludeInput, setKwExcludeInput] = useState("");
 
@@ -106,6 +108,9 @@ export default function InternshipsPage() {
     const applied = sp.get("applied") as AppliedFilter | null;
     if (applied === "applied" || applied === "not-applied") setAppliedFilter(applied);
 
+    const tier = sp.get("tier") as TierFilter | null;
+    if (tier === "top-or-better" || tier === "elite") setTierFilter(tier);
+
     const sort = sp.get("sort") as SortBy | null;
     if (sort === "newest" || sort === "posted" || sort === "score") setSortBy(sort);
 
@@ -127,6 +132,7 @@ export default function InternshipsPage() {
     if (minScore > 0) params.set("minScore", String(minScore));
     if (locationText) params.set("location", locationText);
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
+    if (tierFilter !== "all") params.set("tier", tierFilter);
     if (sortBy !== "score") params.set("sort", sortBy);
     if (currentPage > 1) params.set("page", String(currentPage));
 
@@ -137,7 +143,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, selectedLabels, selectedLocations,
     includeKeywords, excludeKeywords,
-    minScore, locationText, appliedFilter, sortBy, currentPage,
+    minScore, locationText, appliedFilter, tierFilter, sortBy, currentPage,
   ]);
 
   const fetchData = useCallback(async (isRefresh = false) => {
@@ -188,7 +194,7 @@ export default function InternshipsPage() {
   useEffect(() => {
     if (!hydrated) return;
     setCurrentPage(1);
-  }, [hydrated, selectedSources, selectedLabels, minScore, selectedLocations, locationText, includeKeywords, excludeKeywords, appliedFilter, sortBy]);
+  }, [hydrated, selectedSources, selectedLabels, minScore, selectedLocations, locationText, includeKeywords, excludeKeywords, appliedFilter, tierFilter, sortBy]);
 
   // Load notification settings
   useEffect(() => {
@@ -268,6 +274,7 @@ export default function InternshipsPage() {
     setIncludeKeywords([]);
     setExcludeKeywords([]);
     setAppliedFilter("all");
+    setTierFilter("all");
     setSortBy("score");
     setCurrentPage(1);
   }
@@ -304,6 +311,8 @@ export default function InternshipsPage() {
       if (minScore > 0 && (i.score ?? 0) < minScore) return false;
       if (appliedFilter === "applied" && !i.applied) return false;
       if (appliedFilter === "not-applied" && i.applied) return false;
+      if (tierFilter === "elite" && !isElite(i.company)) return false;
+      if (tierFilter === "top-or-better" && !isTopOrBetter(i.company)) return false;
       if (selectedLocations.length > 0 || locationText) {
         const loc = i.location.toLowerCase();
         const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
@@ -350,7 +359,8 @@ export default function InternshipsPage() {
     locationText !== "" ||
     includeKeywords.length > 0 ||
     excludeKeywords.length > 0 ||
-    appliedFilter !== "all";
+    appliedFilter !== "all" ||
+    tierFilter !== "all";
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-6xl mx-auto">
@@ -482,6 +492,30 @@ export default function InternshipsPage() {
                       </button>
                     ))
                   )}
+                </div>
+              </div>
+
+              {/* Tier (elite / top per scoring-config.json) */}
+              <div className="space-y-1.5">
+                <label className="text-xs text-white/40 uppercase tracking-wider">Tier</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(["all", "top-or-better", "elite"] as TierFilter[]).map((t) => (
+                    <button
+                      key={t}
+                      onClick={() => setTierFilter(t)}
+                      className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
+                        tierFilter === t
+                          ? "bg-white/15 border-white/30 text-white"
+                          : "bg-white/5 border-white/10 text-white/50 hover:border-white/20"
+                      }`}
+                    >
+                      {t === "all"
+                        ? "All"
+                        : t === "elite"
+                          ? `Elite (${ELITE_COUNT})`
+                          : `Top+ (${ELITE_COUNT + TOP_COUNT})`}
+                    </button>
+                  ))}
                 </div>
               </div>
 

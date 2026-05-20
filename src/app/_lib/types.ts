@@ -40,3 +40,4 @@ export interface SourceHealthEntry {
 
 export type AppliedFilter = "all" | "applied" | "not-applied";
 export type SortBy = "score" | "newest" | "posted";
+export type TierFilter = "all" | "top-or-better" | "elite";
