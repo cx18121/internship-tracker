@@ -37,7 +37,6 @@ const MERGE_FILES = {
 const OVERWRITE_FILES = new Set([
   'scoring-config.json',     // scoring tuning ships from source, no runtime writes
   'jobspy-config.json',      // poll query config, source-controlled
-  'inhouse-targets.json',    // hand-curated in-house career page list
   'resume.pdf',              // ships from source (currently used only locally)
 ]);
 

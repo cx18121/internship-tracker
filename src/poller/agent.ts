@@ -6,7 +6,6 @@ import { pollHandshake } from './pollers/handshake';
 import { pollJobSpy } from './pollers/jobspy';
 import { scanPortals } from './pollers/portal-scanner';
 import { pollYCWaaS } from './pollers/yc-waas';
-import { pollInhouse } from './pollers/inhouse';
 import { pollGreenhouseDiscovery } from './pollers/greenhouse';
 import { pollLeverDiscovery } from './pollers/lever';
 import { pollAshbyDiscovery } from './pollers/ashby';
@@ -121,13 +120,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       if (r.length > 0) stats.sourcesPolled.push('YC WaaS');
     } catch (err: any) {
       console.error('[agent] YC WaaS poller failed:', err.message);
-    }
-    try {
-      const r = await pollInhouse();
-      allRaw.push(...r);
-      if (r.length > 0) stats.sourcesPolled.push('Inhouse');
-    } catch (err: any) {
-      console.error('[agent] Inhouse poller failed:', err.message);
     }
   };
 
