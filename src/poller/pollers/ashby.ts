@@ -230,8 +230,12 @@ async function fetchBoard(
       });
     }
     return results;
-  } catch {
-    // 404 / 403 / network error → company not on Ashby or blocked
+  } catch (e: any) {
+    const status = e?.response?.status;
+    // 404 = company not on Ashby — expected for many probed slugs, stay quiet
+    if (status === 404) return [];
+    const msg = status ? `HTTP ${status}` : (e?.code || e?.message || 'unknown error');
+    console.warn(`[ashby-discovery] ${slug}: ${msg}`);
     return [];
   }
 }
