@@ -6,8 +6,6 @@ import { pollHandshake } from './pollers/handshake';
 import { pollJobSpy } from './pollers/jobspy';
 import { scanPortals } from './pollers/portal-scanner';
 import { pollYCWaaS } from './pollers/yc-waas';
-import { pollGreenhouseDiscovery } from './pollers/greenhouse';
-import { pollAshbyDiscovery } from './pollers/ashby';
 import { pollWebsearchDiscovery } from './pollers/websearch-discovery';
 import { scanCareersPages } from './pollers/careers-scan';
 import { filterInternships } from './filter';
@@ -53,24 +51,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           }
         } catch (err: any) {
           console.error('[agent] ATS poller failed:', err.message);
-        }
-      })(),
-      (async () => {
-        try {
-          const r = await pollGreenhouseDiscovery();
-          allRaw.push(...r);
-          if (r.length > 0) stats.sourcesPolled.push('Greenhouse');
-        } catch (err: any) {
-          console.error('[agent] Greenhouse discovery poller failed:', err.message);
-        }
-      })(),
-      (async () => {
-        try {
-          const r = await pollAshbyDiscovery();
-          allRaw.push(...r);
-          if (r.length > 0) stats.sourcesPolled.push('Ashby');
-        } catch (err: any) {
-          console.error('[agent] Ashby discovery poller failed:', err.message);
         }
       })(),
       (async () => {
