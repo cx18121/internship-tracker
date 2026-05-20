@@ -14,6 +14,7 @@ export interface ATSTarget {
   wdInstance?: string;       // Workday: wd1 (default), wd3, wd5, etc.
   wdDomain?: string;         // Workday: 'myworkdaysite.com' for site variant, default 'myworkdayjobs.com'
   wdCsrfRequired?: boolean;  // Workday: true when direct CXS API returns 422 (needs Playwright)
+  wdSkipPlaywright?: boolean; // Workday: true when Playwright fallback has confirmed-failed (no CSRF cookie or API rejects); short-circuits future cycles to avoid ~5s of Playwright overhead per tenant per cycle
 }
 
 export function isInternTitle(title: string): boolean {
@@ -296,12 +297,13 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
 async function pollWorkdayPlaywright(
   csrfTargets: ATSTarget[],
   now: string,
-): Promise<{ jobs: Partial<Internship>[]; csrfConfirmedSlugs: string[] }> {
-  if (csrfTargets.length === 0) return { jobs: [], csrfConfirmedSlugs: [] };
+): Promise<{ jobs: Partial<Internship>[]; csrfConfirmedSlugs: string[]; csrfFailedSlugs: string[] }> {
+  if (csrfTargets.length === 0) return { jobs: [], csrfConfirmedSlugs: [], csrfFailedSlugs: [] };
   const { firefox } = await import('playwright');
   const browser = await firefox.launch({ headless: true });
   const jobs: Partial<Internship>[] = [];
   const csrfConfirmedSlugs: string[] = [];
+  const csrfFailedSlugs: string[] = [];
 
   const CONCURRENCY = parseInt(process.env.WORKDAY_PLAYWRIGHT_CONCURRENCY || '4', 10);
   const queue = [...csrfTargets];
@@ -341,6 +343,7 @@ async function pollWorkdayPlaywright(
           `[ats] Workday Playwright ${tenant}: no CSRF cookie found ` +
           `(saw: ${cookies.map(c => c.name).join(',') || '<none>'})`,
         );
+        csrfFailedSlugs.push(tenant);
         return;
       }
 
@@ -356,11 +359,13 @@ async function pollWorkdayPlaywright(
       });
       if (!response.ok()) {
         console.warn(`[ats] Workday Playwright ${tenant}: API HTTP ${response.status()}`);
+        csrfFailedSlugs.push(tenant);
         return;
       }
       const data: any = await response.json();
       if (!data) {
         console.warn(`[ats] Workday Playwright ${tenant}: empty body`);
+        csrfFailedSlugs.push(tenant);
         return;
       }
       // API call worked — CSRF path confirmed for this tenant
@@ -407,31 +412,43 @@ async function pollWorkdayPlaywright(
   );
   await Promise.all(workers);
   await browser.close();
-  return { jobs, csrfConfirmedSlugs };
+  return { jobs, csrfConfirmedSlugs, csrfFailedSlugs };
 }
 
-// Persist wdCsrfRequired:true for tenants whose Playwright fallback succeeded, so
-// future cycles skip the doomed direct CXS call. Re-reads the config at write
-// time to avoid clobbering concurrent saveDiscoveredTargets writes.
-function cacheWdCsrfRequired(slugs: string[]): void {
-  if (slugs.length === 0) return;
+// Persist Workday Playwright outcomes back to ats-targets.json so future
+// cycles can short-circuit: successful tenants skip the doomed direct CXS
+// call (wdCsrfRequired:true), and tenants that always fail Playwright skip
+// the entire fallback path (wdSkipPlaywright:true). Re-reads the config at
+// write time to avoid clobbering concurrent saveDiscoveredTargets writes.
+function cacheWorkdayFlags(confirmed: string[], failed: string[]): void {
+  if (confirmed.length === 0 && failed.length === 0) return;
   try {
     const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
     const existing: ATSTarget[] = raw.targets || [];
-    const slugSet = new Set(slugs);
-    let updated = 0;
+    const confirmedSet = new Set(confirmed);
+    const failedSet = new Set(failed);
+    let confirmedCount = 0;
+    let failedCount = 0;
     for (const t of existing) {
-      if (t.ats === 'workday' && slugSet.has(t.slug) && !t.wdCsrfRequired) {
+      if (t.ats !== 'workday') continue;
+      if (confirmedSet.has(t.slug) && !t.wdCsrfRequired) {
         t.wdCsrfRequired = true;
-        updated++;
+        confirmedCount++;
+      }
+      if (failedSet.has(t.slug) && !t.wdSkipPlaywright) {
+        t.wdSkipPlaywright = true;
+        failedCount++;
       }
     }
-    if (updated > 0) {
+    if (confirmedCount > 0 || failedCount > 0) {
       fs.writeFileSync(CONFIG_PATH, JSON.stringify({ targets: existing }, null, 2));
-      console.log(`[ats] Cached wdCsrfRequired:true for ${updated} Workday tenant(s)`);
+      const parts = [];
+      if (confirmedCount > 0) parts.push(`${confirmedCount} wdCsrfRequired`);
+      if (failedCount > 0) parts.push(`${failedCount} wdSkipPlaywright`);
+      console.log(`[ats] Cached Workday flags for ${parts.join(', ')} tenant(s)`);
     }
   } catch (e: any) {
-    console.warn(`[ats] Failed to cache wdCsrfRequired flags: ${e.message}`);
+    console.warn(`[ats] Failed to cache Workday flags: ${e.message}`);
   }
 }
 
@@ -474,8 +491,10 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
       }
     } catch (e: any) {
       const status = e?.response?.status;
-      // Workday tenants that 422 here have CSRF enforcement enabled — try Playwright fallback
-      if (target.ats === 'workday' && status === 422) {
+      // Workday tenants that 422 here have CSRF enforcement enabled — try Playwright
+      // fallback, unless we've already cached a wdSkipPlaywright:true (the tenant
+      // has consistently failed the Playwright path too, so retrying wastes ~5s/cycle).
+      if (target.ats === 'workday' && status === 422 && !target.wdSkipPlaywright) {
         csrfFallback.push(target);
         return;
       }
@@ -503,10 +522,10 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
       console.log(`[ats] Workday: ${csrfFallback.length} target(s) returned HTTP 422 — queuing for Playwright fallback`);
     }
     try {
-      const { jobs: playwrightJobs, csrfConfirmedSlugs } = await pollWorkdayPlaywright(allCsrfTargets, now);
+      const { jobs: playwrightJobs, csrfConfirmedSlugs, csrfFailedSlugs } = await pollWorkdayPlaywright(allCsrfTargets, now);
       results.push(...playwrightJobs);
       console.log(`[ats] Workday/Playwright total: ${playwrightJobs.length} from ${allCsrfTargets.length} targets`);
-      cacheWdCsrfRequired(csrfConfirmedSlugs);
+      cacheWorkdayFlags(csrfConfirmedSlugs, csrfFailedSlugs);
     } catch (e: any) {
       console.warn(`[ats] Workday/Playwright batch failed: ${e.message}`);
     }
