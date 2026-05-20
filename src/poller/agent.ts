@@ -7,7 +7,6 @@ import { pollJobSpy } from './pollers/jobspy';
 import { scanPortals } from './pollers/portal-scanner';
 import { pollYCWaaS } from './pollers/yc-waas';
 import { pollGreenhouseDiscovery } from './pollers/greenhouse';
-import { pollLeverDiscovery } from './pollers/lever';
 import { pollAshbyDiscovery } from './pollers/ashby';
 import { pollWebsearchDiscovery } from './pollers/websearch-discovery';
 import { scanCareersPages } from './pollers/careers-scan';
@@ -63,15 +62,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           if (r.length > 0) stats.sourcesPolled.push('Greenhouse');
         } catch (err: any) {
           console.error('[agent] Greenhouse discovery poller failed:', err.message);
-        }
-      })(),
-      (async () => {
-        try {
-          const r = await pollLeverDiscovery();
-          allRaw.push(...r);
-          if (r.length > 0) stats.sourcesPolled.push('Lever');
-        } catch (err: any) {
-          console.error('[agent] Lever discovery poller failed:', err.message);
         }
       })(),
       (async () => {
