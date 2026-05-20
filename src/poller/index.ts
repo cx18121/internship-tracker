@@ -35,13 +35,29 @@ async function safeSlow(): Promise<void> {
   try {
     archiveStalePostings();
     await runCycle({ tier: 'slow' });
+  } catch (err) {
+    // Never let a single bad cycle propagate out of setInterval — that would
+    // raise an unhandledRejection and (on newer Node) kill the process.
+    console.error('[internship-tracker] Slow cycle threw:', err);
   } finally {
     slowRunning = false;
   }
 }
 
 async function safeFast(): Promise<void> {
-  await runCycle({ tier: 'fast' });
+  try {
+    await runCycle({ tier: 'fast' });
+  } catch (err) {
+    console.error('[internship-tracker] Fast cycle threw:', err);
+  }
+}
+
+async function safeRevalidate(): Promise<void> {
+  try {
+    await revalidateLinks();
+  } catch (err) {
+    console.error('[internship-tracker] Link revalidation threw:', err);
+  }
 }
 
 async function main(): Promise<void> {
@@ -59,10 +75,10 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] First revalidation at ${nextRev} (in ${Math.round(revMs / 1000 / 60)}min)`);
   setTimeout(async () => {
     console.log('[internship-tracker] Running daily link revalidation...');
-    await revalidateLinks();
-    setInterval(async () => {
+    await safeRevalidate();
+    setInterval(() => {
       console.log('[internship-tracker] Running daily link revalidation...');
-      await revalidateLinks();
+      safeRevalidate();
     }, REVALIDATE_INTERVAL_MS);
   }, revMs);
 
