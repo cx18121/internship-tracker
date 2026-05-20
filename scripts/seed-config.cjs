@@ -40,9 +40,10 @@ const OVERWRITE_FILES = new Set([
   'resume.pdf',              // ships from source (currently used only locally)
 ]);
 
-// companies.yml stays seed-if-missing: it's mutated by websearch-discovery at
-// runtime and we don't have a YAML merger here. If the source list grows, manual
-// push to the volume (railway ssh) is the escape hatch until we add YAML merge.
+// companies.yml stays seed-if-missing: it was historically mutated by the now-
+// retired websearch-discovery poller. It's currently consumed by nothing in
+// the runtime (careers-scan is also retired); kept seedable so future tooling
+// can still read it.
 
 function readJsonSafe(p) {
   try {

@@ -6,8 +6,6 @@ import { pollHandshake } from './pollers/handshake';
 import { pollJobSpy } from './pollers/jobspy';
 import { scanPortals } from './pollers/portal-scanner';
 import { pollYCWaaS } from './pollers/yc-waas';
-import { pollWebsearchDiscovery } from './pollers/websearch-discovery';
-import { scanCareersPages } from './pollers/careers-scan';
 import { filterInternships } from './filter';
 import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
@@ -53,17 +51,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           console.error('[agent] ATS poller failed:', err.message);
         }
       })(),
-      (async () => {
-        try {
-          const r = await pollWebsearchDiscovery();
-          if (r.length > 0) {
-            stats.sourcesPolled.push('WebSearchDiscovery');
-            console.log(`[agent] WebSearch discovery added ${r.length} new companies to registry`);
-          }
-        } catch (err: any) {
-          console.error('[agent] WebSearch discovery poller failed:', err.message);
-        }
-      })(),
     ]);
   };
 
@@ -76,13 +63,6 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       if (r.length > 0) stats.sourcesPolled.push('Handshake');
     } catch (err: any) {
       console.error('[agent] Handshake poller failed:', err.message);
-    }
-    try {
-      const r = await scanCareersPages();
-      allRaw.push(...r);
-      if (r.length > 0) stats.sourcesPolled.push('CareersScan');
-    } catch (err: any) {
-      console.error('[agent] Careers scan poller failed:', err.message);
     }
     try {
       const r = await pollYCWaaS();

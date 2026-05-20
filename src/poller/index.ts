@@ -5,8 +5,8 @@ import { archiveStalePostings, revalidateLinks, closeDb } from '../lib/store';
 // Two-tier polling:
 //   Fast tier (default 5 min)  — SimplifyJobs RSS only. Quick to fetch, high
 //                                 signal, refreshed often.
-//   Slow tier (default 30 min) — Handshake, ATS sweeps, JobSpy, in-house,
-//                                 careers-scan, YC, discovery. Minutes per run.
+//   Slow tier (default 30 min) — Handshake, ATS sweeps, JobSpy, YC WaaS.
+//                                 Minutes per run.
 // POLL_INTERVAL_MS stays as a backwards-compatible alias — if set, it
 // overrides the slow-tier interval (the old single-tier behaviour).
 const POLL_INTERVAL_MS_FAST = parseInt(process.env.POLL_INTERVAL_MS_FAST || '300000', 10);
