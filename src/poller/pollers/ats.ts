@@ -326,26 +326,38 @@ async function pollWorkdayPlaywright(
     const page = await browser.newPage();
     try {
       await page.goto(boardUrl, { waitUntil: 'networkidle', timeout: 30000 });
-      const data: any = await page.evaluate(async (path: string) => {
-        const csrfToken = document.cookie.split(';')
-          .map(c => c.trim())
-          .find(c => /^(CSRF-Token|CALYPSO_CSRF_TOKEN|csrf_token)=/i.test(c))
-          ?.split('=').slice(1).join('=') || '';
-        const res = await fetch(path, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'application/json',
-            ...(csrfToken ? { 'X-Calypso-CSRF-Token': csrfToken } : {}),
-          },
-          body: JSON.stringify({ appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' }),
-        });
-        if (!res.ok) return null;
-        return res.json();
-      }, apiPath);
 
+      // Workday's CSRF cookie (CALYPSO_CSRF_TOKEN) is HttpOnly, so document.cookie
+      // inside page.evaluate can't see it. Read via the outer browser-context API.
+      const cookies = await page.context().cookies();
+      const csrfCookie = cookies.find(c =>
+        /^(calypso[-_]?csrf[-_]?token|csrf[-_]?token)$/i.test(c.name),
+      );
+      if (!csrfCookie) {
+        console.warn(
+          `[ats] Workday Playwright ${tenant}: no CSRF cookie found ` +
+          `(saw: ${cookies.map(c => c.name).join(',') || '<none>'})`,
+        );
+        return;
+      }
+
+      // page.request shares cookies with the browser context, so the CSRF cookie
+      // is sent automatically; we just need to mirror its value in the header.
+      const response = await page.request.post(`https://${baseHost}${apiPath}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Calypso-Csrf-Token': csrfCookie.value,
+        },
+        data: { appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' },
+      });
+      if (!response.ok()) {
+        console.warn(`[ats] Workday Playwright ${tenant}: API HTTP ${response.status()}`);
+        return;
+      }
+      const data: any = await response.json();
       if (!data) {
-        console.warn(`[ats] Workday Playwright ${tenant}: API returned null`);
+        console.warn(`[ats] Workday Playwright ${tenant}: empty body`);
         return;
       }
       // API call worked — CSRF path confirmed for this tenant
