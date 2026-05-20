@@ -284,5 +284,6 @@ export async function scanPortals(): Promise<PortalScanOutput> {
 // ---------------------------------------------------------------------------
 // Re-export everything from ats.ts so callers only need to import from here
 // ---------------------------------------------------------------------------
-export { pollATS, ATSTarget } from './ats';
+export { pollATS } from './ats';
+export type { ATSTarget } from './ats';
 export { isInternTitle } from './ats';

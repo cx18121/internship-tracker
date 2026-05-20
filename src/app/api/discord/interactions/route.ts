@@ -46,9 +46,10 @@ function disableButtons(components: unknown): unknown {
   if (!Array.isArray(components)) return components;
   return components.map((row: { components?: unknown[]; type?: number }) => {
     if (row.type !== 1 || !Array.isArray(row.components)) return row;
+    const buttons = row.components as Array<{ type?: number; style?: number; [k: string]: unknown }>;
     return {
       ...row,
-      components: row.components.map((c: { type?: number; style?: number; [k: string]: unknown }) =>
+      components: buttons.map((c) =>
         c.type === 2 && c.style !== 5 ? { ...c, disabled: true } : c,
       ),
     };

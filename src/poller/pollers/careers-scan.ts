@@ -225,7 +225,7 @@ async function extractGenericJobs(
   // Try to find all links that look like job listing URLs
   const links = await page.$$eval('a[href]', (anchors) =>
     anchors
-      .map(a => ({ href: a.href, text: a.textContent?.trim() || '' }))
+      .map(a => ({ href: (a as HTMLAnchorElement).href, text: a.textContent?.trim() || '' }))
       .filter(a =>
         /jobs?|careers?|positions?|opportunities?/i.test(a.href) &&
         !/about|blog|press|news|events/i.test(a.href),
