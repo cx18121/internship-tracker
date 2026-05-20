@@ -35,6 +35,7 @@ import {
 import { timeAgo } from "./_lib/format";
 import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
 import { isElite, isTopOrBetter, ELITE_COUNT, TOP_COUNT } from "./_lib/tiers";
+import { parseSeason, formatSeasonLabel, seasonSortKey } from "@/lib/seasons";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -54,6 +55,7 @@ export default function InternshipsPage() {
   const [excludeKeywords, setExcludeKeywords] = useState<string[]>([]);
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
+  const [selectedSeasons, setSelectedSeasons] = useState<string[]>([]);
   const [kwIncludeInput, setKwIncludeInput] = useState("");
   const [kwExcludeInput, setKwExcludeInput] = useState("");
 
@@ -111,6 +113,9 @@ export default function InternshipsPage() {
     const tier = sp.get("tier") as TierFilter | null;
     if (tier === "top-or-better" || tier === "elite") setTierFilter(tier);
 
+    const seasons = parseList("seasons");
+    if (seasons.length) setSelectedSeasons(seasons);
+
     const sort = sp.get("sort") as SortBy | null;
     if (sort === "newest" || sort === "posted" || sort === "score") setSortBy(sort);
 
@@ -133,6 +138,7 @@ export default function InternshipsPage() {
     if (locationText) params.set("location", locationText);
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
     if (tierFilter !== "all") params.set("tier", tierFilter);
+    if (selectedSeasons.length) params.set("seasons", selectedSeasons.join(","));
     if (sortBy !== "score") params.set("sort", sortBy);
     if (currentPage > 1) params.set("page", String(currentPage));
 
@@ -143,7 +149,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, selectedLabels, selectedLocations,
     includeKeywords, excludeKeywords,
-    minScore, locationText, appliedFilter, tierFilter, sortBy, currentPage,
+    minScore, locationText, appliedFilter, tierFilter, selectedSeasons, sortBy, currentPage,
   ]);
 
   const fetchData = useCallback(async (isRefresh = false) => {
@@ -194,7 +200,7 @@ export default function InternshipsPage() {
   useEffect(() => {
     if (!hydrated) return;
     setCurrentPage(1);
-  }, [hydrated, selectedSources, selectedLabels, minScore, selectedLocations, locationText, includeKeywords, excludeKeywords, appliedFilter, tierFilter, sortBy]);
+  }, [hydrated, selectedSources, selectedLabels, minScore, selectedLocations, locationText, includeKeywords, excludeKeywords, appliedFilter, tierFilter, selectedSeasons, sortBy]);
 
   // Load notification settings
   useEffect(() => {
@@ -275,6 +281,7 @@ export default function InternshipsPage() {
     setExcludeKeywords([]);
     setAppliedFilter("all");
     setTierFilter("all");
+    setSelectedSeasons([]);
     setSortBy("score");
     setCurrentPage(1);
   }
@@ -303,6 +310,17 @@ export default function InternshipsPage() {
         .sort()
     : null;
 
+  // Dynamic season tokens: parse titles, count occurrences, sort by year ASC
+  // then season order so the chips read winter → spring → summer → fall.
+  const seasonCounts = new Map<string, number>();
+  for (const i of internships) {
+    for (const s of parseSeason(i.title)) {
+      seasonCounts.set(s, (seasonCounts.get(s) ?? 0) + 1);
+    }
+  }
+  const dynamicSeasons = [...seasonCounts.entries()]
+    .sort(([a], [b]) => seasonSortKey(a).localeCompare(seasonSortKey(b)));
+
   // Client-side filter + sort
   const filtered = internships
     .filter((i) => {
@@ -313,6 +331,10 @@ export default function InternshipsPage() {
       if (appliedFilter === "not-applied" && i.applied) return false;
       if (tierFilter === "elite" && !isElite(i.company)) return false;
       if (tierFilter === "top-or-better" && !isTopOrBetter(i.company)) return false;
+      if (selectedSeasons.length > 0) {
+        const tokens = parseSeason(i.title);
+        if (!tokens.some(t => selectedSeasons.includes(t))) return false;
+      }
       if (selectedLocations.length > 0 || locationText) {
         const loc = i.location.toLowerCase();
         const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
@@ -360,7 +382,8 @@ export default function InternshipsPage() {
     includeKeywords.length > 0 ||
     excludeKeywords.length > 0 ||
     appliedFilter !== "all" ||
-    tierFilter !== "all";
+    tierFilter !== "all" ||
+    selectedSeasons.length > 0;
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-6xl mx-auto">
@@ -516,6 +539,30 @@ export default function InternshipsPage() {
                           : `Top+ (${ELITE_COUNT + TOP_COUNT})`}
                     </button>
                   ))}
+                </div>
+              </div>
+
+              {/* Season (parsed from title) */}
+              <div className="space-y-1.5">
+                <label className="text-xs text-white/40 uppercase tracking-wider">Season</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {dynamicSeasons.length === 0 ? (
+                    <span className="text-xs text-white/30">None detected</span>
+                  ) : (
+                    dynamicSeasons.map(([token, count]) => (
+                      <button
+                        key={token}
+                        onClick={() => setSelectedSeasons((prev) => toggleArr(prev, token))}
+                        className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
+                          selectedSeasons.includes(token)
+                            ? "bg-white/15 border-white/30 text-white"
+                            : "bg-white/5 border-white/10 text-white/50 hover:border-white/20"
+                        }`}
+                      >
+                        {formatSeasonLabel(token)} ({count})
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
 
