@@ -1,8 +1,8 @@
 // Reuse the canonical company-tier lists from the scorer config so the UI
-// filter never drifts from the scoring system's view of "elite" / "top".
-// Matching mirrors src/lib/scorer.ts: case-insensitive, bidirectional
-// substring (covers "Apple" vs "Apple Inc.", etc.).
-import config from "../../../data/scoring-config.json";
+// filter and notifier never drift from the scoring system's view of
+// "elite" / "top". Matching mirrors src/lib/scorer.ts: case-insensitive,
+// bidirectional substring (covers "Apple" vs "Apple Inc.", etc.).
+import config from "../../data/scoring-config.json";
 
 const ELITE = (config.companyTiers?.elite?.companies ?? []).map((s: string) => s.toLowerCase());
 const TOP   = (config.companyTiers?.top?.companies ?? []).map((s: string) => s.toLowerCase());

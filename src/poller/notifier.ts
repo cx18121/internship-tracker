@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Internship } from '../lib/types';
 import { getInternships } from '../lib/store';
+import { isElite, isTopOrBetter } from '../lib/tiers';
+import { parseSeason } from '../lib/seasons';
 
 const SOURCE_EMOJIS: Record<string, string> = {
   SimplifyJobs: '⭐',
@@ -9,17 +11,56 @@ const SOURCE_EMOJIS: Record<string, string> = {
   Handshake: '🤝',
 };
 
+// User-managed notification filters, edited live in the UI's NotifModal and
+// persisted to data/notif-settings.json by /api/internships/settings. The
+// score threshold is still driven by env (SCORE_THRESHOLD) — these add
+// additional gates on top.
+interface NotifFilters {
+  tierFilter?: 'all' | 'top-or-better' | 'elite';
+  seasons?: string[];
+}
+
+function loadNotifFilters(): NotifFilters {
+  try {
+    const raw = fs.readFileSync(
+      path.join(process.cwd(), 'data', 'notif-settings.json'),
+      'utf-8',
+    );
+    return JSON.parse(raw) as NotifFilters;
+  } catch {
+    return {};
+  }
+}
+
+function passesNotifFilters(i: Internship, f: NotifFilters): boolean {
+  if (f.tierFilter === 'elite' && !isElite(i.company ?? '')) return false;
+  if (f.tierFilter === 'top-or-better' && !isTopOrBetter(i.company ?? '')) return false;
+  if (f.seasons && f.seasons.length > 0) {
+    const tokens = parseSeason(i.title ?? '');
+    if (!tokens.some(t => f.seasons!.includes(t))) return false;
+  }
+  return true;
+}
+
 export async function sendBatchAlert(
   newInternships: Internship[],
   scoreThreshold: number
 ): Promise<boolean> {
+  const filters = loadNotifFilters();
   const eligible = newInternships
     .filter(i => (i.score ?? 0) >= scoreThreshold)
+    .filter(i => passesNotifFilters(i, filters))
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     .slice(0, 10);
 
   if (eligible.length === 0) {
-    console.log('[notifier] No postings above score threshold, skipping alert');
+    const gateMsg = filters.tierFilter && filters.tierFilter !== 'all'
+      ? ` tier=${filters.tierFilter}`
+      : '';
+    const seasonMsg = filters.seasons && filters.seasons.length > 0
+      ? ` seasons=[${filters.seasons.join(',')}]`
+      : '';
+    console.log(`[notifier] No postings passed filters (minScore=${scoreThreshold}${gateMsg}${seasonMsg}), skipping alert`);
     return false;
   }
 

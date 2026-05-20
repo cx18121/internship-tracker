@@ -34,7 +34,7 @@ import {
 } from "./_lib/constants";
 import { timeAgo } from "./_lib/format";
 import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
-import { isElite, isTopOrBetter, ELITE_COUNT, TOP_COUNT } from "./_lib/tiers";
+import { isElite, isTopOrBetter, ELITE_COUNT, TOP_COUNT } from "@/lib/tiers";
 import { parseSeason, formatSeasonLabel, seasonSortKey } from "@/lib/seasons";
 
 export default function InternshipsPage() {
@@ -71,6 +71,8 @@ export default function InternshipsPage() {
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifMinScore, setNotifMinScore] = useState(50);
   const [sourceDownAlerts, setSourceDownAlerts] = useState(false);
+  const [notifTierFilter, setNotifTierFilter] = useState<TierFilter>("all");
+  const [notifSeasons, setNotifSeasons] = useState<string[]>([]);
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
 
@@ -210,6 +212,10 @@ export default function InternshipsPage() {
         if (d) {
           setNotifMinScore(d.minScore ?? 50);
           setSourceDownAlerts(d.sourceDownAlerts ?? false);
+          if (d.tierFilter === "elite" || d.tierFilter === "top-or-better" || d.tierFilter === "all") {
+            setNotifTierFilter(d.tierFilter);
+          }
+          if (Array.isArray(d.seasons)) setNotifSeasons(d.seasons);
         }
       })
       .catch(() => {});
@@ -263,7 +269,12 @@ export default function InternshipsPage() {
       await fetch("/api/internships/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ minScore: notifMinScore, sourceDownAlerts }),
+        body: JSON.stringify({
+          minScore: notifMinScore,
+          sourceDownAlerts,
+          tierFilter: notifTierFilter,
+          seasons: notifSeasons,
+        }),
       });
       setNotifSaved(true);
       setTimeout(() => setNotifSaved(false), 2000);
@@ -812,6 +823,11 @@ export default function InternshipsPage() {
         onMinScoreChange={setNotifMinScore}
         sourceDownAlerts={sourceDownAlerts}
         onSourceDownAlertsChange={setSourceDownAlerts}
+        tierFilter={notifTierFilter}
+        onTierFilterChange={setNotifTierFilter}
+        selectedSeasons={notifSeasons}
+        onSeasonsToggle={(t) => setNotifSeasons((prev) => toggleArr(prev, t))}
+        seasonOptions={dynamicSeasons.map(([token, count]) => ({ token, count }))}
         onSave={saveNotifSettings}
         saving={notifSaving}
         saved={notifSaved}
