@@ -99,23 +99,29 @@ export function InternshipCard({
         )}
       </div>
 
-      {(item.matchedKeywords ?? []).length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {(item.matchedKeywords ?? []).slice(0, 6).map((kw) => (
-            <span
-              key={kw}
-              className="px-1.5 py-0.5 rounded bg-white/[0.06] text-[10px] text-white/50"
-            >
-              {kw}
-            </span>
-          ))}
-          {(item.matchedKeywords ?? []).length > 6 && (
-            <span className="text-[10px] text-white/30">
-              +{(item.matchedKeywords ?? []).length - 6}
-            </span>
-          )}
-        </div>
-      )}
+      {(item.matchedKeywords ?? []).length > 0 && (() => {
+        // Historical data may contain duplicate keywords (the scorer used to
+        // double-push when a term appeared in both roleTiers and techStack);
+        // dedupe at render so chip keys stay unique.
+        const uniqueKws = Array.from(new Set(item.matchedKeywords ?? []));
+        return (
+          <div className="flex flex-wrap gap-1">
+            {uniqueKws.slice(0, 6).map((kw) => (
+              <span
+                key={kw}
+                className="px-1.5 py-0.5 rounded bg-white/[0.06] text-[10px] text-white/50"
+              >
+                {kw}
+              </span>
+            ))}
+            {uniqueKws.length > 6 && (
+              <span className="text-[10px] text-white/30">
+                +{uniqueKws.length - 6}
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="flex items-center gap-2 pt-1">
         <a

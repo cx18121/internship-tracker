@@ -163,6 +163,9 @@ export function scoreInternship(entry: Partial<Internship>): ScoreResult {
     score,
     scoreLabel,
     breakdown: { role, company: coPts, tech, domain, location: loc },
-    matchedKeywords: matched,
+    // Dedupe — a single keyword can appear in multiple tier buckets
+    // (e.g. "llm" is in both roleTiers.T1 and techStack.high), and each
+    // scoreXxx() helper pushes independently.
+    matchedKeywords: Array.from(new Set(matched)),
   };
 }
