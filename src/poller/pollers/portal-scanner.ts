@@ -250,15 +250,25 @@ export async function scanPortals(): Promise<PortalScanOutput> {
   const archivedByTarget: Record<string, number> = {};
   const internships = loadInternships();
 
+  // Must match the source labels ats.ts writes when storing internships,
+  // otherwise archival never matches. Naive .toUpperCase()-on-first-letter
+  // breaks 'iCIMS' and 'SmartRecruiters' (and would break any future ATS
+  // whose canonical label isn't simply Capitalized).
+  const ATS_SOURCE_LABEL: Record<string, string> = {
+    greenhouse: 'Greenhouse',
+    lever: 'Lever',
+    ashby: 'Ashby',
+    workday: 'Workday',
+    icims: 'iCIMS',
+    smartrecruiters: 'SmartRecruiters',
+  };
+
   for (const [targetSlug, currentIds] of currentByTarget) {
     const prev = snapshots[targetSlug];
     const prevIds = new Set<string>(prev?.jobIds ?? []);
 
-    // Determine atsSource for this target
     const target = targets.find((t) => t.slug === targetSlug);
-    const atsSource = target
-      ? target.ats.charAt(0).toUpperCase() + target.ats.slice(1)
-      : '';
+    const atsSource = target ? (ATS_SOURCE_LABEL[target.ats] ?? '') : '';
 
     const { archived } = archiveDisappeared(internships, currentIds, atsSource, targetSlug);
     if (archived.length > 0) {
