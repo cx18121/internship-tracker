@@ -318,8 +318,11 @@ async function pollWorkdayPlaywright(
     const baseHost = isSiteVariant
       ? `${wdInstance}.myworkdaysite.com`
       : `${tenant}.${wdInstance}.myworkdayjobs.com`;
+    // Site-variant board pages require the /recruiting/ prefix; without it
+    // the page 404s and no CSRF cookie is provisioned. The direct CXS API
+    // path (apiPath) does NOT need that prefix.
     const boardUrl = isSiteVariant
-      ? `https://${baseHost}/${tenant}/${board}`
+      ? `https://${baseHost}/recruiting/${tenant}/${board}`
       : `https://${baseHost}/${board}`;
     const apiPath = `/wday/cxs/${tenant}/${board}/jobs`;
 
