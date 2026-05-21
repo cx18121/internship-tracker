@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -20,6 +20,9 @@ import {
   List,
   Layers,
   SlidersHorizontal,
+  Search,
+  X,
+  Eye,
 } from "lucide-react";
 
 import { InternshipCard } from "./_components/InternshipCard";
@@ -29,6 +32,7 @@ import { StatusPill } from "./_components/StatusPill";
 import { FilterRail } from "./_components/FilterRail";
 import { MobileFilterSheet } from "./_components/MobileFilterSheet";
 import { ListSkeleton, CardSkeleton, EmptyState } from "./_components/Skeletons";
+import { ActiveFilterChips } from "./_components/ActiveFilterChips";
 import type {
   Internship,
   Stats,
@@ -52,6 +56,7 @@ export default function InternshipsPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   // Filters — kept in flat state so URL round-trips stay simple.
+  const [searchText, setSearchText] = useState("");
   const [selectedSources, setSelectedSources] = useState<string[]>([]);
   const [minScore, setMinScore] = useState(0);
   const [locationText, setLocationText] = useState("");
@@ -62,6 +67,7 @@ export default function InternshipsPage() {
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [selectedSeasons, setSelectedSeasons] = useState<string[]>([]);
   const [dateWindow, setDateWindow] = useState<DateWindow>("all");
+  const [showHidden, setShowHidden] = useState(false);
 
   // Sort & pagination
   const [sortBy, setSortBy] = useState<SortBy>("score");
@@ -76,6 +82,18 @@ export default function InternshipsPage() {
   // Mobile-only filter sheet (rail is hidden below `lg`)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
+  // Posting ids whose description is expanded inline (list view)
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+
+  function toggleExpand(id: string): void {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   // Notification settings
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [notifMinScore, setNotifMinScore] = useState(50);
@@ -87,6 +105,24 @@ export default function InternshipsPage() {
 
   // Hydration guard — URL sync waits until initial state is loaded
   const [hydrated, setHydrated] = useState(false);
+
+  // Search input ref for `/` keyboard shortcut
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // `/` focuses the search input. Skip when the user is already typing.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || (t?.isContentEditable ?? false)) return;
+      e.preventDefault();
+      searchInputRef.current?.focus();
+      searchInputRef.current?.select();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
 
   // Load localStorage + initial filter state from URL on mount
   useEffect(() => {
@@ -111,6 +147,11 @@ export default function InternshipsPage() {
 
     const ms = Number(sp.get("minScore"));
     if (Number.isFinite(ms) && ms > 0) setMinScore(ms);
+
+    const q = sp.get("q");
+    if (q) setSearchText(q);
+
+    if (sp.get("showHidden") === "1") setShowHidden(true);
 
     const loc = sp.get("location");
     if (loc) setLocationText(loc);
@@ -153,6 +194,8 @@ export default function InternshipsPage() {
     if (excludeKeywords.length) params.set("exclude", excludeKeywords.join(","));
     if (minScore > 0) params.set("minScore", String(minScore));
     if (locationText) params.set("location", locationText);
+    if (searchText) params.set("q", searchText);
+    if (showHidden) params.set("showHidden", "1");
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
     if (tierFilter !== "all") params.set("tier", tierFilter);
     if (selectedSeasons.length) params.set("seasons", selectedSeasons.join(","));
@@ -169,6 +212,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, selectedLocations, includeKeywords, excludeKeywords,
     minScore, locationText, appliedFilter, tierFilter, selectedSeasons, dateWindow,
+    searchText, showHidden,
     viewMode, groupByCompany, sortBy, currentPage,
   ]);
 
@@ -179,6 +223,8 @@ export default function InternshipsPage() {
       const params = new URLSearchParams();
       if (selectedSources.length === 1) params.set("source", selectedSources[0]);
       if (minScore > 0) params.set("minScore", String(minScore));
+      // Always fetch hidden so the toggle is instant; filter client-side.
+      params.set("includeHidden", "1");
 
       const [listRes, statsRes, sourcesRes] = await Promise.all([
         fetch(`/api/internships?${params.toString()}`),
@@ -259,6 +305,34 @@ export default function InternshipsPage() {
     }
   }
 
+  async function hidePosting(id: string) {
+    // Optimistic update; on failure revert. Posting is filtered out of view
+    // immediately because the hidden filter runs in the client filter step.
+    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: true } : i)));
+    try {
+      await fetch(`/api/internships/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: true }),
+      });
+    } catch {
+      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: false } : i)));
+    }
+  }
+
+  async function unhidePosting(id: string) {
+    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: false } : i)));
+    try {
+      await fetch(`/api/internships/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hidden: false }),
+      });
+    } catch {
+      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: true } : i)));
+    }
+  }
+
   function updateNote(id: string, note: string) {
     const updated = { ...notesMap, [id]: note };
     if (!note) delete updated[id];
@@ -286,6 +360,7 @@ export default function InternshipsPage() {
   }
 
   function clearFilters() {
+    setSearchText("");
     setSelectedSources([]);
     setMinScore(0);
     setLocationText("");
@@ -334,8 +409,16 @@ export default function InternshipsPage() {
   }, [dateWindow]);
 
   // Client-side filter + sort
+  const searchLower = searchText.trim().toLowerCase();
   const filtered = internships
     .filter((i) => {
+      // Hidden — exclude unless user opted to show
+      if (i.hidden && !showHidden) return false;
+      // Free-text search: substring match on company OR title OR location
+      if (searchLower) {
+        const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
+        if (!hay.includes(searchLower)) return false;
+      }
       if (selectedSources.length > 0 && !selectedSources.includes(i.source)) return false;
       if (minScore > 0 && (i.score ?? 0) < minScore) return false;
       if (appliedFilter === "applied" && !i.applied) return false;
@@ -380,6 +463,7 @@ export default function InternshipsPage() {
   const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const activeFilterCount =
+    (searchText !== "" ? 1 : 0) +
     (selectedSources.length > 0 ? 1 : 0) +
     (minScore > 0 ? 1 : 0) +
     (selectedLocations.length > 0 ? 1 : 0) +
@@ -387,7 +471,63 @@ export default function InternshipsPage() {
     (includeKeywords.length > 0 ? 1 : 0) +
     (excludeKeywords.length > 0 ? 1 : 0) +
     (tierFilter !== "all" ? 1 : 0) +
-    (selectedSeasons.length > 0 ? 1 : 0);
+    (selectedSeasons.length > 0 ? 1 : 0) +
+    (dateWindow !== "all" ? 1 : 0);
+
+  const hiddenCount = useMemo(
+    () => internships.filter((i) => i.hidden).length,
+    [internships],
+  );
+
+  // Tab counts. Computed pre-applied-filter so the chip numbers show the
+  // available scope before the user clicks, not the current selection's
+  // intersection with itself. All other filters DO apply.
+  const tabCounts = useMemo(() => {
+    let all = 0,
+      applied = 0;
+    for (const i of internships) {
+      // Mirror the same filters as the main list, except applied-filter.
+      if (i.hidden && !showHidden) continue;
+      if (searchLower) {
+        const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
+        if (!hay.includes(searchLower)) continue;
+      }
+      if (selectedSources.length > 0 && !selectedSources.includes(i.source)) continue;
+      if (minScore > 0 && (i.score ?? 0) < minScore) continue;
+      if (tierFilter === "elite" && !isElite(i.company)) continue;
+      if (tierFilter === "top-or-better" && !isTopOrBetter(i.company)) continue;
+      if (selectedSeasons.length > 0) {
+        const tokens = i.season ?? parseSeason(i.title);
+        if (!tokens.some((t) => selectedSeasons.includes(t))) continue;
+      }
+      if (windowCutoff !== null) {
+        const seen = new Date(i.seenAt ?? 0).getTime();
+        if (!Number.isFinite(seen) || seen < windowCutoff) continue;
+      }
+      if (selectedLocations.length > 0 || locationText) {
+        const loc = i.location.toLowerCase();
+        const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
+        const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
+        if (!locMatch && !textMatch && !(selectedLocations.length === 0)) continue;
+        if (selectedLocations.length === 0 && locationText && !textMatch) continue;
+      }
+      if (includeKeywords.length > 0) {
+        const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
+        if (!includeKeywords.some((k) => kws.includes(k.toLowerCase()))) continue;
+      }
+      if (excludeKeywords.length > 0) {
+        const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
+        if (excludeKeywords.some((k) => kws.includes(k.toLowerCase()))) continue;
+      }
+      all++;
+      if (i.applied) applied++;
+    }
+    return { all, applied, open: all - applied };
+  }, [
+    internships, showHidden, searchLower, selectedSources, minScore, tierFilter,
+    selectedSeasons, windowCutoff, selectedLocations, locationText,
+    includeKeywords, excludeKeywords,
+  ]);
 
   return (
     <div className="min-h-screen">
@@ -524,22 +664,68 @@ export default function InternshipsPage() {
 
           {/* Main column */}
           <main className="min-w-0 space-y-3">
-            {/* Toolbar: applied scope · time window · sort · count */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-2 border-b border-white/[0.06]">
-              <div className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] p-0.5">
-                {(["all", "not-applied", "applied"] as AppliedFilter[]).map((tab) => (
+            {/* Toolbar row 1: search · applied scope · time window · sort · count */}
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pb-2 border-b border-white/[0.06]">
+              {/* Search — primary lookup affordance, focused with `/`. */}
+              <div className="relative flex-1 min-w-[180px] max-w-[260px]">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/35 pointer-events-none" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchText}
+                  onChange={(e) => setSearchText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setSearchText("");
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  placeholder="Search company, title, location…"
+                  aria-label="Search postings"
+                  className="w-full h-7 pl-7 pr-7 rounded-md bg-white/[0.04] border border-white/10 text-[12px] text-white/85 placeholder:text-white/35 focus:outline-none focus:border-white/25 focus:bg-white/[0.06] transition-colors"
+                />
+                {searchText ? (
                   <button
-                    key={tab}
-                    onClick={() => setAppliedFilter(tab)}
-                    className={`px-2.5 py-1 rounded text-[11px] transition-colors capitalize ${
-                      appliedFilter === tab
-                        ? "bg-white/15 text-white"
-                        : "text-white/45 hover:text-white/70"
-                    }`}
+                    type="button"
+                    onClick={() => setSearchText("")}
+                    aria-label="Clear search"
+                    className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/[0.06]"
                   >
-                    {tab === "not-applied" ? "Open" : tab === "applied" ? "Applied" : "All"}
+                    <X className="h-3 w-3" />
                   </button>
-                ))}
+                ) : (
+                  <kbd className="absolute right-1.5 top-1/2 -translate-y-1/2 h-4 px-1 inline-flex items-center justify-center rounded text-[9.5px] font-mono font-medium text-white/40 bg-white/[0.06] border border-white/10">
+                    /
+                  </kbd>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] p-0.5">
+                {(["all", "not-applied", "applied"] as AppliedFilter[]).map((tab) => {
+                  const count =
+                    tab === "all" ? tabCounts.all : tab === "applied" ? tabCounts.applied : tabCounts.open;
+                  const active = appliedFilter === tab;
+                  return (
+                    <button
+                      key={tab}
+                      onClick={() => setAppliedFilter(tab)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] transition-colors ${
+                        active
+                          ? "bg-white/15 text-white"
+                          : "text-white/45 hover:text-white/70"
+                      }`}
+                    >
+                      <span>{tab === "not-applied" ? "Open" : tab === "applied" ? "Applied" : "All"}</span>
+                      <span
+                        className={`tabular-nums text-[10px] ${
+                          active ? "text-white/65" : "text-white/35"
+                        }`}
+                      >
+                        {count.toLocaleString()}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] p-0.5">
@@ -579,8 +765,47 @@ export default function InternshipsPage() {
                 {activeFilterCount > 0 && !loading && (
                   <span className="text-white/45"> · filtered</span>
                 )}
+                {hiddenCount > 0 && !loading && (
+                  <>
+                    <span className="text-white/30"> · </span>
+                    <button
+                      onClick={() => setShowHidden((v) => !v)}
+                      className="inline-flex items-center gap-1 text-white/55 hover:text-white/85 transition-colors normal-nums underline-offset-4 hover:underline"
+                      title={showHidden ? "Hide hidden postings" : "Show hidden postings"}
+                    >
+                      <Eye className="h-3 w-3" />
+                      {hiddenCount} hidden
+                      {showHidden && <span className="text-emerald-300/80"> · shown</span>}
+                    </button>
+                  </>
+                )}
               </span>
             </div>
+
+            {/* Active filter chips — visible only when at least one filter is set */}
+            <ActiveFilterChips
+              searchText={searchText}
+              selectedSources={selectedSources}
+              tierFilter={tierFilter}
+              selectedSeasons={selectedSeasons}
+              minScore={minScore}
+              selectedLocations={selectedLocations}
+              locationText={locationText}
+              includeKeywords={includeKeywords}
+              excludeKeywords={excludeKeywords}
+              dateWindow={dateWindow}
+              setSearchText={setSearchText}
+              setSelectedSources={setSelectedSources}
+              setTierFilter={setTierFilter}
+              setSelectedSeasons={setSelectedSeasons}
+              setMinScore={setMinScore}
+              setSelectedLocations={setSelectedLocations}
+              setLocationText={setLocationText}
+              setIncludeKeywords={setIncludeKeywords}
+              setExcludeKeywords={setExcludeKeywords}
+              setDateWindow={setDateWindow}
+              onClearAll={clearFilters}
+            />
 
             {/* Listings */}
             {loading ? (
@@ -602,7 +827,16 @@ export default function InternshipsPage() {
                   <InternshipList
                     items={paginated}
                     groupByCompany={groupByCompany}
+                    sortBy={sortBy}
+                    expandedIds={expandedIds}
                     onToggleApplied={toggleApplied}
+                    onHide={(id) => {
+                      const item = internships.find((i) => i.id === id);
+                      if (!item) return;
+                      if (item.hidden) unhidePosting(id);
+                      else hidePosting(id);
+                    }}
+                    onToggleExpand={toggleExpand}
                   />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
@@ -614,33 +848,39 @@ export default function InternshipsPage() {
                         notes={notesMap[item.id] ?? ""}
                         onNotesChange={(note) => updateNote(item.id, note)}
                         onToggleApplied={() => toggleApplied(item.id, item.applied)}
+                        onHide={() => (item.hidden ? unhidePosting(item.id) : hidePosting(item.id))}
                       />
                     ))}
                   </div>
                 )}
 
                 {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-4 pt-4">
+                  <div className="sticky bottom-0 z-10 flex items-center justify-center gap-3 pt-4 pb-3 mt-2 bg-gradient-to-t from-[oklch(0.13_0.005_260)] via-[oklch(0.13_0.005_260_/_0.95)] to-transparent">
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                       disabled={safePage <= 1}
-                      className="gap-1.5 h-7 border-white/10 bg-white/[0.04] hover:bg-white/10 disabled:opacity-30 text-[12px]"
+                      className="gap-1.5 h-7 border-white/10 bg-[oklch(0.18_0.005_260)] hover:bg-white/10 disabled:opacity-30 text-[12px]"
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                       Prev
                     </Button>
-                    <span className="text-[12px] text-white/50 tabular-nums">
-                      Page <span className="text-white/80">{safePage}</span> of{" "}
-                      <span className="text-white/80">{totalPages}</span>
+                    <span className="text-[12px] text-white/55 tabular-nums whitespace-nowrap">
+                      <span className="text-white/85">
+                        {((safePage - 1) * PAGE_SIZE + 1).toLocaleString()}
+                        {"–"}
+                        {Math.min(safePage * PAGE_SIZE, filtered.length).toLocaleString()}
+                      </span>
+                      {" of "}
+                      <span className="text-white/85">{filtered.length.toLocaleString()}</span>
                     </span>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
                       disabled={safePage >= totalPages}
-                      className="gap-1.5 h-7 border-white/10 bg-white/[0.04] hover:bg-white/10 disabled:opacity-30 text-[12px]"
+                      className="gap-1.5 h-7 border-white/10 bg-[oklch(0.18_0.005_260)] hover:bg-white/10 disabled:opacity-30 text-[12px]"
                     >
                       Next
                       <ChevronRight className="h-3.5 w-3.5" />

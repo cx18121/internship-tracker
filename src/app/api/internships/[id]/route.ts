@@ -3,7 +3,7 @@ import type { Internship } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED = ["applied", "isNew", "appliedAt", "applicationUrl", "applicationStatus"] as const;
+const ALLOWED = ["applied", "isNew", "appliedAt", "applicationUrl", "applicationStatus", "hidden"] as const;
 
 export async function PATCH(
   request: Request,

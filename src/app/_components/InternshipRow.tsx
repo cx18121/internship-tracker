@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, MapPin, Check } from "lucide-react";
+import { ExternalLink, MapPin, Check, EyeOff, ChevronDown } from "lucide-react";
 import type { Internship } from "../_lib/types";
 import {
   SCORE_BADGE,
@@ -14,27 +14,52 @@ import { formatSeasonLabel } from "@/lib/seasons";
 // Shared grid template — used by the row AND the header in InternshipList
 // so columns align across every row.
 //
-// Mobile (< md): a 4-col layout — Score · Company+title (stacked) · Posted · Apply.
-// Desktop (md+): the full 7-col operator template.
+// Mobile (< md): 4 cols — Score · Company+title (stacked) · Posted · Apply.
+// Desktop (md+): the full 8-col operator template (Score · Company · Title
+//   · Salary · Location · Season · Posted · Actions).
 export const LIST_GRID_COLS =
-  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,10rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
+  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,5.5rem)_minmax(0,9rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
 
 interface Props {
   item: Internship;
+  expanded: boolean;
   onToggleApplied: () => void;
+  onHide: () => void;
+  onToggleExpand: () => void;
 }
 
-export function InternshipRow({ item, onToggleApplied }: Props) {
+export function InternshipRow({ item, expanded, onToggleApplied, onHide, onToggleExpand }: Props) {
   const primarySeason = (item.season ?? [])[0];
+
+  function handleRowClick(e: React.MouseEvent<HTMLDivElement>) {
+    // Ignore clicks on action buttons or links inside the row.
+    if ((e.target as HTMLElement).closest("a, button")) return;
+    onToggleExpand();
+  }
+
+  function handleRowKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    if ((e.target as HTMLElement).closest("a, button, input, textarea")) return;
+    e.preventDefault();
+    onToggleExpand();
+  }
 
   return (
     <div
-      className={`grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 py-2 rounded border transition-colors text-[13px] ${
+      className={`rounded border transition-colors ${
         item.applied
-          ? "border-transparent bg-transparent opacity-55 hover:opacity-100 hover:bg-white/[0.02]"
-          : "border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.04] hover:border-white/[0.1]"
-      }`}
+          ? "border-transparent bg-transparent opacity-55 hover:opacity-100"
+          : "border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1]"
+      } ${expanded ? "border-white/15 bg-white/[0.03]" : ""}`}
     >
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={handleRowClick}
+        onKeyDown={handleRowKeyDown}
+        className={`group grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 py-2 cursor-pointer hover:bg-white/[0.025] transition-colors text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded`}
+      >
       {/* Score */}
       <span
         className={`justify-self-start text-[10.5px] font-semibold tabular-nums px-1.5 py-0.5 rounded ${
@@ -63,6 +88,20 @@ export function InternshipRow({ item, onToggleApplied }: Props) {
       {/* Title — desktop column only */}
       <span className="hidden md:block text-white/60 truncate min-w-0">{item.title}</span>
 
+      {/* Salary — desktop only, small inline chip */}
+      <span className="hidden md:flex justify-self-start min-w-0">
+        {item.salaryText ? (
+          <span
+            className="px-1.5 py-0.5 rounded text-[10.5px] font-medium bg-emerald-500/12 text-emerald-300 border border-emerald-500/20 truncate max-w-full tabular-nums"
+            title={item.salaryText}
+          >
+            {item.salaryText}
+          </span>
+        ) : (
+          <span className="text-[11px] text-white/30">—</span>
+        )}
+      </span>
+
       {/* Location — desktop only */}
       <span className="hidden md:flex text-[12px] text-white/50 truncate items-center gap-1 min-w-0">
         {item.location && <MapPin className="h-3 w-3 shrink-0 text-white/40" />}
@@ -74,18 +113,21 @@ export function InternshipRow({ item, onToggleApplied }: Props) {
         {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
       </span>
 
-      {/* Posted — visible on both, but narrower on mobile */}
-      <span className="text-[11px] text-white/45 tabular-nums flex items-center gap-1 truncate">
-        {item.postedAt ? formatDate(item.postedAt) : "—"}
-        {item.postedAt && isStale(item.postedAt) && (
+      {/* Posted — visible on both viewports. >30d-old posts use a muted amber
+          tone on the date itself (no separate "!" badge). */}
+      {(() => {
+        const stale = item.postedAt && isStale(item.postedAt);
+        return (
           <span
-            className="text-[9px] px-1 py-px rounded bg-amber-500/12 text-amber-300 border border-amber-500/20"
-            title="Posted >30 days ago"
+            className={`text-[11px] tabular-nums flex items-center gap-1 truncate ${
+              stale ? "text-amber-300/60" : "text-white/45"
+            }`}
+            title={stale ? "Posted >30 days ago — may be stale" : undefined}
           >
-            !
+            {item.postedAt ? formatDate(item.postedAt) : "—"}
           </span>
-        )}
-      </span>
+        );
+      })()}
 
       {/* Actions */}
       <div className="flex items-center gap-1 justify-self-end">
@@ -112,7 +154,35 @@ export function InternshipRow({ item, onToggleApplied }: Props) {
         >
           {item.applied ? <Check className="h-3.5 w-3.5" /> : <span className="text-[14px] leading-none">○</span>}
         </button>
+        {/* Hide — only on hover/focus for desktop, always on mobile */}
+        <button
+          onClick={onHide}
+          aria-label="Hide posting"
+          className="hidden md:inline-flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+          title="Hide this posting"
+        >
+          <EyeOff className="h-3 w-3" />
+        </button>
+        </div>
       </div>
+
+      {/* Expanded description */}
+      {expanded && (
+        <div className="px-3 md:px-4 pt-2 pb-3 border-t border-white/[0.06] text-[12.5px] leading-relaxed text-white/70 space-y-2">
+          {item.description ? (
+            <p className="whitespace-pre-wrap line-clamp-[14]">{item.description}</p>
+          ) : (
+            <p className="text-white/45 italic">No description captured for this posting.</p>
+          )}
+          <button
+            type="button"
+            onClick={onToggleExpand}
+            className="inline-flex items-center gap-1 text-[11px] text-white/50 hover:text-white/85 transition-colors"
+          >
+            <ChevronDown className="h-3 w-3 rotate-180" /> Collapse
+          </button>
+        </div>
+      )}
     </div>
   );
 }

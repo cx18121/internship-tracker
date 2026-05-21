@@ -6,15 +6,17 @@ function Bar({ className = "" }: { className?: string }) {
   return <span className={`inline-block h-2.5 rounded bg-white/[0.06] animate-pulse ${className}`} />;
 }
 
+// One width per column in the desktop template: Score, Company, Title,
+// Salary, Location, Season, Posted. (Action column has its own renderer.)
 const ROW_WIDTHS = [
-  ["w-7", "w-24", "w-3/5", "w-20", "w-12", "w-10"],
-  ["w-7", "w-20", "w-2/3", "w-24", "w-14", "w-10"],
-  ["w-7", "w-28", "w-1/2", "w-16", "w-12", "w-10"],
-  ["w-7", "w-24", "w-3/4", "w-20", "w-14", "w-10"],
-  ["w-7", "w-20", "w-2/5", "w-28", "w-12", "w-10"],
-  ["w-7", "w-32", "w-3/5", "w-16", "w-14", "w-10"],
-  ["w-7", "w-24", "w-1/2", "w-20", "w-12", "w-10"],
-  ["w-7", "w-28", "w-2/3", "w-24", "w-14", "w-10"],
+  ["w-7", "w-24", "w-3/5", "w-12", "w-20", "w-12", "w-10"],
+  ["w-7", "w-20", "w-2/3", "w-14", "w-24", "w-14", "w-10"],
+  ["w-7", "w-28", "w-1/2", "w-10", "w-16", "w-12", "w-10"],
+  ["w-7", "w-24", "w-3/4", "w-12", "w-20", "w-14", "w-10"],
+  ["w-7", "w-20", "w-2/5", "w-14", "w-28", "w-12", "w-10"],
+  ["w-7", "w-32", "w-3/5", "w-12", "w-16", "w-14", "w-10"],
+  ["w-7", "w-24", "w-1/2", "w-10", "w-20", "w-12", "w-10"],
+  ["w-7", "w-28", "w-2/3", "w-14", "w-24", "w-14", "w-10"],
 ];
 
 export function ListSkeleton() {
@@ -28,14 +30,15 @@ export function ListSkeleton() {
           { label: "Score" },
           { label: "Company" },
           { label: "Title", mobileHidden: true },
+          { label: "Salary", mobileHidden: true },
           { label: "Location", mobileHidden: true },
           { label: "Season", mobileHidden: true },
           { label: "Posted" },
           { label: "" },
-        ].map(({ label, mobileHidden }, i) => (
+        ].map(({ label, mobileHidden }, i, arr) => (
           <span
             key={i}
-            className={`${mobileHidden ? "hidden md:inline" : ""} ${i === 6 ? "justify-self-end" : ""}`}
+            className={`${mobileHidden ? "hidden md:inline" : ""} ${i === arr.length - 1 ? "justify-self-end" : ""}`}
           >
             {label}
           </span>
@@ -53,14 +56,16 @@ export function ListSkeleton() {
             <Bar className={widths[1]} />
             <Bar className="md:hidden w-3/5" />
           </div>
-          {/* Title (desktop only) */}
+          {/* Title — desktop only */}
           <Bar className={`hidden md:inline-block ${widths[2]}`} />
-          {/* Location (desktop only) */}
+          {/* Salary — desktop only */}
           <Bar className={`hidden md:inline-block ${widths[3]}`} />
-          {/* Season (desktop only) */}
+          {/* Location — desktop only */}
           <Bar className={`hidden md:inline-block ${widths[4]}`} />
+          {/* Season — desktop only */}
+          <Bar className={`hidden md:inline-block ${widths[5]}`} />
           {/* Posted */}
-          <Bar className={widths[5]} />
+          <Bar className={widths[6]} />
           {/* Actions */}
           <span className="justify-self-end inline-flex gap-1">
             <Bar className="w-6 md:w-10 h-5 rounded" />

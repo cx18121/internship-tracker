@@ -27,7 +27,8 @@ export async function GET(request: Request) {
   const sort: "newest" | "posted" | "score" =
     sortParam === "newest" || sortParam === "posted" ? sortParam : "score";
   const q = sp.get("q")?.trim() || undefined;
+  const includeHidden = sp.get("includeHidden") === "1" || sp.get("hidden") === "1";
 
-  const all = getInternships({ source, minScore, label, sort, search: q });
+  const all = getInternships({ source, minScore, label, sort, search: q, includeHidden });
   return Response.json(all.slice(offset, offset + limit));
 }

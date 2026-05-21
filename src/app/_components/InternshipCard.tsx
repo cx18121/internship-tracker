@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MapPin, ExternalLink, StickyNote, Check } from "lucide-react";
+import { MapPin, ExternalLink, StickyNote, Check, EyeOff, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { Internship } from "../_lib/types";
 import {
@@ -18,6 +18,7 @@ interface Props {
   notes: string;
   onNotesChange: (note: string) => void;
   onToggleApplied: () => void;
+  onHide: () => void;
 }
 
 export function InternshipCard({
@@ -26,8 +27,10 @@ export function InternshipCard({
   notes,
   onNotesChange,
   onToggleApplied,
+  onHide,
 }: Props) {
   const [notesOpen, setNotesOpen] = useState(false);
+  const [descOpen, setDescOpen] = useState(false);
   const uniqueKws = Array.from(new Set(item.matchedKeywords ?? []));
 
   return (
@@ -38,6 +41,15 @@ export function InternshipCard({
           : "border-white/10 hover:border-white/20"
       }`}
     >
+      {/* Hide button — appears on hover, top-right corner */}
+      <button
+        onClick={onHide}
+        aria-label="Hide posting"
+        title="Hide this posting"
+        className="absolute top-2.5 right-2.5 h-6 w-6 inline-flex items-center justify-center rounded text-white/35 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+      >
+        <EyeOff className="h-3 w-3" />
+      </button>
       {/* Header row: identity left, score+timing right */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -167,6 +179,28 @@ export function InternshipCard({
           onChange={(e) => onNotesChange(e.target.value)}
           className="text-[12px] bg-white/[0.04] border-white/10 text-white/80 placeholder:text-white/30 resize-none h-16"
         />
+      )}
+
+      {/* Description expand — only shown when the posting actually carries one */}
+      {item.description && (
+        <div className="border-t border-white/[0.06] pt-2 -mx-3.5 -mb-3.5 px-3.5 pb-3">
+          <button
+            type="button"
+            onClick={() => setDescOpen((v) => !v)}
+            aria-expanded={descOpen}
+            className="inline-flex items-center gap-1 text-[11px] text-white/45 hover:text-white/80 transition-colors"
+          >
+            <ChevronDown
+              className={`h-3 w-3 transition-transform ${descOpen ? "rotate-180" : ""}`}
+            />
+            {descOpen ? "Hide description" : "Show description"}
+          </button>
+          {descOpen && (
+            <p className="mt-2 text-[12.5px] leading-relaxed text-white/70 whitespace-pre-wrap line-clamp-[14]">
+              {item.description}
+            </p>
+          )}
+        </div>
       )}
     </article>
   );

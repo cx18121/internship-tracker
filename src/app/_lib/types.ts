@@ -12,6 +12,8 @@ export interface Internship {
   matchedKeywords?: string[];
   isNew: boolean;
   applied: boolean;
+  hidden?: boolean;
+  description?: string;
   salaryText?: string;
   salaryMin?: number;
   salaryMax?: number;
