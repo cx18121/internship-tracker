@@ -159,6 +159,29 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
   return results;
 }
 
+async function fetchWorkdayDescription(
+  baseHost: string,
+  tenant: string,
+  board: string,
+  externalPath: string,
+): Promise<string> {
+  // CXS detail endpoint: /wday/cxs/{tenant}/{board}{externalPath}
+  // (externalPath already starts with /job/…)
+  try {
+    const { data } = await axios.get(
+      `https://${baseHost}/wday/cxs/${tenant}/${board}${externalPath}`,
+      {
+        timeout: REQUEST_TIMEOUT,
+        headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+      },
+    );
+    const raw = data?.jobPostingInfo?.jobDescription || '';
+    return stripHtml(raw).slice(0, 4000);
+  } catch {
+    return '';
+  }
+}
+
 async function pollWorkday(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
   const tenant = target.slug;
   const board = target.board || '';
@@ -184,24 +207,41 @@ async function pollWorkday(target: ATSTarget, now: string): Promise<Partial<Inte
   );
   const postings: any[] = data.jobPostings || [];
   const company = target.name || target.slug;
-  return postings
-    .filter((j) => isInternTitle(j.title || ''))
-    .map((j) => {
-      // Workday sometimes returns a facility/campus name (e.g. "Hendrick Motorsports") as
-      // locationsText rather than a city. If it just echoes the company name, fall back.
-      const rawLoc = j.locationsText || '';
-      const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
-      return {
-        title: j.title || '',
-        company,
-        location,
-        link: `https://${baseHost}${j.externalPath}`,
-        source: 'Workday',
-        postedAt: now,
-        seenAt: now,
-        applied: false,
-      };
-    });
+  const interns = postings.filter((j) => isInternTitle(j.title || ''));
+
+  // Concurrent description fetches (cap 5) so a tenant with 20 interns adds
+  // ~12s instead of ~60s. Workday list endpoint doesn't include descriptions;
+  // they're only on the per-job CXS detail call.
+  const descriptions = new Map<string, string>();
+  const queue = [...interns];
+  await Promise.all(
+    Array.from({ length: Math.min(5, queue.length) }, async () => {
+      while (queue.length > 0) {
+        const j = queue.shift();
+        if (!j) break;
+        descriptions.set(j.externalPath, await fetchWorkdayDescription(baseHost, tenant, board, j.externalPath));
+      }
+    }),
+  );
+
+  return interns.map((j) => {
+    // Workday sometimes returns a facility/campus name (e.g. "Hendrick Motorsports") as
+    // locationsText rather than a city. If it just echoes the company name, fall back.
+    const rawLoc = j.locationsText || '';
+    const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
+    const description = descriptions.get(j.externalPath) || undefined;
+    return {
+      title: j.title || '',
+      company,
+      location,
+      description,
+      link: `https://${baseHost}${j.externalPath}`,
+      source: 'Workday',
+      postedAt: now,
+      seenAt: now,
+      applied: false,
+    };
+  });
 }
 
 async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
@@ -377,22 +417,47 @@ async function pollWorkdayPlaywright(
 
       const postings: any[] = data.jobPostings || [];
       const company = target.name || tenant;
-      const tJobs = postings
-        .filter((j) => isInternTitle(j.title || ''))
-        .map((j) => {
-          const rawLoc = j.locationsText || '';
-          const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
-          return {
-            title: j.title || '',
-            company,
-            location,
-            link: `https://${baseHost}${j.externalPath}`,
-            source: 'Workday',
-            postedAt: now,
-            seenAt: now,
-            applied: false,
-          };
-        });
+      const interns = postings.filter((j) => isInternTitle(j.title || ''));
+
+      // Fetch descriptions via the same authenticated page.request (re-uses
+      // CSRF cookie). Concurrent cap of 5 to keep tenant cost bounded.
+      const descriptions = new Map<string, string>();
+      const descQueue = [...interns];
+      await Promise.all(
+        Array.from({ length: Math.min(5, descQueue.length) }, async () => {
+          while (descQueue.length > 0) {
+            const j = descQueue.shift();
+            if (!j) break;
+            try {
+              const r = await page.request.get(
+                `https://${baseHost}/wday/cxs/${tenant}/${board}${j.externalPath}`,
+                { headers: { 'Accept': 'application/json', 'X-Calypso-Csrf-Token': csrfCookie.value } },
+              );
+              if (r.ok()) {
+                const d: any = await r.json();
+                const raw = d?.jobPostingInfo?.jobDescription || '';
+                descriptions.set(j.externalPath, stripHtml(raw).slice(0, 4000));
+              }
+            } catch { /* leave description empty */ }
+          }
+        }),
+      );
+
+      const tJobs = interns.map((j) => {
+        const rawLoc = j.locationsText || '';
+        const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
+        return {
+          title: j.title || '',
+          company,
+          location,
+          description: descriptions.get(j.externalPath) || undefined,
+          link: `https://${baseHost}${j.externalPath}`,
+          source: 'Workday',
+          postedAt: now,
+          seenAt: now,
+          applied: false,
+        };
+      });
       if (tJobs.length > 0) {
         console.log(`[ats] ${company} (Workday/Playwright): ${tJobs.length} internships`);
       }
