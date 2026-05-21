@@ -28,6 +28,7 @@ data/internships.json
 data/poll-stats.json
 data/portal-snapshots.json
 data/seen.json
+data/workday-flags-cache.json
 
 # Backups and migration cruft
 *.bak

@@ -484,41 +484,66 @@ async function pollWorkdayPlaywright(
   return { jobs, csrfConfirmedSlugs, csrfFailedSlugs };
 }
 
-// Persist Workday Playwright outcomes back to ats-targets.json so future
-// cycles can short-circuit: successful tenants skip the doomed direct CXS
-// call (wdCsrfRequired:true), and tenants that always fail Playwright skip
-// the entire fallback path (wdSkipPlaywright:true). Re-reads the config at
-// write time to avoid clobbering concurrent saveDiscoveredTargets writes.
+// Sidecar cache for Workday runtime flags. ats-targets.json stays as pure
+// curation — the volatile wdCsrfRequired / wdSkipPlaywright flags live here
+// and are gitignored so cycle churn doesn't pollute git status. Read on each
+// pollATS call and overlaid onto the in-memory target list.
+const WD_FLAGS_CACHE_PATH = path.join(process.cwd(), 'data', 'workday-flags-cache.json');
+
+interface WorkdayFlagsCache {
+  [slug: string]: { wdCsrfRequired?: boolean; wdSkipPlaywright?: boolean };
+}
+
+function loadWorkdayFlagsCache(): WorkdayFlagsCache {
+  try {
+    if (!fs.existsSync(WD_FLAGS_CACHE_PATH)) return {};
+    return JSON.parse(fs.readFileSync(WD_FLAGS_CACHE_PATH, 'utf-8')) || {};
+  } catch {
+    return {};
+  }
+}
+
 function cacheWorkdayFlags(confirmed: string[], failed: string[]): void {
   if (confirmed.length === 0 && failed.length === 0) return;
   try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    const existing: ATSTarget[] = raw.targets || [];
-    const confirmedSet = new Set(confirmed);
-    const failedSet = new Set(failed);
+    const cache = loadWorkdayFlagsCache();
     let confirmedCount = 0;
     let failedCount = 0;
-    for (const t of existing) {
-      if (t.ats !== 'workday') continue;
-      if (confirmedSet.has(t.slug) && !t.wdCsrfRequired) {
-        t.wdCsrfRequired = true;
-        confirmedCount++;
-      }
-      if (failedSet.has(t.slug) && !t.wdSkipPlaywright) {
-        t.wdSkipPlaywright = true;
-        failedCount++;
-      }
+    for (const slug of confirmed) {
+      if (!cache[slug]) cache[slug] = {};
+      if (!cache[slug].wdCsrfRequired) { cache[slug].wdCsrfRequired = true; confirmedCount++; }
+    }
+    for (const slug of failed) {
+      if (!cache[slug]) cache[slug] = {};
+      if (!cache[slug].wdSkipPlaywright) { cache[slug].wdSkipPlaywright = true; failedCount++; }
     }
     if (confirmedCount > 0 || failedCount > 0) {
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify({ targets: existing }, null, 2));
+      fs.writeFileSync(WD_FLAGS_CACHE_PATH, JSON.stringify(cache, null, 2));
       const parts = [];
       if (confirmedCount > 0) parts.push(`${confirmedCount} wdCsrfRequired`);
       if (failedCount > 0) parts.push(`${failedCount} wdSkipPlaywright`);
-      console.log(`[ats] Cached Workday flags for ${parts.join(', ')} tenant(s)`);
+      console.log(`[ats] Cached Workday flags (sidecar) for ${parts.join(', ')} tenant(s)`);
     }
   } catch (e: any) {
     console.warn(`[ats] Failed to cache Workday flags: ${e.message}`);
   }
+}
+
+function overlayWorkdayFlags(targets: ATSTarget[]): ATSTarget[] {
+  const cache = loadWorkdayFlagsCache();
+  if (Object.keys(cache).length === 0) return targets;
+  return targets.map((t) => {
+    if (t.ats !== 'workday') return t;
+    const cached = cache[t.slug];
+    if (!cached) return t;
+    // Cache wins over file: once a runtime probe has classified a tenant,
+    // that's the freshest signal. File values are retained as initial seed.
+    return {
+      ...t,
+      wdCsrfRequired: cached.wdCsrfRequired ?? t.wdCsrfRequired,
+      wdSkipPlaywright: cached.wdSkipPlaywright ?? t.wdSkipPlaywright,
+    };
+  });
 }
 
 export async function pollATS(): Promise<Partial<Internship>[]> {
@@ -528,7 +553,7 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   }
 
   const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  const targets: ATSTarget[] = config.targets || [];
+  const targets: ATSTarget[] = overlayWorkdayFlags(config.targets || []);
   const now = new Date().toISOString();
   const results: Partial<Internship>[] = [];
 
