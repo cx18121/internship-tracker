@@ -22,6 +22,17 @@ const ROLE_PATHS = [
   '/jobs/l/recruiting',
 ];
 
+function buildSeedDescription(j: RawJob): string | undefined {
+  // Listing pages don't include a real job description (the detail page does),
+  // but they do include the company one-liner and a parseable salary string.
+  // Stitch them into a placeholder so parseSalary in agent.ts can pick salary up.
+  const parts = [
+    j.salary ? `Salary: ${j.salary}` : '',
+    j.companyOneLiner || '',
+  ].filter(Boolean);
+  return parts.length ? parts.join('. ') : undefined;
+}
+
 function extractInterns(rawHtmlAttr: string, now: string): Partial<Internship>[] {
   const decoded = rawHtmlAttr
     .replace(/&amp;/g, '&')
@@ -42,7 +53,48 @@ function extractInterns(rawHtmlAttr: string, now: string): Partial<Internship>[]
       postedAt: j.companyLastActiveAt || now,
       seenAt: now,
       applied: false,
+      description: buildSeedDescription(j),
     }));
+}
+
+/**
+ * Fetch the real job description from a detail page. Detail pages expose
+ * props.job.descriptionHtml (~3-4kb of HTML). Returns the existing seed
+ * description (oneLiner + salary) prepended so the salary stays parseable
+ * by downstream agent.ts parseSalary.
+ */
+async function enrichDescription(
+  page: import('playwright').Page,
+  jobs: Partial<Internship>[],
+): Promise<void> {
+  for (const j of jobs) {
+    if (!j.link) continue;
+    try {
+      await page.goto(j.link, { waitUntil: 'networkidle', timeout: POLL_TIMEOUT });
+      const html = await page.evaluate(() => {
+        const div = document.querySelector('[data-page]');
+        return div?.getAttribute('data-page') || '';
+      });
+      const decoded = html
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>').replace(/&quot;/g, '"');
+      let data: any;
+      try { data = JSON.parse(decoded); } catch { continue; }
+      const rawHtml = data?.props?.job?.descriptionHtml || '';
+      if (!rawHtml) continue;
+      const plain = rawHtml
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&nbsp;/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (!plain) continue;
+      // Keep the seed (which carries the salary string) so parseSalary still works,
+      // then append the real description body.
+      j.description = [j.description, plain].filter(Boolean).join('\n\n').slice(0, 4000);
+    } catch {
+      // Detail-page fetches are best-effort; failures leave the seed description alone.
+    }
+  }
 }
 
 interface RawJob {
@@ -61,6 +113,9 @@ interface RawJob {
   companyLogoUrl: string | null;
   companyLastActiveAt: string | null;
   applyUrl: string;
+  // Listing-level salary range string, e.g. "$200K - $250K" or "$124K - $188K CAD".
+  // Parsed downstream by agent.ts via parseSalary on title + description.
+  salary?: string;
 }
 
 /**
@@ -93,7 +148,9 @@ async function fetchViaPlaywright(now: string): Promise<Partial<Internship>[]> {
         console.warn(`[yc-waas] role ${path} failed: ${e.message}`);
       }
     }
-    return Array.from(found.values());
+    const collected = Array.from(found.values());
+    await enrichDescription(page, collected);
+    return collected;
   } finally {
     await browser.close();
   }

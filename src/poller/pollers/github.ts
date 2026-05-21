@@ -214,7 +214,8 @@ async function fetchDescriptionByUrl(url: string): Promise<string> {
       const am = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
       if (!am) return '';
       const appData = JSON.parse(am[1]);
-      const posting = appData?.jobBoard?.jobPostings?.find((p: { id: string }) => p.id === jobId)
+      const posting = appData?.posting
+        ?? appData?.jobBoard?.jobPostings?.find((p: { id: string }) => p.id === jobId)
         ?? appData?.jobBoard?.jobPostings?.[0];
       return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
     }

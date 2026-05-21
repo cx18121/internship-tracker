@@ -100,7 +100,11 @@ async function fetchAshbyDescription(slug: string, jobId: string): Promise<strin
     const m = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
     if (!m) return '';
     const data = JSON.parse(m[1]);
-    const posting = data?.jobBoard?.jobPostings?.find((p: any) => p.id === jobId)
+    // Detail page exposes the role directly at data.posting with descriptionHtml.
+    // List page uses data.jobBoard.jobPostings[] but those entries DON'T include
+    // descriptionHtml — only metadata. Kept as fallback for board-page calls.
+    const posting = data?.posting
+      ?? data?.jobBoard?.jobPostings?.find((p: any) => p.id === jobId)
       ?? data?.jobBoard?.jobPostings?.[0];
     return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
   } catch {
