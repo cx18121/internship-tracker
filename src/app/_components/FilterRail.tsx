@@ -22,6 +22,11 @@ interface Props {
   locationText: string;
   includeKeywords: string[];
   excludeKeywords: string[];
+  // Every keyword present on at least one loaded internship. Keyword chips
+  // not in this set are dimmed with a "not found in any posting" tooltip —
+  // the include/exclude filter matches against the scorer's matchedKeywords,
+  // not free text, so an unknown keyword silently zeroes out the result list.
+  knownKeywords: Set<string>;
   // setters
   setSelectedSources: (fn: (prev: string[]) => string[]) => void;
   setTierFilter: (t: TierFilter) => void;
@@ -101,6 +106,7 @@ export function FilterRail(props: Props) {
     locationText,
     includeKeywords,
     excludeKeywords,
+    knownKeywords,
     setSelectedSources,
     setTierFilter,
     setSelectedSeasons,
@@ -281,17 +287,25 @@ export function FilterRail(props: Props) {
               </div>
               {includeKeywords.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
-                  {includeKeywords.map((k) => (
-                    <span
-                      key={k}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/10 text-[11px] text-white/70"
-                    >
-                      {k}
-                      <button onClick={() => setIncludeKeywords((p) => p.filter((x) => x !== k))}>
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </span>
-                  ))}
+                  {includeKeywords.map((k) => {
+                    const unknown = !knownKeywords.has(k.toLowerCase());
+                    return (
+                      <span
+                        key={k}
+                        title={unknown ? "Not in any posting's tags — filter will return 0 results" : undefined}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
+                          unknown
+                            ? "bg-amber-500/10 text-amber-400/80 line-through decoration-amber-400/50"
+                            : "bg-white/10 text-white/70"
+                        }`}
+                      >
+                        {k}
+                        <button onClick={() => setIncludeKeywords((p) => p.filter((x) => x !== k))}>
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </Section>
@@ -316,17 +330,25 @@ export function FilterRail(props: Props) {
               </div>
               {excludeKeywords.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-2">
-                  {excludeKeywords.map((k) => (
-                    <span
-                      key={k}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-500/10 text-[11px] text-red-400"
-                    >
-                      {k}
-                      <button onClick={() => setExcludeKeywords((p) => p.filter((x) => x !== k))}>
-                        <X className="h-2.5 w-2.5" />
-                      </button>
-                    </span>
-                  ))}
+                  {excludeKeywords.map((k) => {
+                    const unknown = !knownKeywords.has(k.toLowerCase());
+                    return (
+                      <span
+                        key={k}
+                        title={unknown ? "Not in any posting's tags — has no effect on results" : undefined}
+                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
+                          unknown
+                            ? "bg-white/[0.04] text-white/30 line-through decoration-white/20"
+                            : "bg-red-500/10 text-red-400"
+                        }`}
+                      >
+                        {k}
+                        <button onClick={() => setExcludeKeywords((p) => p.filter((x) => x !== k))}>
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
             </Section>

@@ -432,6 +432,19 @@ export default function InternshipsPage() {
     );
   }, [internships]);
 
+  // Every keyword that appears on at least one internship's matchedKeywords
+  // anywhere in the loaded corpus. Used by FilterRail to dim keyword chips
+  // the user typed that won't match anything — the include/exclude filter
+  // operates on the scorer's tag set, not free text, so a typed keyword
+  // missing from the corpus silently wipes out all results.
+  const knownKeywords = useMemo(() => {
+    const set = new Set<string>();
+    for (const i of internships) {
+      for (const k of i.matchedKeywords ?? []) set.add(k.toLowerCase());
+    }
+    return set;
+  }, [internships]);
+
   // Date-window cutoff in ms. `null` means no date filter (all time).
   const windowCutoff = useMemo(() => {
     const cfg = DATE_WINDOWS.find((d) => d.value === dateWindow);
@@ -680,6 +693,7 @@ export default function InternshipsPage() {
               locationText={locationText}
               includeKeywords={includeKeywords}
               excludeKeywords={excludeKeywords}
+              knownKeywords={knownKeywords}
               setSelectedSources={setSelectedSources}
               setTierFilter={setTierFilter}
               setSelectedSeasons={setSelectedSeasons}
@@ -938,6 +952,7 @@ export default function InternshipsPage() {
           locationText={locationText}
           includeKeywords={includeKeywords}
           excludeKeywords={excludeKeywords}
+          knownKeywords={knownKeywords}
           setSelectedSources={setSelectedSources}
           setTierFilter={setTierFilter}
           setSelectedSeasons={setSelectedSeasons}
