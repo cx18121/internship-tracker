@@ -31,3 +31,23 @@ export const SOURCE_BADGE: Record<string, string> = {
 };
 
 export const SOURCE_BADGE_FALLBACK = "bg-white/5 text-white/40 border border-white/10";
+
+// Single solid color per source — used as a tiny dot prefix in dense list view
+// to indicate provenance without consuming a whole column.
+export const SOURCE_DOT: Record<string, string> = {
+  SimplifyJobs:    "bg-blue-400",
+  Handshake:       "bg-purple-400",
+  Greenhouse:      "bg-green-400",
+  Lever:           "bg-teal-400",
+  Ashby:           "bg-cyan-400",
+  Linkedin:        "bg-sky-400",
+  Indeed:          "bg-indigo-400",
+  Glassdoor:       "bg-emerald-400",
+  Google:          "bg-rose-400",
+  Workday:         "bg-fuchsia-400",
+  SmartRecruiters: "bg-violet-400",
+  iCIMS:           "bg-pink-400",
+  Inhouse:         "bg-yellow-400",
+};
+
+export const SOURCE_DOT_FALLBACK = "bg-white/30";

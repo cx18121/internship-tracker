@@ -19,9 +19,13 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
+  LayoutGrid,
+  List,
+  Layers,
 } from "lucide-react";
 
 import { InternshipCard } from "./_components/InternshipCard";
+import { InternshipList } from "./_components/InternshipList";
 import { NotifModal } from "./_components/NotifModal";
 import { SourceHealth } from "./_components/SourceHealth";
 import type { Internship, Stats, Sources, AppliedFilter, SortBy, TierFilter } from "./_lib/types";
@@ -62,6 +66,8 @@ export default function InternshipsPage() {
   // Sort & pagination
   const [sortBy, setSortBy] = useState<SortBy>("score");
   const [currentPage, setCurrentPage] = useState(1);
+  const [viewMode, setViewMode] = useState<"card" | "list">("card");
+  const [groupByCompany, setGroupByCompany] = useState(false);
 
   // Applied tracking (localStorage)
   const [appliedDates, setAppliedDates] = useState<Record<string, string>>({});
@@ -118,6 +124,11 @@ export default function InternshipsPage() {
     const seasons = parseList("seasons");
     if (seasons.length) setSelectedSeasons(seasons);
 
+    const view = sp.get("view");
+    if (view === "list" || view === "card") setViewMode(view);
+
+    if (sp.get("group") === "1") setGroupByCompany(true);
+
     const sort = sp.get("sort") as SortBy | null;
     if (sort === "newest" || sort === "posted" || sort === "score") setSortBy(sort);
 
@@ -141,6 +152,8 @@ export default function InternshipsPage() {
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
     if (tierFilter !== "all") params.set("tier", tierFilter);
     if (selectedSeasons.length) params.set("seasons", selectedSeasons.join(","));
+    if (viewMode !== "card") params.set("view", viewMode);
+    if (viewMode === "list" && groupByCompany) params.set("group", "1");
     if (sortBy !== "score") params.set("sort", sortBy);
     if (currentPage > 1) params.set("page", String(currentPage));
 
@@ -151,7 +164,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, selectedLabels, selectedLocations,
     includeKeywords, excludeKeywords,
-    minScore, locationText, appliedFilter, tierFilter, selectedSeasons, sortBy, currentPage,
+    minScore, locationText, appliedFilter, tierFilter, selectedSeasons, viewMode, groupByCompany, sortBy, currentPage,
   ]);
 
   const fetchData = useCallback(async (isRefresh = false) => {
@@ -411,6 +424,45 @@ export default function InternshipsPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Card / List view toggle */}
+          <div className="flex items-center rounded-md border border-white/10 bg-white/5 p-0.5">
+            <button
+              onClick={() => setViewMode("card")}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === "card"
+                  ? "bg-white/15 text-white"
+                  : "text-white/40 hover:text-white/70"
+              }`}
+              title="Card view"
+            >
+              <LayoutGrid className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => setViewMode("list")}
+              className={`p-1.5 rounded transition-colors ${
+                viewMode === "list"
+                  ? "bg-white/15 text-white"
+                  : "text-white/40 hover:text-white/70"
+              }`}
+              title="List view"
+            >
+              <List className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          {/* Group by company — only meaningful in list view */}
+          {viewMode === "list" && (
+            <button
+              onClick={() => setGroupByCompany((v) => !v)}
+              className={`p-1.5 rounded border transition-colors ${
+                groupByCompany
+                  ? "border-white/30 bg-white/15 text-white"
+                  : "border-white/10 bg-white/5 text-white/40 hover:text-white/70"
+              }`}
+              title={groupByCompany ? "Ungroup" : "Group by company"}
+            >
+              <Layers className="h-3.5 w-3.5" />
+            </button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -772,18 +824,26 @@ export default function InternshipsPage() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                {paginated.map((item) => (
-                  <InternshipCard
-                    key={item.id}
-                    item={item}
-                    appliedDate={appliedDates[item.id] ?? null}
-                    notes={notesMap[item.id] ?? ""}
-                    onNotesChange={(note) => updateNote(item.id, note)}
-                    onToggleApplied={() => toggleApplied(item.id, item.applied)}
-                  />
-                ))}
-              </div>
+              {viewMode === "list" ? (
+                <InternshipList
+                  items={paginated}
+                  groupByCompany={groupByCompany}
+                  onToggleApplied={toggleApplied}
+                />
+              ) : (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                  {paginated.map((item) => (
+                    <InternshipCard
+                      key={item.id}
+                      item={item}
+                      appliedDate={appliedDates[item.id] ?? null}
+                      notes={notesMap[item.id] ?? ""}
+                      onNotesChange={(note) => updateNote(item.id, note)}
+                      onToggleApplied={() => toggleApplied(item.id, item.applied)}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* Pagination */}
               {totalPages > 1 && (
