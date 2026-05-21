@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { runCycle } from './agent';
-import { archiveStalePostings, revalidateLinks, closeDb } from '../lib/store';
+import { revalidateLinks, closeDb } from '../lib/store';
 
 // Two-tier polling:
 //   Fast tier (default 5 min)  — SimplifyJobs RSS only. Quick to fetch, high
@@ -33,7 +33,6 @@ async function safeSlow(): Promise<void> {
   }
   slowRunning = true;
   try {
-    archiveStalePostings();
     await runCycle({ tier: 'slow' });
   } catch (err) {
     // Never let a single bad cycle propagate out of setInterval — that would
@@ -66,7 +65,6 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h | Score threshold: ${process.env.SCORE_THRESHOLD || '50'}`);
 
   // Initial run — do everything once so the DB has fresh state.
-  archiveStalePostings();
   await runCycle({ tier: 'all' });
 
   // Daily revalidation
