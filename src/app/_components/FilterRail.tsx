@@ -157,8 +157,8 @@ export function FilterRail(props: Props) {
               {t === "all"
                 ? "All"
                 : t === "elite"
-                  ? `Elite (${ELITE_COUNT})`
-                  : `Top+ (${ELITE_COUNT + TOP_COUNT})`}
+                  ? `Top ${ELITE_COUNT}`
+                  : `Top ${ELITE_COUNT + TOP_COUNT}`}
             </Chip>
           ))}
         </div>
