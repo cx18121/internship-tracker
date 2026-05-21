@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MapPin, ExternalLink, StickyNote, Check, EyeOff, ChevronDown } from "lucide-react";
+import { MapPin, ExternalLink, StickyNote, Check, Eye, EyeOff, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { Internship } from "../_lib/types";
 import {
@@ -16,6 +16,7 @@ interface Props {
   item: Internship;
   appliedDate: string | null;
   notes: string;
+  pending?: boolean;
   onNotesChange: (note: string) => void;
   onToggleApplied: () => void;
   onHide: () => void;
@@ -25,6 +26,7 @@ export function InternshipCard({
   item,
   appliedDate,
   notes,
+  pending = false,
   onNotesChange,
   onToggleApplied,
   onHide,
@@ -41,14 +43,17 @@ export function InternshipCard({
           : "border-white/10 hover:border-white/20"
       }`}
     >
-      {/* Hide button — appears on hover, top-right corner */}
+      {/* Hide / Unhide — appears on hover, top-right corner. Label and icon
+          flip based on current state. */}
       <button
         onClick={onHide}
-        aria-label="Hide posting"
-        title="Hide this posting"
-        className="absolute top-2.5 right-2.5 h-6 w-6 inline-flex items-center justify-center rounded text-white/35 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+        disabled={pending}
+        aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
+        aria-pressed={item.hidden ?? false}
+        title={item.hidden ? "Unhide this posting" : "Hide this posting"}
+        className="absolute top-2.5 right-2.5 h-6 w-6 inline-flex items-center justify-center rounded text-white/35 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
       >
-        <EyeOff className="h-3 w-3" />
+        {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
       </button>
       {/* Header row: identity left, score+timing right */}
       <div className="flex items-start justify-between gap-3">
@@ -56,8 +61,10 @@ export function InternshipCard({
           <div className="flex items-center gap-1.5 min-w-0">
             <span
               className={`h-1.5 w-1.5 rounded-full shrink-0 ${SOURCE_DOT[item.source] ?? SOURCE_DOT_FALLBACK}`}
-              title={item.source}
+              aria-hidden="true"
+              title={`Source: ${item.source}`}
             />
+            <span className="sr-only">Source: {item.source}.</span>
             <h3 className="font-semibold text-[13.5px] text-white truncate leading-tight">
               {item.company}
             </h3>
@@ -140,7 +147,10 @@ export function InternshipCard({
         </a>
         <button
           onClick={onToggleApplied}
-          className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] border transition-colors ${
+          disabled={pending}
+          aria-pressed={item.applied}
+          aria-busy={pending}
+          className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] border transition-colors disabled:opacity-50 disabled:cursor-wait ${
             item.applied
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
               : "border-white/15 bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/80"

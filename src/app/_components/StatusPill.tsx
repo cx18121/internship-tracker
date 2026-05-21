@@ -95,7 +95,7 @@ export function StatusPill({ lastPolledAt, totalPostings, sourcesTotal, exclusio
         <div
           role="dialog"
           aria-label="Source health"
-          className="absolute right-0 top-full mt-2 w-[420px] z-50 rounded-lg border border-white/15 bg-[oklch(0.18_0.005_260)] shadow-[0_8px_24px_oklch(0_0_0_/_50%)] p-3 space-y-3"
+          className="absolute right-0 top-full mt-2 w-[calc(100vw-1rem)] max-w-[420px] z-50 rounded-lg border border-white/15 bg-[oklch(0.18_0.005_260)] shadow-[0_8px_24px_oklch(0_0_0_/_50%)] p-3 space-y-3"
         >
           <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.08em] text-white/50">
             <span>Source health</span>

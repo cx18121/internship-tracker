@@ -85,11 +85,24 @@ export default function InternshipsPage() {
   // Posting ids whose description is expanded inline (list view)
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
 
+  // Per-row in-flight PATCH guard so a fast double-click on the applied
+  // toggle can't race-fire stale requests and end in the wrong final state.
+  const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
+
   function toggleExpand(id: string): void {
     setExpandedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      return next;
+    });
+  }
+
+  function setPending(id: string, on: boolean): void {
+    setPendingIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
       return next;
     });
   }
@@ -260,7 +273,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, minScore, selectedLocations, locationText,
     includeKeywords, excludeKeywords, appliedFilter, tierFilter,
-    selectedSeasons, dateWindow, sortBy,
+    selectedSeasons, dateWindow, sortBy, searchText, showHidden,
   ]);
 
   // Load notification settings
@@ -281,6 +294,11 @@ export default function InternshipsPage() {
   }, []);
 
   async function toggleApplied(id: string, current: boolean) {
+    // Per-row pending guard. Double-clicks while a PATCH is in flight are
+    // ignored so we can't race two stale requests and end up wrong-side-up.
+    if (pendingIds.has(id)) return;
+    setPending(id, true);
+
     setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: !current } : i)));
     const newDates = { ...appliedDates };
     if (!current) newDates[id] = new Date().toISOString();
@@ -288,14 +306,22 @@ export default function InternshipsPage() {
     setAppliedDates(newDates);
     lsSet(LS_DATES_KEY, newDates);
 
+    let ok = false;
     try {
-      await fetch(`/api/internships/${id}`, {
+      const res = await fetch(`/api/internships/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ applied: !current }),
       });
+      ok = res.ok;
     } catch {
-      // revert
+      ok = false;
+    }
+
+    if (!ok) {
+      // fetch() resolves with res.ok === false for 4xx/5xx, so a non-thrown
+      // failed PATCH would silently leave the UI in the optimistic state
+      // while the DB rejected the change. Roll back explicitly.
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current } : i)));
       const reverted = { ...appliedDates };
       if (current) reverted[id] = new Date().toISOString();
@@ -303,34 +329,39 @@ export default function InternshipsPage() {
       setAppliedDates(reverted);
       lsSet(LS_DATES_KEY, reverted);
     }
+    setPending(id, false);
   }
 
-  async function hidePosting(id: string) {
-    // Optimistic update; on failure revert. Posting is filtered out of view
-    // immediately because the hidden filter runs in the client filter step.
-    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: true } : i)));
+  async function patchHidden(id: string, next: boolean): Promise<void> {
+    if (pendingIds.has(id)) return;
+    setPending(id, true);
+
+    const prevHidden = !next;
+    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: next } : i)));
+
+    let ok = false;
     try {
-      await fetch(`/api/internships/${id}`, {
+      const res = await fetch(`/api/internships/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hidden: true }),
+        body: JSON.stringify({ hidden: next }),
       });
+      ok = res.ok;
     } catch {
-      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: false } : i)));
+      ok = false;
     }
+
+    if (!ok) {
+      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: prevHidden } : i)));
+    }
+    setPending(id, false);
   }
 
-  async function unhidePosting(id: string) {
-    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: false } : i)));
-    try {
-      await fetch(`/api/internships/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hidden: false }),
-      });
-    } catch {
-      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: true } : i)));
-    }
+  function hidePosting(id: string): void {
+    void patchHidden(id, true);
+  }
+  function unhidePosting(id: string): void {
+    void patchHidden(id, false);
   }
 
   function updateNote(id: string, note: string) {
@@ -829,6 +860,7 @@ export default function InternshipsPage() {
                     groupByCompany={groupByCompany}
                     sortBy={sortBy}
                     expandedIds={expandedIds}
+                    pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
                     onHide={(id) => {
                       const item = internships.find((i) => i.id === id);
@@ -846,6 +878,7 @@ export default function InternshipsPage() {
                         item={item}
                         appliedDate={appliedDates[item.id] ?? null}
                         notes={notesMap[item.id] ?? ""}
+                        pending={pendingIds.has(item.id)}
                         onNotesChange={(note) => updateNote(item.id, note)}
                         onToggleApplied={() => toggleApplied(item.id, item.applied)}
                         onHide={() => (item.hidden ? unhidePosting(item.id) : hidePosting(item.id))}

@@ -29,6 +29,7 @@ interface Props {
   groupByCompany: boolean;
   sortBy: SortBy;
   expandedIds: Set<string>;
+  pendingIds: Set<string>;
   onToggleApplied: (id: string, current: boolean) => void;
   onHide: (id: string) => void;
   onToggleExpand: (id: string) => void;
@@ -90,6 +91,7 @@ export function InternshipList({
   groupByCompany,
   sortBy,
   expandedIds,
+  pendingIds,
   onToggleApplied,
   onHide,
   onToggleExpand,
@@ -103,6 +105,7 @@ export function InternshipList({
             key={item.id}
             item={item}
             expanded={expandedIds.has(item.id)}
+            pending={pendingIds.has(item.id)}
             onToggleApplied={() => onToggleApplied(item.id, item.applied)}
             onHide={() => onHide(item.id)}
             onToggleExpand={() => onToggleExpand(item.id)}
@@ -118,6 +121,7 @@ export function InternshipList({
       items={items}
       sortBy={sortBy}
       expandedIds={expandedIds}
+      pendingIds={pendingIds}
       onToggleApplied={onToggleApplied}
       onHide={onHide}
       onToggleExpand={onToggleExpand}
@@ -129,6 +133,7 @@ function GroupedList({
   items,
   sortBy,
   expandedIds,
+  pendingIds,
   onToggleApplied,
   onHide,
   onToggleExpand,
@@ -180,6 +185,7 @@ function GroupedList({
                     key={item.id}
                     item={item}
                     expanded={expandedIds.has(item.id)}
+                    pending={pendingIds.has(item.id)}
                     onToggleApplied={() => onToggleApplied(item.id, item.applied)}
                     onHide={() => onHide(item.id)}
                     onToggleExpand={() => onToggleExpand(item.id)}

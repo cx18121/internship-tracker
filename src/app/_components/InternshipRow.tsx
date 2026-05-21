@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, MapPin, Check, EyeOff, ChevronDown } from "lucide-react";
+import { ExternalLink, MapPin, Check, Eye, EyeOff, ChevronDown } from "lucide-react";
 import type { Internship } from "../_lib/types";
 import {
   SCORE_BADGE,
@@ -23,12 +23,20 @@ export const LIST_GRID_COLS =
 interface Props {
   item: Internship;
   expanded: boolean;
+  pending?: boolean;
   onToggleApplied: () => void;
   onHide: () => void;
   onToggleExpand: () => void;
 }
 
-export function InternshipRow({ item, expanded, onToggleApplied, onHide, onToggleExpand }: Props) {
+export function InternshipRow({
+  item,
+  expanded,
+  pending = false,
+  onToggleApplied,
+  onHide,
+  onToggleExpand,
+}: Props) {
   const primarySeason = (item.season ?? [])[0];
 
   function handleRowClick(e: React.MouseEvent<HTMLDivElement>) {
@@ -70,13 +78,17 @@ export function InternshipRow({ item, expanded, onToggleApplied, onHide, onToggl
         {item.score != null ? ` ${item.score}` : ""}
       </span>
 
-      {/* Company — desktop column. On mobile this slot holds company + title stacked. */}
+      {/* Company — desktop column. On mobile this slot holds company + title stacked.
+          The colored dot encodes source visually; sr-only text keeps the same
+          information available to screen readers. */}
       <div className="min-w-0">
         <span className="flex items-center gap-1.5 min-w-0">
           <span
             className={`shrink-0 h-1.5 w-1.5 rounded-full ${SOURCE_DOT[item.source] ?? SOURCE_DOT_FALLBACK}`}
-            title={item.source}
+            aria-hidden="true"
+            title={`Source: ${item.source}`}
           />
+          <span className="sr-only">Source: {item.source}.</span>
           <span className="font-medium text-white truncate">{item.company}</span>
         </span>
         {/* Title appears under company on mobile only; desktop has its own column */}
@@ -143,9 +155,11 @@ export function InternshipRow({ item, expanded, onToggleApplied, onHide, onToggl
         </a>
         <button
           onClick={onToggleApplied}
+          disabled={pending}
           aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
           aria-pressed={item.applied}
-          className={`h-6 w-6 inline-flex items-center justify-center rounded transition-colors ${
+          aria-busy={pending}
+          className={`h-6 w-6 inline-flex items-center justify-center rounded transition-colors disabled:opacity-50 disabled:cursor-wait ${
             item.applied
               ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
               : "bg-transparent text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
@@ -154,14 +168,18 @@ export function InternshipRow({ item, expanded, onToggleApplied, onHide, onToggl
         >
           {item.applied ? <Check className="h-3.5 w-3.5" /> : <span className="text-[14px] leading-none">○</span>}
         </button>
-        {/* Hide — only on hover/focus for desktop, always on mobile */}
+        {/* Hide / Unhide — visible on hover/focus on desktop, always on mobile
+            so touch users can also dismiss postings (list is the default
+            mobile view). Label and icon flip based on current state. */}
         <button
           onClick={onHide}
-          aria-label="Hide posting"
-          className="hidden md:inline-flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
-          title="Hide this posting"
+          disabled={pending}
+          aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
+          aria-pressed={item.hidden ?? false}
+          className="inline-flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
+          title={item.hidden ? "Unhide this posting" : "Hide this posting"}
         >
-          <EyeOff className="h-3 w-3" />
+          {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
         </button>
         </div>
       </div>
