@@ -18,8 +18,9 @@ export async function GET(request: Request) {
     : undefined;
 
   const label = sp.get("label") ?? undefined;
-  // Cap sized so the active corpus (2.3k and growing) fits without clipping.
-  const limit = Math.min(Math.max(parseInt(sp.get("limit") ?? "", 10) || 5000, 1), 5000);
+  // Optional caller-supplied limit; absent = no cap. Page paginates client-side.
+  const rawLimit = parseInt(sp.get("limit") ?? "", 10);
+  const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? rawLimit : undefined;
   const offset = Math.max(parseInt(sp.get("offset") ?? "", 10) || 0, 0);
   const sortParam = sp.get("sort");
   const sort: "newest" | "posted" | "score" =
@@ -28,5 +29,6 @@ export async function GET(request: Request) {
   const includeHidden = sp.get("includeHidden") === "1" || sp.get("hidden") === "1";
 
   const all = getInternships({ source, minScore, label, sort, search: q, includeHidden });
-  return Response.json(all.slice(offset, offset + limit));
+  const sliced = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
+  return Response.json(sliced);
 }
