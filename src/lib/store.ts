@@ -477,6 +477,35 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
     const existingIdRow = db.prepare('SELECT id FROM seen_ids WHERE id = ?');
     const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
     const upgradeLink = db.prepare('UPDATE internships SET link = @link WHERE id = @id');
+    // Cross-source backfill: when a different source rediscovers the same
+    // role (matched by normalized_key), the incoming row may carry data the
+    // stored row lacks — most commonly a description (SimplifyJobs ships
+    // title-only, Workday/Greenhouse/Ashby ship the full posting). Without
+    // this path the second source's richer payload is dropped on the floor.
+    // COALESCE backfills missing fields only; score/keywords always replace
+    // because the new score was computed against richer data. seen_at bumps
+    // (positive proof of life across sources) and archived flips off unless
+    // the row was failing link checks. Source attribution and user state
+    // (applied/hidden/applied_at/application_url/application_status) and the
+    // stored link/title/company are preserved.
+    const crossSourceBackfill = db.prepare(`
+      UPDATE internships SET
+        seen_at          = @seenAt,
+        archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE 0 END,
+        score            = @score,
+        score_label      = @scoreLabel,
+        matched_keywords = @matchedKeywords,
+        description      = COALESCE(NULLIF(description, ''), @description),
+        salary_text      = COALESCE(salary_text, @salaryText),
+        salary_min       = COALESCE(salary_min,  @salaryMin),
+        salary_max       = COALESCE(salary_max,  @salaryMax),
+        salary_unit      = COALESCE(salary_unit, @salaryUnit),
+        ats_source       = COALESCE(ats_source,  @atsSource),
+        ats_target       = COALESCE(ats_target,  @atsTarget),
+        ats_job_id       = COALESCE(ats_job_id,  @atsJobId),
+        multi_location   = COALESCE(multi_location, @multiLocation)
+      WHERE id = @id
+    `);
     // Refresh-on-rediscovery: when the same posting (same md5 ID) comes back
     // from a later poll, mark it as actively listed again — bump seen_at,
     // un-archive (rediscovery is positive proof the role is still live),
@@ -545,19 +574,23 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
 
         // Same role posted by another source (normalized company + title)?
         if (i.normalizedKey && seenKeys.has(i.normalizedKey)) {
-          // If the stored row's link is a simplify.jobs wrapper and the
-          // incoming row has a direct apply URL, upgrade the stored link
-          // in place. Source attribution (first-discoverer) is preserved.
           const existing = rowByKey.get(i.normalizedKey);
-          if (
-            existing &&
-            existing.link.includes('simplify.jobs') &&
-            normalizedLink &&
-            !normalizedLink.includes('simplify.jobs')
-          ) {
-            upgradeLink.run({ id: existing.id, link: normalizedLink });
-            rowByKey.set(i.normalizedKey, { id: existing.id, link: normalizedLink });
-            seenLinks.add(normalizedLink);
+          if (existing) {
+            // Backfill description/salary/ATS fields and refresh score from
+            // the incoming row — see crossSourceBackfill comment above.
+            crossSourceBackfill.run(toRow({ ...i, id: existing.id, link: stripUtm(i.link || '') || i.link }));
+            // If the stored row's link is a simplify.jobs wrapper and the
+            // incoming row has a direct apply URL, upgrade the stored link
+            // in place. Source attribution (first-discoverer) is preserved.
+            if (
+              existing.link.includes('simplify.jobs') &&
+              normalizedLink &&
+              !normalizedLink.includes('simplify.jobs')
+            ) {
+              upgradeLink.run({ id: existing.id, link: normalizedLink });
+              rowByKey.set(i.normalizedKey, { id: existing.id, link: normalizedLink });
+              seenLinks.add(normalizedLink);
+            }
           }
           continue;
         }
