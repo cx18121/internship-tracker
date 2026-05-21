@@ -229,7 +229,7 @@ export default function InternshipsPage() {
     viewMode, groupByCompany, sortBy, currentPage,
   ]);
 
-  const fetchData = useCallback(async (isRefresh = false) => {
+  const fetchData = useCallback(async (isRefresh = false, signal?: AbortSignal) => {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
@@ -240,9 +240,9 @@ export default function InternshipsPage() {
       params.set("includeHidden", "1");
 
       const [listRes, statsRes, sourcesRes] = await Promise.all([
-        fetch(`/api/internships?${params.toString()}`),
-        fetch("/api/internships/stats"),
-        fetch("/api/internships/sources"),
+        fetch(`/api/internships?${params.toString()}`, { signal }),
+        fetch("/api/internships/stats", { signal }),
+        fetch("/api/internships/sources", { signal }),
       ]);
 
       if (listRes.status === 503 || statsRes.status === 503) {
@@ -254,15 +254,27 @@ export default function InternshipsPage() {
       if (listRes.ok) setInternships(await listRes.json());
       if (statsRes.ok) setStats(await statsRes.json());
       if (sourcesRes.ok) setSources(await sourcesRes.json());
-    } catch {
+    } catch (err) {
+      // AbortError = a newer fetch superseded this one; leave UI alone so
+      // the in-flight request's setInternships doesn't get stomped by a
+      // stale "offline" flag.
+      if ((err as { name?: string })?.name === "AbortError") return;
       setOffline(true);
     } finally {
+      if (signal?.aborted) return;
       setLoading(false);
       setRefreshing(false);
     }
   }, [selectedSources, minScore]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  // Abort any in-flight fetchData when filters change again before it lands —
+  // otherwise a slow request from filter state N can overwrite a fast
+  // request from filter state N+1, leaving the UI showing stale data.
+  useEffect(() => {
+    const abort = new AbortController();
+    fetchData(false, abort.signal);
+    return () => abort.abort();
+  }, [fetchData]);
 
   // Reset to page 1 when filters or sort change. Skip during initial hydration
   // so a shared URL like ?page=3&sources=Indeed lands on page 3, not page 1.
