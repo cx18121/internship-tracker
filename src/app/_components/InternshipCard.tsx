@@ -138,7 +138,11 @@ export function InternshipCard({
         </a>
         <button
           onClick={onToggleApplied}
-          className="text-xs text-white/30 hover:text-white/60 transition-colors"
+          className={`text-xs transition-colors ${
+            item.applied
+              ? "text-emerald-400/70 hover:text-emerald-300"
+              : "text-white/30 hover:text-white/60"
+          }`}
         >
           {item.applied ? "Mark unapplied" : "Mark applied"}
         </button>
