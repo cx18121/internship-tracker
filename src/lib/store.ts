@@ -799,23 +799,6 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
   return result;
 }
 
-export async function validateLinkForIngest(entry: Internship): Promise<Internship | null> {
-  if (isAggregatorLink(entry.link)) {
-    console.warn(`[store] Skipping aggregator link: ${entry.link}`);
-    return null;
-  }
-  try {
-    const status = await checkLinkStatus(entry.link, 3000);
-    if (status >= 400) {
-      console.warn(`[store] Skipping dead link (${status}): ${entry.link}`);
-      return null;
-    }
-  } catch {
-    // Transient error — accept; revalidation will catch dead links later.
-  }
-  return entry;
-}
-
 // Test-only helper: kept for compatibility with src/poller/test.ts
 export function _deleteInternshipForTest(id: string): void {
   getDb().prepare('DELETE FROM internships WHERE id = ?').run(id);

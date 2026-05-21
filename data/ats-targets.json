@@ -1228,7 +1228,8 @@
       "ats": "workday",
       "name": "FanThreeSixty",
       "board": "fanthreesixty",
-      "wdInstance": "wd5"
+      "wdInstance": "wd5",
+      "wdSkipPlaywright": true
     },
     {
       "slug": "thales",
@@ -4150,7 +4151,8 @@
       "ats": "workday",
       "board": "ribboncareers",
       "wdInstance": "wd1",
-      "name": "Ribbon"
+      "name": "Ribbon",
+      "wdSkipPlaywright": true
     },
     {
       "slug": "alcami",
@@ -4401,7 +4403,8 @@
       "ats": "workday",
       "board": "Confidential",
       "wdInstance": "wd5",
-      "name": "Environmental Defense Fund"
+      "name": "Environmental Defense Fund",
+      "wdSkipPlaywright": true
     },
     {
       "slug": "ryder",
@@ -5198,7 +5201,8 @@
       "ats": "workday",
       "board": "RecorExternal",
       "wdInstance": "wd1",
-      "name": "ReCor Medical"
+      "name": "ReCor Medical",
+      "wdSkipPlaywright": true
     },
     {
       "slug": "CesiumAstro",
@@ -5227,7 +5231,8 @@
       "ats": "workday",
       "board": "epricareers",
       "wdInstance": "wd1",
-      "name": "EPRI"
+      "name": "EPRI",
+      "wdSkipPlaywright": true
     },
     {
       "slug": "archgroup",
@@ -5575,7 +5580,8 @@
       "ats": "workday",
       "board": "Careers",
       "wdInstance": "wd5",
-      "name": "Sallie Mae"
+      "name": "Sallie Mae",
+      "wdSkipPlaywright": true
     },
     {
       "slug": "cognex",
