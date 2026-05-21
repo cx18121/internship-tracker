@@ -76,9 +76,9 @@ export function extractPortalJobId(link: string, atsSource: string): string | nu
       return m ? m[1] : null;
     }
     if (atsSource === 'Lever') {
-      // https://lever.co/postings/{id} or /postings/{id}
-      const m = pathname.match(/\/postings\/([^/\?#]+)/);
-      return m ? m[1] : null;
+      // https://jobs.lever.co/{company}/{uuid} — last segment is the job id
+      const parts = pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? parts[parts.length - 1] : null;
     }
     if (atsSource === 'Ashby') {
       // https://jobs.ashbyhq.com/{board}/{id}
@@ -87,9 +87,10 @@ export function extractPortalJobId(link: string, atsSource: string): string | nu
       return parts.length >= 2 ? parts[parts.length - 1] : null;
     }
     if (atsSource === 'Workday') {
-      // workday URL: /jobs/{id} after the board path
-      const m = pathname.match(/\/jobs\/([^/\?#]+)/);
-      return m ? m[1] : null;
+      // https://{tenant}.{wdInstance}.myworkdayjobs.com/job/{location}/{title}_{reqId}
+      // The last segment encodes the req id; it's stable per posting.
+      const parts = pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? parts[parts.length - 1] : null;
     }
     if (atsSource === 'iCIMS') {
       // https://careers-{tenant}.icims.com/jobs/{id}/job
