@@ -72,6 +72,20 @@
   --border: oklch(1 0.005 260 / 10%);
   --input: oklch(1 0.005 260 / 15%);
   --ring: oklch(0.50 0.02 260);
+
+  /* DESIGN.md semantic tokens. Use these for new code; shadcn vars above
+     stay for legacy components until they're touched. */
+  --surface-base:     oklch(0.13 0.005 260);
+  --surface-raised:   oklch(0.18 0.005 260);
+  --surface-sunken:   oklch(0.10 0.005 260);
+  --surface-hover:    oklch(0.22 0.006 260);
+  --fg-primary:       oklch(0.985 0.002 260);
+  --fg-secondary:     oklch(0.78  0.008 260);
+  --fg-muted:         oklch(0.58  0.01  260);
+  --fg-faint:         oklch(0.42  0.01  260);
+  --border-subtle:    oklch(1 0.005 260 / 8%);
+  --border-strong:    oklch(1 0.005 260 / 18%);
+  --border-vivid:     oklch(1 0.005 260 / 30%);
 }
 
 @layer base {
@@ -80,13 +94,14 @@
   }
   html {
     font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
-    font-size: 15px;
-    line-height: 1.6;
-    letter-spacing: -0.01em;
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.005em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
   body {
     @apply bg-background text-foreground;
+    font-variant-numeric: tabular-nums;
   }
 }

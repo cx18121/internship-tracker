@@ -4,6 +4,17 @@ export const LOCATION_PRESETS = ["Remote", "NYC", "SF", "Seattle", "Boston", "Au
 
 export const PAGE_SIZE = 50;
 
+// Time-window filter options. Days are converted to a millisecond delta at
+// filter time; `all` short-circuits the check.
+export const DATE_WINDOWS: { value: import("./types").DateWindow; label: string; days: number | null }[] = [
+  { value: "all", label: "All time", days: null },
+  { value: "1d",  label: "24h",      days: 1 },
+  { value: "3d",  label: "3 days",   days: 3 },
+  { value: "7d",  label: "Week",     days: 7 },
+  { value: "30d", label: "Month",    days: 30 },
+  { value: "90d", label: "3 months", days: 90 },
+];
+
 export const SCORE_BADGE: Record<string, string> = {
   A: "bg-green-500/20 text-green-400 border border-green-500/30",
   B: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
