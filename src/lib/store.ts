@@ -618,14 +618,21 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
   });
 }
 
-export function patchInternship(id: string, patch: Partial<Internship>): Internship | null {
-  const db = getDb();
-  const existing = db.prepare('SELECT * FROM internships WHERE id = ?').get(id) as Row | undefined;
-  if (!existing) return null;
+export async function patchInternship(id: string, patch: Partial<Internship>): Promise<Internship | null> {
+  // Wrap read→merge→write in the same withLock the poll cycle uses so
+  // concurrent PATCH requests don't read-modify-write over each other.
+  // Without this, two rapid PATCHes (e.g. user clicks "applied" then "hidden"
+  // before the first request lands) both read the same baseline row, each
+  // merges its own change, and the second write loses the first's change.
+  return withLock(() => {
+    const db = getDb();
+    const existing = db.prepare('SELECT * FROM internships WHERE id = ?').get(id) as Row | undefined;
+    if (!existing) return null;
 
-  const merged: Internship = { ...fromRow(existing), ...patch };
-  saveInternships([merged]);
-  return merged;
+    const merged: Internship = { ...fromRow(existing), ...patch };
+    saveInternships([merged]);
+    return merged;
+  });
 }
 
 export function archiveStalePostings(daysOld = 30): number {

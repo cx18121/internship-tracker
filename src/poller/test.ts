@@ -432,7 +432,7 @@ async function runApplicationTrackingTests(): Promise<void> {
 
     // Patch with application fields
     const now = new Date().toISOString();
-    const patched = patchInternship(testId, {
+    const patched = await patchInternship(testId, {
       applied: true,
       appliedAt: now,
       applicationUrl: 'https://apply.example.com/123',

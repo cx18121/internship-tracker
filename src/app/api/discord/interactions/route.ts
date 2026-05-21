@@ -120,19 +120,19 @@ export async function POST(request: Request) {
     let footerNote: string | null;
 
     if (action === "applied") {
-      patchInternship(internshipId, { applied: true, appliedAt: new Date().toISOString() });
+      await patchInternship(internshipId, { applied: true, appliedAt: new Date().toISOString() });
       nextState = 'applied';
       footerNote = '✅ Marked applied';
     } else if (action === "hidden") {
-      patchInternship(internshipId, { hidden: true });
+      await patchInternship(internshipId, { hidden: true });
       nextState = 'hidden';
       footerNote = '❌ Hidden';
     } else if (action === "unapplied") {
-      patchInternship(internshipId, { applied: false, appliedAt: undefined });
+      await patchInternship(internshipId, { applied: false, appliedAt: undefined });
       nextState = 'fresh';
       footerNote = null;
     } else if (action === "unhidden") {
-      patchInternship(internshipId, { hidden: false });
+      await patchInternship(internshipId, { hidden: false });
       nextState = 'fresh';
       footerNote = null;
     } else {

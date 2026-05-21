@@ -15,7 +15,7 @@ export async function PATCH(
   for (const key of ALLOWED) {
     if (key in body) (patch as Record<string, unknown>)[key] = body[key];
   }
-  const result = patchInternship(id, patch);
+  const result = await patchInternship(id, patch);
   if (!result) return Response.json({ error: "Not found" }, { status: 404 });
   return Response.json(result);
 }
