@@ -18,10 +18,8 @@ export async function GET(request: Request) {
     : undefined;
 
   const label = sp.get("label") ?? undefined;
-  // Default raised from 500 → 2000 so the dense list view doesn't clip the
-  // long tail of postings (active corpus is ~1.8k and growing). Hard cap
-  // stays at 2000 to keep response payloads bounded.
-  const limit = Math.min(Math.max(parseInt(sp.get("limit") ?? "", 10) || 2000, 1), 2000);
+  // Cap sized so the active corpus (2.3k and growing) fits without clipping.
+  const limit = Math.min(Math.max(parseInt(sp.get("limit") ?? "", 10) || 5000, 1), 5000);
   const offset = Math.max(parseInt(sp.get("offset") ?? "", 10) || 0, 0);
   const sortParam = sp.get("sort");
   const sort: "newest" | "posted" | "score" =
