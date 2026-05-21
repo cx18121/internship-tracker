@@ -143,6 +143,12 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
       description: p.description,
       link: p.link || '',
       source: p.source || 'Unknown',
+      // ATS provenance is set by github/portal-scanner pollers and required by
+      // portal-scanner's archiveDisappeared() (closing detection). Forward it.
+      atsSource: p.atsSource,
+      atsJobId: p.atsJobId,
+      atsTarget: p.atsTarget,
+      multiLocation: p.multiLocation,
       postedAt: p.postedAt || new Date().toISOString(),
       seenAt: new Date().toISOString(),
       score,

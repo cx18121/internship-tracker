@@ -58,7 +58,7 @@ export async function sendBatchAlert(
   let sentAny = false;
 
   for (const posting of eligible) {
-    const color = posting.scoreLabel === 'Excellent' ? 0x00ff88 : 0x5865f2;
+    const color = posting.scoreLabel === 'A' ? 0x00ff88 : 0x5865f2;
     const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
     // Discord message-component fields:
     //   - LINK buttons (style 5) need `url`, no custom_id, no callback.
