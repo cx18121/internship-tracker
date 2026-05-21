@@ -16,6 +16,7 @@ export interface Internship {
   salaryMin?: number;
   salaryMax?: number;
   salaryUnit?: 'hourly' | 'monthly' | 'yearly';
+  season?: string[];
 }
 
 export interface Stats {

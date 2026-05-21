@@ -16,7 +16,7 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   if (f.tierFilter === 'elite' && !isElite(i.company ?? '')) return false;
   if (f.tierFilter === 'top-or-better' && !isTopOrBetter(i.company ?? '')) return false;
   if (f.seasons.length > 0) {
-    const tokens = parseSeason(i.title ?? '');
+    const tokens = i.season ?? parseSeason(i.title ?? '');
     if (!tokens.some(t => f.seasons.includes(t))) return false;
   }
   return true;

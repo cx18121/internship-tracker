@@ -3,6 +3,7 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 import { Internship } from './types';
 import { stripUtm } from './utils/normalize';
+import { parseSeason } from './seasons';
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -129,6 +130,11 @@ const LATER_COLUMNS: Array<{ col: string; def: string }> = [
   // stop showing in the UI and won't re-alert. Independent of `archived`,
   // which is used for stale / dead-link postings.
   { col: 'hidden',         def: 'INTEGER NOT NULL DEFAULT 0' },
+  // Season tokens (JSON array, e.g. '["summer-2026"]') parsed from title at
+  // write time. Lets the UI/notifier read pre-computed seasons instead of
+  // parsing on every render. Backfilled once for legacy rows via
+  // scripts/backfill-season.ts; nullable until then.
+  { col: 'season',         def: 'TEXT' },
 ];
 
 const LATER_INDEXES: Array<{ name: string; sql: string }> = [
@@ -202,13 +208,13 @@ function autoMigrateFromJson(): void {
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
          first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden)
+         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden, season)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
         @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden)
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
     `);
     const insertMany = db.transaction((records: Internship[]) => {
       for (const r of records) insert.run(toRow(r));
@@ -264,6 +270,7 @@ interface Row {
   salary_unit: string | null;
   normalized_key: string | null;
   hidden: number;
+  season: string | null;
 }
 
 function fromRow(r: Row): Internship {
@@ -299,6 +306,7 @@ function fromRow(r: Row): Internship {
     salaryUnit: (r.salary_unit as Internship['salaryUnit']) ?? undefined,
     normalizedKey: r.normalized_key ?? undefined,
     hidden: r.hidden === 1,
+    season: r.season ? JSON.parse(r.season) : undefined,
   };
 }
 
@@ -335,6 +343,10 @@ function toRow(i: Internship): Record<string, unknown> {
     salaryUnit: i.salaryUnit ?? null,
     normalizedKey: i.normalizedKey ?? null,
     hidden: i.hidden ? 1 : 0,
+    // Auto-populate from title on every write so the column stays in sync
+    // with the title. Callers can override by setting i.season explicitly
+    // (e.g. the backfill script writing ["summer-2026"] defaults).
+    season: JSON.stringify(i.season ?? parseSeason(i.title ?? '')),
   };
 }
 
@@ -373,13 +385,13 @@ export function saveInternships(internships: Internship[]): void {
        matched_keywords, is_new, applied, archived, applied_at,
        application_url, application_status, failed_check_count,
        first_failed_at, last_checked_at, multi_location,
-       salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden)
+       salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden, season)
     VALUES (@id, @title, @company, @location, @description, @link, @source,
       @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
       @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
       @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
       @lastCheckedAt, @multiLocation,
-      @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden)
+      @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
     ON CONFLICT(id) DO UPDATE SET
       title              = excluded.title,
       company            = excluded.company,
@@ -410,7 +422,8 @@ export function saveInternships(internships: Internship[]): void {
       salary_max         = excluded.salary_max,
       salary_unit        = excluded.salary_unit,
       normalized_key     = excluded.normalized_key,
-      hidden             = excluded.hidden
+      hidden             = excluded.hidden,
+      season             = excluded.season
   `);
   const upsertMany = db.transaction((records: Internship[]) => {
     for (const r of records) upsert.run(toRow(r));
@@ -452,13 +465,13 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
          matched_keywords, is_new, applied, archived, applied_at,
          application_url, application_status, failed_check_count,
          first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden)
+         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden, season)
       VALUES (@id, @title, @company, @location, @description, @link, @source,
         @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
         @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
         @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
         @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden)
+        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
     `);
 
     const newInternships: Internship[] = [];

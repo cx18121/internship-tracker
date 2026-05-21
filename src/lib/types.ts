@@ -42,6 +42,13 @@ export interface Internship {
   normalizedKey?: string;
   /** Hidden from UI + alerts via the Discord ❌ Not interested button. */
   hidden?: boolean;
+  /**
+   * Season tokens parsed from the title (e.g. ["summer-2026"], ["fall-2026",
+   * "summer-2027"]). Populated at write time by toRow() via parseSeason().
+   * Backfilled once for legacy rows — empty/year-only parses default to
+   * ["summer-${year ?? 2026}"] there so they show up under the season chips.
+   */
+  season?: string[];
 }
 
 export interface CycleStats {

@@ -321,11 +321,14 @@ export default function InternshipsPage() {
         .sort()
     : null;
 
-  // Dynamic season tokens: parse titles, count occurrences, sort by year ASC
-  // then season order so the chips read winter → spring → summer → fall.
+  // Dynamic season tokens: prefer the stored `season` field (populated at
+  // write time + backfilled for legacy rows), fall back to parsing the title
+  // for any pre-migration row that still has it null. Sort by year ASC then
+  // season order so chips read winter → spring → summer → fall.
   const seasonCounts = new Map<string, number>();
   for (const i of internships) {
-    for (const s of parseSeason(i.title)) {
+    const tokens = i.season ?? parseSeason(i.title);
+    for (const s of tokens) {
       seasonCounts.set(s, (seasonCounts.get(s) ?? 0) + 1);
     }
   }
@@ -343,7 +346,7 @@ export default function InternshipsPage() {
       if (tierFilter === "elite" && !isElite(i.company)) return false;
       if (tierFilter === "top-or-better" && !isTopOrBetter(i.company)) return false;
       if (selectedSeasons.length > 0) {
-        const tokens = parseSeason(i.title);
+        const tokens = i.season ?? parseSeason(i.title);
         if (!tokens.some(t => selectedSeasons.includes(t))) return false;
       }
       if (selectedLocations.length > 0 || locationText) {
