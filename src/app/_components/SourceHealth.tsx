@@ -32,11 +32,19 @@ function isStale(entry: SourceEntry): boolean {
   return entry.last24h === 0 && entry.last7d > 0;
 }
 
+const COLLAPSED_KEY = "sourceHealth.collapsed";
+
 export function SourceHealth() {
   const [data, setData] = useState<SourceEntry[] | null>(null);
   const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
+    // Restore prior collapse preference so a user who hides this panel
+    // doesn't have to re-hide it on every page load.
+    try {
+      if (localStorage.getItem(COLLAPSED_KEY) === "1") setCollapsed(true);
+    } catch {}
+
     let cancelled = false;
     fetch("/api/internships/source-health")
       .then((r) => (r.ok ? r.json() : null))
@@ -48,6 +56,16 @@ export function SourceHealth() {
     return () => { cancelled = true; };
   }, []);
 
+  function toggleCollapsed(): void {
+    setCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(COLLAPSED_KEY, next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }
+
   if (!data || data.length === 0) return null;
 
   const downCount = data.filter(isDown).length;
@@ -57,7 +75,7 @@ export function SourceHealth() {
   return (
     <Card className="border-white/10 bg-white/[0.03] p-3">
       <button
-        onClick={() => setCollapsed((v) => !v)}
+        onClick={toggleCollapsed}
         className="w-full flex items-center justify-between gap-2 text-left"
       >
         <div className="flex items-center gap-2">
