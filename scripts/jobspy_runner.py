@@ -13,6 +13,19 @@ from pathlib import Path
 
 INTERN_TITLE_RE = re.compile(r'\bintern(ship)?\b', re.IGNORECASE)
 
+# LinkedIn /jobs/view/<id> URLs go dead within days of a posting closing (301 to
+# expired_jd_redirect). Rewriting to /jobs/search/?currentJobId=<id> stays valid
+# even after the job closes — LinkedIn shows the title, company, and an honest
+# "No longer accepting applications" notice instead of a broken redirect.
+LINKEDIN_VIEW_RE = re.compile(r'^https?://(?:[a-z]+\.)?linkedin\.com/jobs/view/(\d+)(?:[/?#].*)?$', re.IGNORECASE)
+
+
+def stabilize_linkedin_link(url: str) -> str:
+    m = LINKEDIN_VIEW_RE.match(url or '')
+    if not m:
+        return url
+    return f"https://www.linkedin.com/jobs/search/?currentJobId={m.group(1)}"
+
 # Aggregator/job-board domains that do NOT host direct applications.
 # These sites scrape and republish listings from company career pages.
 AGGREGATOR_DOMAINS = {
@@ -145,7 +158,7 @@ def main():
             for _, row in df.iterrows():
                 title = str(row.get("title") or "").strip()
                 company = str(row.get("company") or "").strip()
-                link = str(row.get("job_url") or "").strip()
+                link = stabilize_linkedin_link(str(row.get("job_url") or "").strip())
                 if not title or not link:
                     continue
 
