@@ -133,16 +133,6 @@ export function SourceHealth() {
           })}
         </div>
       )}
-
-      {!collapsed && (
-        <p className="text-[10px] text-white/30 mt-2 px-1">
-          Counts shown as <span className="text-white/50">24h / 7d / total</span> · last-cycle{" "}
-          <span className="text-emerald-400/70">+net-new</span>
-          <span className="text-white/40">/fetched</span>. Sources highlighted red haven&apos;t produced any records in 7+ days;
-          amber means quiet for &gt;24h. A source fetching but with <span className="text-emerald-400/70">+0</span> net-new is
-          alive but only finding duplicates of other sources.
-        </p>
-      )}
     </Card>
   );
 }

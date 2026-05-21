@@ -58,6 +58,11 @@ export async function GET() {
 
   const sources = Array.from(sourceMap.entries())
     .map(([name, counts]) => ({ name, ...counts }))
+    // Hide retired sources — pollers that no longer exist still leave historical
+    // rows behind, which would otherwise show up as permanent "down" entries
+    // (e.g. Inhouse, Google). A source is considered live if it either polled
+    // anything in the last cycle or contributed a row within the last 7 days.
+    .filter((s) => s.last7d > 0 || s.lastCycleRaw > 0)
     .sort((a, b) => b.total - a.total);
   return Response.json({ sources });
 }
