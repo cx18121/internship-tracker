@@ -273,6 +273,15 @@ interface Row {
   season: string | null;
 }
 
+function safeJsonParse<T>(raw: string | null | undefined, fallback: T, field: string, rowId: string): T {
+  if (!raw) return fallback;
+  try { return JSON.parse(raw); }
+  catch (e: any) {
+    console.warn(`[store] fromRow: malformed ${field} JSON on row ${rowId} (${e.message}) — using fallback`);
+    return fallback;
+  }
+}
+
 function fromRow(r: Row): Internship {
   return {
     id: r.id,
@@ -289,7 +298,7 @@ function fromRow(r: Row): Internship {
     seenAt: r.seen_at,
     score: r.score,
     scoreLabel: r.score_label ?? '',
-    matchedKeywords: r.matched_keywords ? JSON.parse(r.matched_keywords) : [],
+    matchedKeywords: safeJsonParse<string[]>(r.matched_keywords, [], 'matched_keywords', r.id),
     isNew: r.is_new === 1,
     applied: r.applied === 1,
     archived: r.archived === 1,
@@ -299,14 +308,14 @@ function fromRow(r: Row): Internship {
     failedCheckCount: r.failed_check_count,
     firstFailedAt: r.first_failed_at ?? undefined,
     lastCheckedAt: r.last_checked_at ?? undefined,
-    multiLocation: r.multi_location ? JSON.parse(r.multi_location) : undefined,
+    multiLocation: safeJsonParse<string[] | undefined>(r.multi_location, undefined, 'multi_location', r.id),
     salaryText: r.salary_text ?? undefined,
     salaryMin: r.salary_min ?? undefined,
     salaryMax: r.salary_max ?? undefined,
     salaryUnit: (r.salary_unit as Internship['salaryUnit']) ?? undefined,
     normalizedKey: r.normalized_key ?? undefined,
     hidden: r.hidden === 1,
-    season: r.season ? JSON.parse(r.season) : undefined,
+    season: safeJsonParse<string[] | undefined>(r.season, undefined, 'season', r.id),
   };
 }
 
@@ -753,7 +762,10 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
     }
     entry.lastCheckedAt = now;
 
-    const PERMANENT = new Set([404, 410, 451]);
+    // 401 = auth required (board moved private), 403 (some sites) too.
+    // 410 / 451 = explicit gone. 404 = not found.
+    // 429 / 5xx = transient (rate-limited or server hiccup).
+    const PERMANENT = new Set([401, 404, 410, 451]);
     if (status >= 400 && PERMANENT.has(status)) {
       entry.failedCheckCount = 2;
       if (!opts.dryRun) entry.archived = true;
