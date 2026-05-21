@@ -447,17 +447,25 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
   return withLock(() => {
     const db = getDb();
 
-    // Build seenLinks + seenKeys sets from existing rows for cross-source dedup
-    const seenLinkRows = db.prepare('SELECT link, normalized_key FROM internships WHERE archived = 0').all() as { link: string; normalized_key: string | null }[];
+    // Build seenLinks + seenKeys sets from existing rows for cross-source dedup.
+    // Also index by normalized_key so the dedup loop can upgrade a stored row's
+    // link when a later source finds the same role via a direct apply URL
+    // (SimplifyJobs frequently falls back to simplify.jobs wrappers).
+    const seenLinkRows = db.prepare('SELECT id, link, normalized_key FROM internships WHERE archived = 0').all() as { id: string; link: string; normalized_key: string | null }[];
     const seenLinks = new Set<string>();
     const seenKeys = new Set<string>();
+    const rowByKey = new Map<string, { id: string; link: string }>();
     for (const row of seenLinkRows) {
       if (row.link) seenLinks.add(stripUtm(row.link));
-      if (row.normalized_key) seenKeys.add(row.normalized_key);
+      if (row.normalized_key) {
+        seenKeys.add(row.normalized_key);
+        rowByKey.set(row.normalized_key, { id: row.id, link: row.link });
+      }
     }
 
     const existingIdRow = db.prepare('SELECT id FROM seen_ids WHERE id = ?');
     const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
+    const upgradeLink = db.prepare('UPDATE internships SET link = @link WHERE id = @id');
     const insertInternship = db.prepare(`
       INSERT OR IGNORE INTO internships
         (id, title, company, location, description, link, source, ats_source,
@@ -493,7 +501,23 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         if (i.link && seenLinks.has(normalizedLink)) continue;
 
         // Same role posted by another source (normalized company + title)?
-        if (i.normalizedKey && seenKeys.has(i.normalizedKey)) continue;
+        if (i.normalizedKey && seenKeys.has(i.normalizedKey)) {
+          // If the stored row's link is a simplify.jobs wrapper and the
+          // incoming row has a direct apply URL, upgrade the stored link
+          // in place. Source attribution (first-discoverer) is preserved.
+          const existing = rowByKey.get(i.normalizedKey);
+          if (
+            existing &&
+            existing.link.includes('simplify.jobs') &&
+            normalizedLink &&
+            !normalizedLink.includes('simplify.jobs')
+          ) {
+            upgradeLink.run({ id: existing.id, link: normalizedLink });
+            rowByKey.set(i.normalizedKey, { id: existing.id, link: normalizedLink });
+            seenLinks.add(normalizedLink);
+          }
+          continue;
+        }
 
         if (i.link) seenLinks.add(normalizedLink);
         if (i.normalizedKey) seenKeys.add(i.normalizedKey);
@@ -502,6 +526,11 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         insertInternship.run(toRow(stored));
         insertSeen.run(stored.id);
         newInternships.push(stored);
+        // Track this row so a later item in the same batch can upgrade its
+        // link if a direct apply URL turns up after a simplify.jobs one.
+        if (stored.normalizedKey && stored.link) {
+          rowByKey.set(stored.normalizedKey, { id: stored.id, link: stored.link });
+        }
         const src = stored.source || 'Unknown';
         netNewBySource[src] = (netNewBySource[src] || 0) + 1;
       }
