@@ -589,10 +589,20 @@ export function savePollStats(stats: {
   exclusionCounts: Record<string, number>;
 }): void {
   const statsPath = path.join(DATA_DIR, 'poll-stats.json');
+  // Merge per-source counts with the previous cycle's so a partial cycle
+  // (e.g. the fast tier polling only SimplifyJobs) doesn't wipe last-cycle
+  // stats for the sources it didn't poll. Each source keeps its most-recent
+  // figures from whichever cycle last touched it.
+  let prev: { sourceCounts?: Record<string, number>; netNewBySource?: Record<string, number> } = {};
+  try {
+    prev = JSON.parse(fs.readFileSync(statsPath, 'utf-8'));
+  } catch {}
+  const sourceCounts = { ...(prev.sourceCounts ?? {}), ...(stats.sourceCounts ?? {}) };
+  const netNewBySource = { ...(prev.netNewBySource ?? {}), ...(stats.netNewBySource ?? {}) };
   fs.writeFileSync(statsPath, JSON.stringify({
     polledAt: stats.polledAt,
-    sourceCounts: stats.sourceCounts ?? {},
-    netNewBySource: stats.netNewBySource ?? {},
+    sourceCounts,
+    netNewBySource,
     exclusionCounts: stats.exclusionCounts,
   }, null, 2));
 }
