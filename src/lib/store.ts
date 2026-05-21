@@ -477,6 +477,31 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
     const existingIdRow = db.prepare('SELECT id FROM seen_ids WHERE id = ?');
     const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
     const upgradeLink = db.prepare('UPDATE internships SET link = @link WHERE id = @id');
+    // Refresh-on-rediscovery: when the same posting (same md5 ID) comes back
+    // from a later poll, mark it as actively listed again — bump seen_at,
+    // un-archive (rediscovery is positive proof the role is still live),
+    // re-score with current config, and backfill description/salary/ATS
+    // fields if they were null. User state (applied / hidden / applied_at /
+    // application_url / application_status) is preserved.
+    const refreshOnRediscovery = db.prepare(`
+      UPDATE internships SET
+        seen_at          = @seenAt,
+        archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE 0 END,
+        score            = @score,
+        score_label      = @scoreLabel,
+        matched_keywords = @matchedKeywords,
+        link             = @link,
+        description      = COALESCE(NULLIF(description, ''), @description),
+        salary_text      = COALESCE(salary_text, @salaryText),
+        salary_min       = COALESCE(salary_min,  @salaryMin),
+        salary_max       = COALESCE(salary_max,  @salaryMax),
+        salary_unit      = COALESCE(salary_unit, @salaryUnit),
+        ats_source       = COALESCE(ats_source,  @atsSource),
+        ats_target       = COALESCE(ats_target,  @atsTarget),
+        ats_job_id       = COALESCE(ats_job_id,  @atsJobId),
+        multi_location   = COALESCE(multi_location, @multiLocation)
+      WHERE id = @id
+    `);
     const insertInternship = db.prepare(`
       INSERT OR IGNORE INTO internships
         (id, title, company, location, description, link, source, ats_source,
@@ -504,8 +529,15 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
 
         const txn = db.transaction((items: Internship[]) => {
       for (const i of items) {
-        // Exact id seen?
-        if (existingIdRow.get(i.id)) continue;
+        // Exact id seen? Refresh the existing row instead of silently dropping —
+        // bumps seen_at so revalidation/source-health reflects current activity,
+        // un-archives if it was archived (rediscovery = still posted), and
+        // backfills description/salary/ATS provenance that may have been null
+        // on first ingest. Preserves user state.
+        if (existingIdRow.get(i.id)) {
+          refreshOnRediscovery.run(toRow({ ...i, link: stripUtm(i.link || '') || i.link }));
+          continue;
+        }
 
         // Same posting via different UTM params?
         const normalizedLink = stripUtm(i.link || '');
