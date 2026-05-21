@@ -165,6 +165,8 @@ async function enrichWithDetailLinks(
 ): Promise<void> {
   const batch = jobs.slice(0, limit);
   let enriched = 0;
+  let descFound = 0;
+  let descMissed = 0;
 
   await withConcurrency(batch, concurrency, async (job) => {
     if (!job.link) return;
@@ -195,7 +197,10 @@ async function enrichWithDetailLinks(
           }
         }
 
-        // Description: try several Handshake-flavored selectors, fall back to all paragraphs
+        // Description: try several Handshake-flavored selectors. Previous code
+        // had a `body p` fallback that scooped up nav/footer text when the
+        // selectors missed — dropped because polluted descriptions are worse
+        // than empty ones (downstream salary/keyword parsing trips on noise).
         const descSelectors = [
           '[data-hook*="job-description"]',
           '[data-hook*="description"]',
@@ -204,21 +209,15 @@ async function enrichWithDetailLinks(
           '[data-hook*="job-body"]',
         ];
         let description = '';
+        let descSelectorHit = '';
         for (const sel of descSelectors) {
           const el = document.querySelector(sel);
           const text = el?.textContent?.trim() ?? '';
-          if (text.length > 100) { description = text; break; }
-        }
-        if (description.length < 100) {
-          // Last resort: join all paragraphs in main content
-          const ps = Array.from(document.querySelectorAll('main p, article p, [role="main"] p, body p'))
-            .map(p => p.textContent?.trim() ?? '')
-            .filter(t => t.length > 20);
-          if (ps.length > 0) description = ps.join(' ');
+          if (text.length > 100) { description = text; descSelectorHit = sel; break; }
         }
         description = description.replace(/\s+/g, ' ').trim().slice(0, 4000);
 
-        return { externalLink, description };
+        return { externalLink, description, descSelectorHit };
       }, EXTERNAL_ATS_PATTERNS);
 
       if (detail.externalLink) {
@@ -227,6 +226,9 @@ async function enrichWithDetailLinks(
       }
       if (detail.description) {
         job.description = detail.description;
+        descFound++;
+      } else {
+        descMissed++;
       }
     } catch {
       // Keep original Handshake URL on error
@@ -236,6 +238,14 @@ async function enrichWithDetailLinks(
   });
 
   console.log(`[handshake poller] Detail enrichment: ${enriched}/${batch.length} jobs got direct ATS links`);
+  // Surface a warning if Handshake's description markup may have shifted —
+  // dropping the unsafe `body p` fallback means we get less data but more
+  // honestly, and this metric lets us notice if every selector starts missing.
+  if (batch.length > 0 && descMissed / batch.length > 0.5) {
+    console.warn(`[handshake poller] Description selectors missed for ${descMissed}/${batch.length} jobs — Handshake DOM may have changed`);
+  } else if (batch.length > 0) {
+    console.log(`[handshake poller] Descriptions: ${descFound}/${batch.length} populated`);
+  }
 }
 
 export async function pollHandshake(): Promise<Partial<Internship>[]> {

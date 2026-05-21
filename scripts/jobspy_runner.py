@@ -51,19 +51,25 @@ def is_aggregator_link(url: str) -> bool:
     """
     if not url:
         return True
-    url_lower = url.lower()
-    # Block known aggregator domains
+    # Parse once and inspect domain + query params directly. The previous version
+    # did naive substring matching on the whole URL, which caught false positives
+    # like ?url-shortener=... matching the `url=` pattern.
     try:
-        from urllib.parse import urlparse
-        domain = urlparse(url).netloc.lower().replace('www.', '').replace(':443', '').replace(':80', '')
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower().replace('www.', '').replace(':443', '').replace(':80', '')
         if any(agg in domain for agg in AGGREGATOR_DOMAINS):
+            return True
+        # Redirect/tracker params — match exact param names, not arbitrary substrings.
+        REDIRECT_PARAMS = {'utm_source', 'ref', 'redirect', 'goto', 'url', 'target'}
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        if any(p in params for p in REDIRECT_PARAMS):
+            return True
+        # `click?` is a path pattern (e.g. .../click?id=...) rather than a param.
+        if 'click?' in url.lower():
             return True
     except Exception:
         pass
-    # Block redirect/click-tracker patterns
-    redirect_patterns = ['utm_source=', 'ref=', 'redirect=', 'goto=', 'click?', 'url=', 'target=']
-    if any(p in url_lower for p in redirect_patterns):
-        return True
     return False
 
 
