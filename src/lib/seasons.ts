@@ -58,3 +58,31 @@ export function seasonSortKey(token: string): string {
   const ord = SEASON_ORDER[first] ?? 9;
   return `${year}-${ord}`;
 }
+
+/**
+ * The "fallback" season for a posting whose title carries no season info.
+ * Internship cycles flip mid-year: postings discovered Jan–Jun belong to
+ * that year's summer cycle; postings discovered Jul–Dec belong to the
+ * following year's summer cycle.
+ */
+export function defaultSeasonForDate(d: Date = new Date()): string {
+  const year = d.getUTCMonth() >= 6 ? d.getUTCFullYear() + 1 : d.getUTCFullYear();
+  return `summer-${year}`;
+}
+
+/**
+ * Resolves a posting's season tokens with the same semantics the one-time
+ * backfill applied: parseSeason result wins, bare year-YYYY tokens are
+ * promoted to summer-YYYY, and an empty parse falls back to the current
+ * default intern cycle. Used by both new-row ingestion (toRow) and the
+ * legacy backfill script so both paths stay in sync.
+ */
+export function deriveSeasonWithDefault(title: string | null | undefined): string[] {
+  const parsed = parseSeason(title);
+  if (parsed.length === 0) return [defaultSeasonForDate()];
+  const out: string[] = [];
+  for (const t of parsed) {
+    out.push(t.startsWith('year-') ? `summer-${t.slice(5)}` : t);
+  }
+  return Array.from(new Set(out));
+}

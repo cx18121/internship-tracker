@@ -25,28 +25,16 @@ import 'dotenv/config';
 import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
-import { parseSeason } from '../src/lib/seasons';
+import { deriveSeasonWithDefault } from '../src/lib/seasons';
 
 const DB_PATH = path.join(process.cwd(), 'data', 'internships.db');
 
 const DRY_RUN = process.argv.includes('--dry-run');
 const FORCE   = process.argv.includes('--force');
 
-function deriveSeason(title: string): string[] {
-  const parsed = parseSeason(title);
-  if (parsed.length === 0) return ['summer-2026'];
-  // year-YYYY tokens (no season detected, just a bare year) get promoted
-  // to summer-YYYY since that's the dominant cycle for intern roles.
-  const out: string[] = [];
-  for (const t of parsed) {
-    if (t.startsWith('year-')) {
-      out.push(`summer-${t.slice(5)}`);
-    } else {
-      out.push(t);
-    }
-  }
-  return Array.from(new Set(out));
-}
+// Shared with src/lib/store.ts toRow() — both new-row ingestion and this
+// backfill apply identical semantics so behavior stays consistent.
+const deriveSeason = deriveSeasonWithDefault;
 
 interface Row { id: string; title: string; season: string | null; }
 

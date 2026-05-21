@@ -3,7 +3,7 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 import { Internship } from './types';
 import { stripUtm } from './utils/normalize';
-import { parseSeason } from './seasons';
+import { deriveSeasonWithDefault } from './seasons';
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -344,9 +344,11 @@ function toRow(i: Internship): Record<string, unknown> {
     normalizedKey: i.normalizedKey ?? null,
     hidden: i.hidden ? 1 : 0,
     // Auto-populate from title on every write so the column stays in sync
-    // with the title. Callers can override by setting i.season explicitly
-    // (e.g. the backfill script writing ["summer-2026"] defaults).
-    season: JSON.stringify(i.season ?? parseSeason(i.title ?? '')),
+    // with the title. Titles without explicit season/year fall back to the
+    // current intern cycle (summer-YYYY) so they still match season chips —
+    // mirrors the one-time backfill script. Callers can override by setting
+    // i.season explicitly.
+    season: JSON.stringify(i.season ?? deriveSeasonWithDefault(i.title)),
   };
 }
 
