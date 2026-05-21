@@ -1,9 +1,61 @@
 import axios from 'axios';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
+
+// Persistent cache of resolved simplify.jobs apply URLs so we don't re-hit
+// the click endpoint for the same posting every cycle. Keyed by posting uuid.
+const SIMPLIFY_CACHE_PATH = path.join(process.cwd(), 'data', 'simplify-resolved.json');
+
+function loadSimplifyCache(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(SIMPLIFY_CACHE_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveSimplifyCache(cache: Record<string, string>): void {
+  try {
+    fs.writeFileSync(SIMPLIFY_CACHE_PATH, JSON.stringify(cache, null, 2));
+  } catch {
+    // Best-effort — cache miss is recoverable.
+  }
+}
+
+/**
+ * Resolves https://simplify.jobs/p/{uuid} to the underlying ATS apply URL
+ * by following the click-tracking 307 from /jobs/click/{uuid}. Returns the
+ * resolved URL, or null if resolution fails (caller should keep the original).
+ */
+async function resolveSimplifyApplyUrl(
+  simplifyLink: string,
+  cache: Record<string, string>,
+): Promise<string | null> {
+  const m = simplifyLink.match(/simplify\.jobs\/p\/([0-9a-fA-F-]+)/);
+  if (!m) return null;
+  const uuid = m[1];
+  if (cache[uuid]) return cache[uuid];
+  try {
+    const resp = await axios.head(`https://simplify.jobs/jobs/click/${uuid}`, {
+      timeout: 8000,
+      maxRedirects: 0,
+      validateStatus: () => true,
+    });
+    const loc = resp.headers?.location;
+    if (typeof loc === 'string' && loc.startsWith('http') && !loc.includes('simplify.jobs')) {
+      cache[uuid] = loc;
+      return loc;
+    }
+  } catch {
+    // Network error — fall through to null and keep the original simplify link.
+  }
+  return null;
+}
 
 // The README uses HTML table format: <tr><td>...</td></tr>
 // Cell 0: Company — <strong><a href="...">Name</a></strong>
@@ -188,6 +240,27 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
   const readme = response.data;
 
   const rows = parseRows(readme);
+
+  // Upgrade simplify.jobs fallback links to the real ATS apply URL. The
+  // README only has a simplify.jobs link when no direct ATS link was
+  // available, so we ask simplify's own click endpoint for the redirect
+  // target. Cached per uuid to avoid hitting the endpoint every cycle.
+  const simplifyCache = loadSimplifyCache();
+  const simplifyRows = rows.filter((r) => r.link.includes('simplify.jobs/p/'));
+  if (simplifyRows.length > 0) {
+    let resolved = 0;
+    const before = Object.keys(simplifyCache).length;
+    await withConcurrency(simplifyRows, 10, async (row) => {
+      const real = await resolveSimplifyApplyUrl(row.link, simplifyCache);
+      if (real) {
+        row.link = real;
+        resolved++;
+      }
+    });
+    if (Object.keys(simplifyCache).length > before) saveSimplifyCache(simplifyCache);
+    console.log(`[github poller] Resolved ${resolved}/${simplifyRows.length} simplify.jobs links to direct apply URLs`);
+  }
+
   const results: Partial<Internship>[] = rows.map(row => {
     const atsTarget = discoverATSTarget(row.link, row.company);
     const entry: Partial<Internship> = {
