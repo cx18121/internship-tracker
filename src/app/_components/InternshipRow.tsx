@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, MapPin } from "lucide-react";
+import { ExternalLink, MapPin, Check } from "lucide-react";
 import type { Internship } from "../_lib/types";
 import {
   SCORE_BADGE,
@@ -11,13 +11,13 @@ import {
 import { formatDate, isStale } from "../_lib/format";
 import { formatSeasonLabel } from "@/lib/seasons";
 
-// Shared grid template — used by the row AND the header in page.tsx so
-// columns align across every row.
+// Shared grid template — used by the row AND the header in InternshipList
+// so columns align across every row.
 //
-// Drop Seen (redundant w/ Posted) and Source-as-column (now a dot prefix
-// on Company) to give Title the freed real estate.
+// Mobile (< md): a 4-col layout — Score · Company+title (stacked) · Posted · Apply.
+// Desktop (md+): the full 7-col operator template.
 export const LIST_GRID_COLS =
-  "grid-cols-[4rem_9rem_minmax(0,1fr)_10rem_6rem_4rem_5rem]";
+  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,10rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
 
 interface Props {
   item: Internship;
@@ -29,13 +29,15 @@ export function InternshipRow({ item, onToggleApplied }: Props) {
 
   return (
     <div
-      className={`grid ${LIST_GRID_COLS} items-center gap-2 px-3 py-2 rounded border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] hover:border-white/10 transition-colors text-sm ${
-        item.applied ? "opacity-60" : ""
+      className={`grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 py-2 rounded border transition-colors text-[13px] ${
+        item.applied
+          ? "border-transparent bg-transparent opacity-55 hover:opacity-100 hover:bg-white/[0.02]"
+          : "border-white/[0.05] bg-white/[0.015] hover:bg-white/[0.04] hover:border-white/[0.1]"
       }`}
     >
       {/* Score */}
       <span
-        className={`justify-self-start text-[11px] font-semibold px-1.5 py-0.5 rounded ${
+        className={`justify-self-start text-[10.5px] font-semibold tabular-nums px-1.5 py-0.5 rounded ${
           SCORE_BADGE[item.scoreLabel] ?? SCORE_BADGE_FALLBACK
         }`}
       >
@@ -43,34 +45,45 @@ export function InternshipRow({ item, onToggleApplied }: Props) {
         {item.score != null ? ` ${item.score}` : ""}
       </span>
 
-      {/* Company (with source-color dot prefix) */}
-      <span className="flex items-center gap-1.5 min-w-0">
-        <span
-          className={`shrink-0 h-1.5 w-1.5 rounded-full ${SOURCE_DOT[item.source] ?? SOURCE_DOT_FALLBACK}`}
-          title={item.source}
-        />
-        <span className="font-medium text-white truncate">{item.company}</span>
-      </span>
+      {/* Company — desktop column. On mobile this slot holds company + title stacked. */}
+      <div className="min-w-0">
+        <span className="flex items-center gap-1.5 min-w-0">
+          <span
+            className={`shrink-0 h-1.5 w-1.5 rounded-full ${SOURCE_DOT[item.source] ?? SOURCE_DOT_FALLBACK}`}
+            title={item.source}
+          />
+          <span className="font-medium text-white truncate">{item.company}</span>
+        </span>
+        {/* Title appears under company on mobile only; desktop has its own column */}
+        <span className="md:hidden block text-[11.5px] text-white/55 truncate mt-0.5">
+          {item.title}
+        </span>
+      </div>
 
-      {/* Title — gets the freed real estate */}
-      <span className="text-white/55 truncate min-w-0">{item.title}</span>
+      {/* Title — desktop column only */}
+      <span className="hidden md:block text-white/60 truncate min-w-0">{item.title}</span>
 
-      {/* Location */}
-      <span className="text-[11px] text-white/40 truncate flex items-center gap-1">
-        {item.location && <MapPin className="h-3 w-3 shrink-0" />}
+      {/* Location — desktop only */}
+      <span className="hidden md:flex text-[12px] text-white/50 truncate items-center gap-1 min-w-0">
+        {item.location && <MapPin className="h-3 w-3 shrink-0 text-white/40" />}
         <span className="truncate">{item.location || "—"}</span>
       </span>
 
-      {/* Season */}
-      <span className="justify-self-start text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/55 truncate max-w-full">
+      {/* Season — desktop only */}
+      <span className="hidden md:inline justify-self-start text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/55 truncate max-w-full">
         {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
       </span>
 
-      {/* Posted */}
-      <span className="text-[11px] text-white/30 truncate flex items-center gap-1">
+      {/* Posted — visible on both, but narrower on mobile */}
+      <span className="text-[11px] text-white/45 tabular-nums flex items-center gap-1 truncate">
         {item.postedAt ? formatDate(item.postedAt) : "—"}
         {item.postedAt && isStale(item.postedAt) && (
-          <span className="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-400">!</span>
+          <span
+            className="text-[9px] px-1 py-px rounded bg-amber-500/12 text-amber-300 border border-amber-500/20"
+            title="Posted >30 days ago"
+          >
+            !
+          </span>
         )}
       </span>
 
@@ -80,21 +93,24 @@ export function InternshipRow({ item, onToggleApplied }: Props) {
           href={item.link}
           target="_blank"
           rel="noopener noreferrer"
-          className="px-2 py-1 rounded text-[11px] border border-white/10 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white flex items-center gap-1"
+          aria-label={`Apply to ${item.title} at ${item.company}`}
+          className="inline-flex items-center gap-1 h-6 px-2 rounded text-[11px] font-medium bg-white/10 hover:bg-white/20 text-white/85 transition-colors"
         >
           <ExternalLink className="h-3 w-3" />
-          Apply
+          <span className="hidden md:inline">Apply</span>
         </a>
         <button
           onClick={onToggleApplied}
-          className={`px-2 py-1 rounded text-[11px] border transition-colors ${
+          aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
+          aria-pressed={item.applied}
+          className={`h-6 w-6 inline-flex items-center justify-center rounded transition-colors ${
             item.applied
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
-              : "border-white/10 bg-white/5 text-white/40 hover:text-white/70"
+              ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+              : "bg-transparent text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
           }`}
           title={item.applied ? "Mark unapplied" : "Mark applied"}
         >
-          {item.applied ? "✓" : "○"}
+          {item.applied ? <Check className="h-3.5 w-3.5" /> : <span className="text-[14px] leading-none">○</span>}
         </button>
       </div>
     </div>

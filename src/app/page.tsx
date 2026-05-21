@@ -19,6 +19,7 @@ import {
   LayoutGrid,
   List,
   Layers,
+  SlidersHorizontal,
 } from "lucide-react";
 
 import { InternshipCard } from "./_components/InternshipCard";
@@ -26,6 +27,8 @@ import { InternshipList } from "./_components/InternshipList";
 import { NotifModal } from "./_components/NotifModal";
 import { StatusPill } from "./_components/StatusPill";
 import { FilterRail } from "./_components/FilterRail";
+import { MobileFilterSheet } from "./_components/MobileFilterSheet";
+import { ListSkeleton, CardSkeleton, EmptyState } from "./_components/Skeletons";
 import type {
   Internship,
   Stats,
@@ -69,6 +72,9 @@ export default function InternshipsPage() {
   // Applied tracking (localStorage)
   const [appliedDates, setAppliedDates] = useState<Record<string, string>>({});
   const [notesMap, setNotesMap] = useState<Record<string, string>>({});
+
+  // Mobile-only filter sheet (rail is hidden below `lg`)
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
   // Notification settings
   const [notifModalOpen, setNotifModalOpen] = useState(false);
@@ -402,6 +408,21 @@ export default function InternshipsPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Mobile filter trigger — desktop has the rail visible */}
+            <button
+              onClick={() => setMobileFiltersOpen(true)}
+              className="lg:hidden inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-[12px] text-white/75 transition-colors"
+              aria-label="Open filters"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="px-1 py-px rounded text-[10px] bg-white/15 text-white tabular-nums">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
+
             <div className="flex items-center rounded-md border border-white/10 bg-white/[0.04] p-0.5">
               <button
                 onClick={() => setViewMode("list")}
@@ -439,20 +460,22 @@ export default function InternshipsPage() {
               variant="outline"
               size="sm"
               onClick={() => setNotifModalOpen(true)}
-              className="gap-2 h-7 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
+              aria-label="Notifications"
+              className="gap-1.5 h-7 px-2 sm:px-2.5 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
             >
               <Bell className="h-3.5 w-3.5" />
-              Notifications
+              <span className="hidden sm:inline">Notifications</span>
             </Button>
             <Button
               variant="outline"
               size="sm"
               onClick={() => fetchData(true)}
               disabled={refreshing}
-              className="gap-2 h-7 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
+              aria-label="Refresh"
+              className="gap-1.5 h-7 px-2 sm:px-2.5 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-              Refresh
+              <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
         </div>
@@ -473,8 +496,8 @@ export default function InternshipsPage() {
         </div>
       ) : (
         <div className="grid gap-6 px-5 py-4 lg:grid-cols-[240px_minmax(0,1fr)]">
-          {/* Left rail — sticky on wide screens, stacks above content on small */}
-          <div className="lg:sticky lg:top-[3.5rem] lg:self-start lg:max-h-[calc(100vh-4.5rem)] lg:overflow-y-auto lg:pr-2 lg:-mr-2 lg:pb-6">
+          {/* Left rail — desktop only; mobile uses MobileFilterSheet (mounted below) */}
+          <div className="hidden lg:block lg:sticky lg:top-[3.5rem] lg:self-start lg:max-h-[calc(100vh-4.5rem)] lg:overflow-y-auto lg:pr-2 lg:-mr-2 lg:pb-6">
             <FilterRail
               dynamicSources={dynamicSources}
               dynamicSeasons={dynamicSeasons}
@@ -554,30 +577,25 @@ export default function InternshipsPage() {
               <span className="ml-auto text-[11px] text-white/45 tabular-nums">
                 {loading ? "…" : `${filtered.length.toLocaleString()} listing${filtered.length !== 1 ? "s" : ""}`}
                 {activeFilterCount > 0 && !loading && (
-                  <span className="text-white/30"> · filtered</span>
+                  <span className="text-white/45"> · filtered</span>
                 )}
               </span>
             </div>
 
             {/* Listings */}
             {loading ? (
-              <div className="flex items-center justify-center py-16 text-white/30">
-                <RefreshCw className="h-5 w-5 animate-spin mr-2" />
-                Loading internships…
-              </div>
+              viewMode === "list" ? (
+                <ListSkeleton />
+              ) : (
+                <CardSkeleton />
+              )
             ) : filtered.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 text-white/30 gap-2">
-                <Briefcase className="h-10 w-10" />
-                <p className="text-sm">No internships match these filters.</p>
-                {activeFilterCount > 0 && (
-                  <button
-                    onClick={clearFilters}
-                    className="text-xs text-white/50 hover:text-white/80 underline underline-offset-4"
-                  >
-                    Clear all filters
-                  </button>
-                )}
-              </div>
+              <EmptyState
+                hasActiveFilters={activeFilterCount > 0}
+                onClearFilters={clearFilters}
+                onClearDateWindow={dateWindow !== "all" ? () => setDateWindow("all") : null}
+                dateWindowLabel={DATE_WINDOWS.find((d) => d.value === dateWindow)?.label ?? null}
+              />
             ) : (
               <>
                 {viewMode === "list" ? (
@@ -634,6 +652,31 @@ export default function InternshipsPage() {
           </main>
         </div>
       )}
+
+      <MobileFilterSheet open={mobileFiltersOpen} onClose={() => setMobileFiltersOpen(false)}>
+        <FilterRail
+          dynamicSources={dynamicSources}
+          dynamicSeasons={dynamicSeasons}
+          selectedSources={selectedSources}
+          tierFilter={tierFilter}
+          selectedSeasons={selectedSeasons}
+          minScore={minScore}
+          selectedLocations={selectedLocations}
+          locationText={locationText}
+          includeKeywords={includeKeywords}
+          excludeKeywords={excludeKeywords}
+          setSelectedSources={setSelectedSources}
+          setTierFilter={setTierFilter}
+          setSelectedSeasons={setSelectedSeasons}
+          setMinScore={setMinScore}
+          setSelectedLocations={setSelectedLocations}
+          setLocationText={setLocationText}
+          setIncludeKeywords={setIncludeKeywords}
+          setExcludeKeywords={setExcludeKeywords}
+          activeFilterCount={activeFilterCount}
+          onClearAll={clearFilters}
+        />
+      </MobileFilterSheet>
 
       <NotifModal
         open={notifModalOpen}

@@ -183,7 +183,7 @@ export function FilterRail(props: Props) {
       <Section label="Season">
         <div className="flex flex-wrap gap-1.5">
           {dynamicSeasons.length === 0 ? (
-            <span className="text-[11px] text-white/30">None detected</span>
+            <span className="text-[11px] text-white/45">None detected</span>
           ) : (
             dynamicSeasons.map(([token, count]) => (
               <Chip
@@ -192,7 +192,7 @@ export function FilterRail(props: Props) {
                 onClick={() => setSelectedSeasons((prev) => toggleArr(prev, token))}
               >
                 {formatSeasonLabel(token)}{" "}
-                <span className="text-white/30">{count}</span>
+                <span className="text-white/45 tabular-nums">{count}</span>
               </Chip>
             ))
           )}
@@ -211,7 +211,7 @@ export function FilterRail(props: Props) {
               </span>
             ))
           ) : dynamicSources.length === 0 ? (
-            <span className="text-[11px] text-white/30">No sources yet</span>
+            <span className="text-[11px] text-white/45">No sources yet</span>
           ) : (
             dynamicSources.map((s) => (
               <Chip

@@ -72,21 +72,23 @@ export function StatusPill({ lastPolledAt, totalPostings, sourcesTotal, exclusio
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-2 px-2.5 py-1 rounded-md border bg-white/[0.03] hover:bg-white/[0.06] text-[12px] transition-colors ${tint}`}
+        className={`inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-1 rounded-md border bg-white/[0.03] hover:bg-white/[0.06] text-[12px] whitespace-nowrap transition-colors ${tint}`}
         aria-expanded={open}
         aria-haspopup="dialog"
         title="Source health"
       >
         {hardDown > 0 ? <AlertTriangle className="h-3.5 w-3.5" /> : <Activity className="h-3.5 w-3.5" />}
         <span className="tabular-nums text-white/70">
-          {totalPostings ?? "—"}
+          {totalPostings?.toLocaleString() ?? "—"}
         </span>
-        <span className="text-white/30">·</span>
-        <span className="text-white/50">
+        <span className="hidden sm:inline text-white/35">·</span>
+        <span className="hidden sm:inline text-white/55">
           {lastPolledAt ? timeAgo(lastPolledAt) : "never"}
         </span>
-        {hardDown > 0 && <span>· {hardDown} down</span>}
-        {hardDown === 0 && staleCount > 0 && <span>· {staleCount} quiet</span>}
+        {hardDown > 0 && <span className="text-[11px]">· {hardDown}</span>}
+        {hardDown === 0 && staleCount > 0 && (
+          <span className="hidden sm:inline text-[11px]">· {staleCount} quiet</span>
+        )}
       </button>
 
       {open && (
@@ -95,9 +97,9 @@ export function StatusPill({ lastPolledAt, totalPostings, sourcesTotal, exclusio
           aria-label="Source health"
           className="absolute right-0 top-full mt-2 w-[420px] z-50 rounded-lg border border-white/15 bg-[oklch(0.18_0.005_260)] shadow-[0_8px_24px_oklch(0_0_0_/_50%)] p-3 space-y-3"
         >
-          <div className="flex items-center justify-between text-[10px] uppercase tracking-wider text-white/40">
+          <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.08em] text-white/50">
             <span>Source health</span>
-            <span className="text-white/30 normal-case tracking-normal">
+            <span className="text-white/45 normal-case tracking-normal tabular-nums">
               {sourcesTotal ?? "—"} ATS targets
             </span>
           </div>

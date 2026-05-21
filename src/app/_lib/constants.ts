@@ -20,7 +20,7 @@ export const SCORE_BADGE: Record<string, string> = {
   B: "bg-amber-500/20 text-amber-400 border border-amber-500/30",
   C: "bg-orange-500/20 text-orange-400 border border-orange-500/30",
   D: "bg-white/10 text-white/50 border border-white/15",
-  F: "bg-white/5 text-white/30 border border-white/10",
+  F: "bg-white/[0.04] text-white/45 border border-white/10",
 };
 
 export const SCORE_BADGE_FALLBACK = "bg-white/5 text-white/40 border border-white/10";

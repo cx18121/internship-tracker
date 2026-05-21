@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell } from "lucide-react";
+import { Bell, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,6 +42,52 @@ const TIER_OPTIONS: { value: TierFilter; label: string }[] = [
   { value: "elite", label: `Elite (${ELITE_COUNT})` },
 ];
 
+function Section({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-2">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45">
+          {label}
+        </h3>
+        {hint && <span className="text-[10px] text-white/40">{hint}</span>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
+        active
+          ? "border-white/30 bg-white/10 text-white"
+          : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function NotifModal({
   open,
   onOpenChange,
@@ -60,96 +106,94 @@ export function NotifModal({
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-zinc-900 border-white/10 text-white">
+      <DialogContent className="max-w-md bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-white/80">
-            <Bell className="h-4 w-4" />
-            Notification Settings
+          <DialogTitle className="flex items-center gap-2 text-white text-[15px] font-semibold">
+            <Bell className="h-3.5 w-3.5 text-white/60" />
+            Notifications
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 py-2">
-          <div className="space-y-1.5">
-            <label className="text-xs text-white/40 uppercase tracking-wider">
-              Min score for alert notifications
-            </label>
+        <div className="space-y-5 py-1">
+          <Section label="Min score" hint="0 = alert on everything">
             <Input
               type="number"
               min={0}
               max={100}
               value={minScore}
               onChange={(e) => onMinScoreChange(Number(e.target.value))}
-              className="w-24 h-8 text-sm bg-white/5 border-white/10"
+              className="w-20 h-7 text-[13px] bg-white/[0.04] border-white/10 tabular-nums"
             />
-          </div>
+          </Section>
 
-          <div className="space-y-1.5">
-            <label className="text-xs text-white/40 uppercase tracking-wider">Tier</label>
+          <Section label="Tier">
             <div className="flex flex-wrap gap-1.5">
               {TIER_OPTIONS.map(({ value, label }) => (
-                <button
+                <Chip
                   key={value}
+                  active={tierFilter === value}
                   onClick={() => onTierFilterChange(value)}
-                  className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
-                    tierFilter === value
-                      ? "bg-white/15 border-white/30 text-white"
-                      : "bg-white/5 border-white/10 text-white/50 hover:border-white/20"
-                  }`}
                 >
                   {label}
-                </button>
+                </Chip>
               ))}
             </div>
-          </div>
+          </Section>
 
-          <div className="space-y-1.5">
-            <label className="text-xs text-white/40 uppercase tracking-wider">
-              Seasons (empty = all)
-            </label>
+          <Section label="Seasons" hint="empty = all">
             <div className="flex flex-wrap gap-1.5">
               {seasonOptions.length === 0 ? (
-                <span className="text-xs text-white/30">None detected yet</span>
+                <span className="text-[11px] text-white/40">None detected yet</span>
               ) : (
                 seasonOptions.map(({ token, count }) => (
-                  <button
+                  <Chip
                     key={token}
+                    active={selectedSeasons.includes(token)}
                     onClick={() => onSeasonsToggle(token)}
-                    className={`px-2.5 py-1 rounded-md text-xs border transition-colors ${
-                      selectedSeasons.includes(token)
-                        ? "bg-white/15 border-white/30 text-white"
-                        : "bg-white/5 border-white/10 text-white/50 hover:border-white/20"
-                    }`}
                   >
-                    {formatSeasonLabel(token)} ({count})
-                  </button>
+                    {formatSeasonLabel(token)}{" "}
+                    <span className="text-white/35 tabular-nums">{count}</span>
+                  </Chip>
                 ))
               )}
             </div>
-          </div>
+          </Section>
 
-          <div className="flex items-center gap-2 pt-1">
+          <Section label="Alerts">
             <button
+              type="button"
               onClick={() => onSourceDownAlertsChange(!sourceDownAlerts)}
-              className={`relative inline-flex h-4 w-8 shrink-0 rounded-full transition-colors ${
-                sourceDownAlerts ? "bg-white/40" : "bg-white/10"
-              }`}
+              className="flex items-center gap-2.5 text-left w-full group"
+              aria-pressed={sourceDownAlerts}
             >
               <span
-                className={`absolute top-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform ${
-                  sourceDownAlerts ? "translate-x-4" : "translate-x-0.5"
+                className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${
+                  sourceDownAlerts ? "bg-emerald-500/60" : "bg-white/12"
                 }`}
-              />
+              >
+                <span
+                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
+                    sourceDownAlerts ? "translate-x-3.5" : "translate-x-0.5"
+                  }`}
+                />
+              </span>
+              <span className="text-[12px] text-white/65 group-hover:text-white/85 transition-colors">
+                Alert when a source goes down
+              </span>
             </button>
-            <span className="text-xs text-white/50">Alert when a source goes down</span>
-          </div>
+          </Section>
         </div>
-        <DialogFooter showCloseButton={false}>
+        <DialogFooter showCloseButton={false} className="pt-2">
           <Button
             size="sm"
             onClick={onSave}
             disabled={saving}
-            className="bg-white/10 hover:bg-white/20 text-white/80 border border-white/10"
+            className="h-7 bg-white text-[oklch(0.13_0.005_260)] hover:bg-white/90 text-[12px] font-medium border-0"
           >
-            {saved ? "Saved!" : saving ? "Saving…" : "Save settings"}
+            {saved ? (
+              <span className="inline-flex items-center gap-1">
+                <Check className="h-3 w-3" /> Saved
+              </span>
+            ) : saving ? "Saving…" : "Save"}
           </Button>
         </DialogFooter>
       </DialogContent>
