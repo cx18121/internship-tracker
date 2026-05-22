@@ -5,6 +5,7 @@ import { getInternships, checkLinkStatus } from '../lib/store';
 import { isElite, isTopOrBetter } from '../lib/tiers';
 import { parseSeason } from '../lib/seasons';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
+import { classifyLocation } from './iso-locations';
 
 // Live-link check for outbound notifications. SimplifyJobs's aggregated
 // data sometimes includes roles that have already been closed on the
@@ -34,6 +35,34 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   if (f.seasons.length > 0) {
     const tokens = i.season ?? parseSeason(i.title ?? '');
     if (!tokens.some(t => f.seasons.includes(t))) return false;
+  }
+  // User-engagement guards — defaults true. Rows in this function's input
+  // are usually brand-new (newInternships from the current cycle, so
+  // applied/hidden are false), but the guards cover edge cases where a
+  // posting gets re-emitted under a fresh id after the user has acted on
+  // a sibling row.
+  if (f.skipApplied && i.applied) return false;
+  if (f.skipHidden && i.hidden) return false;
+  // Source blocklist — match against the discovery source.
+  if (f.excludedSources.length > 0 && i.source && f.excludedSources.includes(i.source)) {
+    return false;
+  }
+  // Non-US gate — uses the structured classifier. 'unknown' (unstructured
+  // strings like "Remote" or "NYC") passes through; only definitive
+  // non-US classifications are filtered.
+  if (f.excludeNonUS && classifyLocation(i.location || '') === 'non_us') {
+    return false;
+  }
+  // Keyword gates — match against the scorer's matchedKeywords (same
+  // semantics as the app FilterRail). Case-insensitive set membership.
+  const kws = (i.matchedKeywords ?? []).map(k => k.toLowerCase());
+  if (f.includeKeywords.length > 0) {
+    const need = f.includeKeywords.map(k => k.toLowerCase());
+    if (!need.some(k => kws.includes(k))) return false;
+  }
+  if (f.excludeKeywords.length > 0) {
+    const ban = f.excludeKeywords.map(k => k.toLowerCase());
+    if (ban.some(k => kws.includes(k))) return false;
   }
   return true;
 }

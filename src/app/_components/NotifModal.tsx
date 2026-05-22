@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, Check } from "lucide-react";
+import { useState } from "react";
+import { Bell, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,15 +23,36 @@ interface SeasonOption {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  // Score + tier + seasons (existing)
   minScore: number;
   onMinScoreChange: (n: number) => void;
-  sourceDownAlerts: boolean;
-  onSourceDownAlertsChange: (b: boolean) => void;
   tierFilter: TierFilter;
   onTierFilterChange: (t: TierFilter) => void;
   selectedSeasons: string[];
   onSeasonsToggle: (token: string) => void;
   seasonOptions: SeasonOption[];
+  // Source-down alerts (existing toggle)
+  sourceDownAlerts: boolean;
+  onSourceDownAlertsChange: (b: boolean) => void;
+  // Source blocklist
+  dynamicSources: string[] | null;
+  excludedSources: string[];
+  onExcludedSourcesChange: (fn: (prev: string[]) => string[]) => void;
+  // Location: non-US suppression
+  excludeNonUS: boolean;
+  onExcludeNonUSChange: (b: boolean) => void;
+  // Keywords (matchedKeywords scorer-tag matching, same as FilterRail)
+  includeKeywords: string[];
+  excludeKeywords: string[];
+  knownKeywords: Set<string>;
+  onIncludeKeywordsChange: (fn: (prev: string[]) => string[]) => void;
+  onExcludeKeywordsChange: (fn: (prev: string[]) => string[]) => void;
+  // User-state skips
+  skipApplied: boolean;
+  skipHidden: boolean;
+  onSkipAppliedChange: (b: boolean) => void;
+  onSkipHiddenChange: (b: boolean) => void;
+  // Save action
   onSave: () => void;
   saving: boolean;
   saved: boolean;
@@ -38,8 +60,8 @@ interface Props {
 
 const TIER_OPTIONS: { value: TierFilter; label: string }[] = [
   { value: "all", label: "All" },
-  { value: "top-or-better", label: `Top+ (${ELITE_COUNT + TOP_COUNT})` },
-  { value: "elite", label: `Elite (${ELITE_COUNT})` },
+  { value: "top-or-better", label: `Top ${ELITE_COUNT + TOP_COUNT}` },
+  { value: "elite", label: `Top ${ELITE_COUNT}` },
 ];
 
 function Section({
@@ -68,23 +90,142 @@ function Chip({
   active,
   onClick,
   children,
+  tone = "neutral",
 }: {
   active: boolean;
   onClick: () => void;
   children: React.ReactNode;
+  tone?: "neutral" | "danger";
 }) {
+  const activeStyles =
+    tone === "danger"
+      ? "border-red-400/40 bg-red-500/15 text-red-200"
+      : "border-white/30 bg-white/10 text-white";
   return (
     <button
       type="button"
       onClick={onClick}
       className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
         active
-          ? "border-white/30 bg-white/10 text-white"
+          ? activeStyles
           : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
       }`}
     >
       {children}
     </button>
+  );
+}
+
+function Toggle({
+  on,
+  onChange,
+  label,
+}: {
+  on: boolean;
+  onChange: (b: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      className="flex items-center gap-2.5 text-left w-full group"
+      aria-pressed={on}
+    >
+      <span
+        className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${
+          on ? "bg-emerald-500/60" : "bg-white/12"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
+            on ? "translate-x-3.5" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      <span className="text-[12px] text-white/65 group-hover:text-white/85 transition-colors">
+        {label}
+      </span>
+    </button>
+  );
+}
+
+// Add-a-keyword input + chip display. Mirrors FilterRail's chip pattern,
+// including the amber-dim treatment for keywords absent from the corpus
+// (knownKeywords) so the user can tell when a typed keyword will silently
+// match nothing.
+function KeywordRow({
+  placeholder,
+  inputValue,
+  onInputChange,
+  onAdd,
+  values,
+  onRemove,
+  knownKeywords,
+  tone,
+}: {
+  placeholder: string;
+  inputValue: string;
+  onInputChange: (s: string) => void;
+  onAdd: () => void;
+  values: string[];
+  onRemove: (k: string) => void;
+  knownKeywords: Set<string>;
+  tone: "include" | "exclude";
+}) {
+  const activeChipStyles =
+    tone === "include"
+      ? "bg-white/10 text-white/70"
+      : "bg-red-500/10 text-red-400";
+  const dimChipStyles =
+    tone === "include"
+      ? "bg-amber-500/10 text-amber-400/80 line-through decoration-amber-400/50"
+      : "bg-white/[0.04] text-white/30 line-through decoration-white/20";
+  return (
+    <>
+      <div className="flex gap-1.5">
+        <Input
+          placeholder={placeholder}
+          value={inputValue}
+          onChange={(e) => onInputChange(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onAdd()}
+          className="h-7 text-[12px] bg-white/[0.04] border-white/10"
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]"
+          onClick={onAdd}
+        >
+          Add
+        </Button>
+      </div>
+      {values.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {values.map((k) => {
+            const unknown = !knownKeywords.has(k.toLowerCase());
+            const tooltip =
+              tone === "include"
+                ? "Not in any posting's tags — gate will block every notification"
+                : "Not in any posting's tags — has no effect on notifications";
+            return (
+              <span
+                key={k}
+                title={unknown ? tooltip : undefined}
+                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
+                  unknown ? dimChipStyles : activeChipStyles
+                }`}
+              >
+                {k}
+                <button onClick={() => onRemove(k)}>
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </>
   );
 }
 
@@ -100,13 +241,48 @@ export function NotifModal({
   selectedSeasons,
   onSeasonsToggle,
   seasonOptions,
+  dynamicSources,
+  excludedSources,
+  onExcludedSourcesChange,
+  excludeNonUS,
+  onExcludeNonUSChange,
+  includeKeywords,
+  excludeKeywords,
+  knownKeywords,
+  onIncludeKeywordsChange,
+  onExcludeKeywordsChange,
+  skipApplied,
+  skipHidden,
+  onSkipAppliedChange,
+  onSkipHiddenChange,
   onSave,
   saving,
   saved,
 }: Props) {
+  const [includeInput, setIncludeInput] = useState("");
+  const [excludeInput, setExcludeInput] = useState("");
+
+  function addInclude() {
+    const trimmed = includeInput.trim();
+    if (!trimmed) return;
+    onIncludeKeywordsChange((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    setIncludeInput("");
+  }
+  function addExclude() {
+    const trimmed = excludeInput.trim();
+    if (!trimmed) return;
+    onExcludeKeywordsChange((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+    setExcludeInput("");
+  }
+  function toggleSource(s: string) {
+    onExcludedSourcesChange((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5">
+      <DialogContent className="max-w-md bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5 max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white text-[15px] font-semibold">
             <Bell className="h-3.5 w-3.5 text-white/60" />
@@ -158,28 +334,68 @@ export function NotifModal({
             </div>
           </Section>
 
+          <Section label="Skip sources" hint="silence noisy sources">
+            <div className="flex flex-wrap gap-1.5">
+              {!dynamicSources || dynamicSources.length === 0 ? (
+                <span className="text-[11px] text-white/40">No sources loaded yet</span>
+              ) : (
+                dynamicSources.map((s) => (
+                  <Chip
+                    key={s}
+                    active={excludedSources.includes(s)}
+                    tone="danger"
+                    onClick={() => toggleSource(s)}
+                  >
+                    {s}
+                  </Chip>
+                ))
+              )}
+            </div>
+          </Section>
+
+          <Section label="Location">
+            <Toggle on={excludeNonUS} onChange={onExcludeNonUSChange} label="Skip non-US postings" />
+          </Section>
+
+          <Section label="Include keywords" hint="match scorer tags">
+            <KeywordRow
+              placeholder="e.g. React"
+              inputValue={includeInput}
+              onInputChange={setIncludeInput}
+              onAdd={addInclude}
+              values={includeKeywords}
+              onRemove={(k) => onIncludeKeywordsChange((prev) => prev.filter((x) => x !== k))}
+              knownKeywords={knownKeywords}
+              tone="include"
+            />
+          </Section>
+
+          <Section label="Exclude keywords">
+            <KeywordRow
+              placeholder="e.g. PhD"
+              inputValue={excludeInput}
+              onInputChange={setExcludeInput}
+              onAdd={addExclude}
+              values={excludeKeywords}
+              onRemove={(k) => onExcludeKeywordsChange((prev) => prev.filter((x) => x !== k))}
+              knownKeywords={knownKeywords}
+              tone="exclude"
+            />
+          </Section>
+
+          <Section label="User state">
+            <div className="space-y-2">
+              <Toggle on={skipApplied} onChange={onSkipAppliedChange} label="Skip applied postings" />
+              <Toggle on={skipHidden} onChange={onSkipHiddenChange} label="Skip hidden postings" />
+            </div>
+          </Section>
+
           <Section label="Alerts">
-            <button
-              type="button"
-              onClick={() => onSourceDownAlertsChange(!sourceDownAlerts)}
-              className="flex items-center gap-2.5 text-left w-full group"
-              aria-pressed={sourceDownAlerts}
-            >
-              <span
-                className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${
-                  sourceDownAlerts ? "bg-emerald-500/60" : "bg-white/12"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-transform ${
-                    sourceDownAlerts ? "translate-x-3.5" : "translate-x-0.5"
-                  }`}
-                />
-              </span>
-              <span className="text-[12px] text-white/65 group-hover:text-white/85 transition-colors">
-                Alert when a source goes down
-              </span>
-            </button>
+            <Toggle
+              on={sourceDownAlerts}
+              onChange={onSourceDownAlertsChange}
+              label="Alert when a source goes down"
+            />
           </Section>
         </div>
         <DialogFooter showCloseButton={false} className="pt-2">

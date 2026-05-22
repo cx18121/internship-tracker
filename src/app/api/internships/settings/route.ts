@@ -12,6 +12,12 @@ interface NotifSettings {
   sourceDownAlerts: boolean;
   tierFilter: TierFilter;
   seasons: string[];
+  excludedSources: string[];
+  excludeNonUS: boolean;
+  includeKeywords: string[];
+  excludeKeywords: string[];
+  skipApplied: boolean;
+  skipHidden: boolean;
 }
 
 const DEFAULT: NotifSettings = {
@@ -19,6 +25,12 @@ const DEFAULT: NotifSettings = {
   sourceDownAlerts: false,
   tierFilter: "all",
   seasons: [],
+  excludedSources: [],
+  excludeNonUS: false,
+  includeKeywords: [],
+  excludeKeywords: [],
+  skipApplied: true,
+  skipHidden: true,
 };
 
 function load(): NotifSettings {
@@ -46,6 +58,24 @@ function sanitizeSeasons(s: unknown): string[] {
     .filter(x => /^(summer|fall|winter|spring|year)-\d{4}$/.test(x));
 }
 
+// Generic string-array sanitizer for the keyword/source lists. Trims,
+// drops empties, dedupes, caps at 32 entries to keep the JSON small and
+// prevent a runaway settings file from blowing up the notifier loop.
+function sanitizeStringList(s: unknown): string[] {
+  if (!Array.isArray(s)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const x of s) {
+    if (typeof x !== "string") continue;
+    const trimmed = x.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    out.push(trimmed);
+    if (out.length >= 32) break;
+  }
+  return out;
+}
+
 export async function GET() {
   return Response.json(load());
 }
@@ -62,6 +92,18 @@ export async function POST(request: Request) {
       typeof body.sourceDownAlerts === "boolean" ? body.sourceDownAlerts : current.sourceDownAlerts,
     tierFilter: "tierFilter" in body ? sanitizeTier(body.tierFilter) : current.tierFilter,
     seasons: "seasons" in body ? sanitizeSeasons(body.seasons) : current.seasons,
+    excludedSources:
+      "excludedSources" in body ? sanitizeStringList(body.excludedSources) : current.excludedSources,
+    excludeNonUS:
+      typeof body.excludeNonUS === "boolean" ? body.excludeNonUS : current.excludeNonUS,
+    includeKeywords:
+      "includeKeywords" in body ? sanitizeStringList(body.includeKeywords) : current.includeKeywords,
+    excludeKeywords:
+      "excludeKeywords" in body ? sanitizeStringList(body.excludeKeywords) : current.excludeKeywords,
+    skipApplied:
+      typeof body.skipApplied === "boolean" ? body.skipApplied : current.skipApplied,
+    skipHidden:
+      typeof body.skipHidden === "boolean" ? body.skipHidden : current.skipHidden,
   };
   return Response.json(save(next));
 }

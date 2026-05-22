@@ -113,6 +113,12 @@ export default function InternshipsPage() {
   const [sourceDownAlerts, setSourceDownAlerts] = useState(false);
   const [notifTierFilter, setNotifTierFilter] = useState<TierFilter>("all");
   const [notifSeasons, setNotifSeasons] = useState<string[]>([]);
+  const [notifExcludedSources, setNotifExcludedSources] = useState<string[]>([]);
+  const [notifExcludeNonUS, setNotifExcludeNonUS] = useState(false);
+  const [notifIncludeKeywords, setNotifIncludeKeywords] = useState<string[]>([]);
+  const [notifExcludeKeywords, setNotifExcludeKeywords] = useState<string[]>([]);
+  const [notifSkipApplied, setNotifSkipApplied] = useState(true);
+  const [notifSkipHidden, setNotifSkipHidden] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
 
@@ -300,6 +306,12 @@ export default function InternshipsPage() {
             setNotifTierFilter(d.tierFilter);
           }
           if (Array.isArray(d.seasons)) setNotifSeasons(d.seasons);
+          if (Array.isArray(d.excludedSources)) setNotifExcludedSources(d.excludedSources);
+          if (typeof d.excludeNonUS === "boolean") setNotifExcludeNonUS(d.excludeNonUS);
+          if (Array.isArray(d.includeKeywords)) setNotifIncludeKeywords(d.includeKeywords);
+          if (Array.isArray(d.excludeKeywords)) setNotifExcludeKeywords(d.excludeKeywords);
+          if (typeof d.skipApplied === "boolean") setNotifSkipApplied(d.skipApplied);
+          if (typeof d.skipHidden === "boolean") setNotifSkipHidden(d.skipHidden);
         }
       })
       .catch(() => {});
@@ -394,6 +406,12 @@ export default function InternshipsPage() {
           sourceDownAlerts,
           tierFilter: notifTierFilter,
           seasons: notifSeasons,
+          excludedSources: notifExcludedSources,
+          excludeNonUS: notifExcludeNonUS,
+          includeKeywords: notifIncludeKeywords,
+          excludeKeywords: notifExcludeKeywords,
+          skipApplied: notifSkipApplied,
+          skipHidden: notifSkipHidden,
         }),
       });
       setNotifSaved(true);
@@ -990,6 +1008,20 @@ export default function InternshipsPage() {
         selectedSeasons={notifSeasons}
         onSeasonsToggle={(t) => setNotifSeasons((prev) => toggleArr(prev, t))}
         seasonOptions={dynamicSeasons.map(([token, count]) => ({ token, count }))}
+        dynamicSources={dynamicSources}
+        excludedSources={notifExcludedSources}
+        onExcludedSourcesChange={setNotifExcludedSources}
+        excludeNonUS={notifExcludeNonUS}
+        onExcludeNonUSChange={setNotifExcludeNonUS}
+        includeKeywords={notifIncludeKeywords}
+        excludeKeywords={notifExcludeKeywords}
+        knownKeywords={knownKeywords}
+        onIncludeKeywordsChange={setNotifIncludeKeywords}
+        onExcludeKeywordsChange={setNotifExcludeKeywords}
+        skipApplied={notifSkipApplied}
+        skipHidden={notifSkipHidden}
+        onSkipAppliedChange={setNotifSkipApplied}
+        onSkipHiddenChange={setNotifSkipHidden}
         onSave={saveNotifSettings}
         saving={notifSaving}
         saved={notifSaved}
