@@ -15,7 +15,10 @@ function extractCompany(item: { [key: string]: any }): string {
     if (match) return match[1].trim();
   }
   if (item.title) {
-    const match = item.title.match(/at ([A-Z].+)$/);
+    // Stop-token regex: capture up to " in", ",", or end. The old `(.+)$`
+    // was greedy and slurped the location into the company name
+    // (e.g. "Stripe in San Francisco, CA" instead of "Stripe").
+    const match = item.title.match(/\bat\s+([A-Z][^.|·]+?)(?:\s+(?:in|,)|$)/);
     if (match) return match[1].trim();
   }
   return 'Unknown';
