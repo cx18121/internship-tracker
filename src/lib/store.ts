@@ -216,16 +216,18 @@ function autoMigrateFromJson(): void {
         @lastCheckedAt, @multiLocation,
         @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
     `);
-    const insertMany = db.transaction((records: Internship[]) => {
-      for (const r of records) insert.run(toRow(r));
-    });
-    insertMany(internships);
-
     const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
-    const insertSeenMany = db.transaction((ids: string[]) => {
-      for (const id of ids) insertSeen.run(id);
+
+    // Run both inserts in a single transaction so a failure in seen-id
+    // insertion can't leave the DB with internships committed but seen_ids
+    // empty — that state breaks dedup forever (every poll's items look
+    // "new" against an empty seen_ids index even though they're already in
+    // the internships table).
+    const insertBoth = db.transaction((args: { records: Internship[]; ids: string[] }) => {
+      for (const r of args.records) insert.run(toRow(r));
+      for (const id of args.ids) insertSeen.run(id);
     });
-    insertSeenMany(seen);
+    insertBoth({ records: internships, ids: seen });
 
     db.close();
     console.log(`[store] Auto-migrated ${internships.length} internships + ${seen.length} seen IDs to SQLite.`);
