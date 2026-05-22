@@ -12,9 +12,6 @@ const MESSAGE_COMPONENT = 3;
 const RES_PONG = 1;
 const RES_UPDATE_MESSAGE = 7; // Edit the original message in-place
 
-// Component types
-const _BUTTON = 2;
-
 function getPublicKey(): string {
   return process.env.DISCORD_PUBLIC_KEY ?? "";
 }

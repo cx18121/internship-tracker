@@ -221,11 +221,6 @@ function enrichWithPortalMeta(
 // Main scanner
 // ---------------------------------------------------------------------------
 
-interface PortalScanResult {
-  listings: Array<Partial<Internship> & { atsJobId: string; atsTarget: string }>;
-  archivedCounts: Record<string, number>; // targetSlug → count archived this run
-}
-
 export interface PortalScanOutput {
   listings: Array<Partial<Internship> & { atsJobId: string; atsTarget: string }>;
   archivedByTarget: Record<string, number>;
@@ -286,9 +281,6 @@ export async function scanPortals(): Promise<PortalScanOutput> {
   };
 
   for (const [targetSlug, currentIds] of currentByTarget) {
-    const prev = snapshots[targetSlug];
-    const prevIds = new Set<string>(prev?.jobIds ?? []);
-
     const target = targets.find((t) => t.slug === targetSlug);
     const atsSource = target ? (ATS_SOURCE_LABEL[target.ats] ?? '') : '';
 
