@@ -393,7 +393,7 @@ async function runArchiveTests(): Promise<void> {
     await deduplicateAndStore([internship]);
 
     // Archive stale postings (default 30 days)
-    const archived = archiveStalePostings();
+    const archived = await archiveStalePostings();
     assert.ok(archived >= 1, `Expected at least 1 archived, got ${archived}`);
 
     // Without includeArchived: should NOT find the test internship

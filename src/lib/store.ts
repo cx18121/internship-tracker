@@ -640,15 +640,19 @@ export async function patchInternship(id: string, patch: Partial<Internship>): P
   });
 }
 
-export function archiveStalePostings(daysOld = 30): number {
-  const db = getDb();
-  const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
-  const result = db.prepare('UPDATE internships SET archived = 1 WHERE archived = 0 AND seen_at < ?').run(cutoff);
-  const count = result.changes;
-  if (count > 0) {
-    console.log(`[store] Archived ${count} stale postings older than ${daysOld} days`);
-  }
-  return count;
+export async function archiveStalePostings(daysOld = 30): Promise<number> {
+  // Serialize against the poll-cycle transaction in deduplicateAndStore so
+  // two large writers don't compete on the WAL during a stale-archive sweep.
+  return withLock(() => {
+    const db = getDb();
+    const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
+    const result = db.prepare('UPDATE internships SET archived = 1 WHERE archived = 0 AND seen_at < ?').run(cutoff);
+    const count = result.changes;
+    if (count > 0) {
+      console.log(`[store] Archived ${count} stale postings older than ${daysOld} days`);
+    }
+    return count;
+  });
 }
 
 export function getStats(): {
