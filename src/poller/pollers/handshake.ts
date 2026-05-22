@@ -62,20 +62,53 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
             ? `https://app.joinhandshake.com${href.split('?')[0]}`
             : jobId ? `https://app.joinhandshake.com/job-search/${jobId}` : '';
 
-          // All text parts split by separator
           const fullText = card.textContent || '';
           const parts = fullText.split(/[·∙•|]/).map(s => s.trim()).filter(Boolean);
-
-          // Company name is concatenated before the title in parts[0]; extract by stripping title suffix
-          // Strip any "Loading..." prefix from lazy-loaded elements before slicing
-          // Strip "Loading..." prefix in all its forms: ASCII dots, Unicode ellipsis (…), or bare "Loading"
-          // Also handles mid-string occurrences (lazy-loaded text that didn't fully resolve)
+          // Strip "Loading..." prefixes (ASCII dots or Unicode ellipsis) from
+          // lazy-loaded text content.
           const stripLoading = (s: string) => s.replace(/Loading[.\u2026\s]*/gi, '').trim();
-          const rawCompany = stripLoading(parts[0] || '');
-          const titleIdx = rawCompany.indexOf(title);
-          const company = titleIdx > 0
-            ? rawCompany.slice(0, titleIdx).replace(/[_\s]+$/, '').trim()
-            : stripLoading(parts.find(p => p !== title && p.length > 1 && p.length < 60) || '') || 'Unknown';
+
+          // Company name extraction. Verified against 25 live cards via a
+          // throwaway probe (probe-handshake-card.ts, removed after this
+          // commit). Tries cheap structural signals first; falls back to
+          // text parsing only when both fail:
+          //
+          //   1. img[alt]: employer logo's alt text. Hits ~88% of cards;
+          //      misses when the employer has no logo (rendered as an SVG
+          //      placeholder instead).
+          //   2. Title-anchored DOM walk: every card has a title element
+          //      with both `id` and `aria-label="View {title}"` nested
+          //      inside a `<div role="region" aria-labelledby="{uuid}">`.
+          //      Within that region, the first <span> outside the title's
+          //      container is the company name. Hit rate: 25/25 in probe.
+          //   3. Legacy text-parts heuristic -- defensive last resort if
+          //      Handshake reshuffles the DOM and breaks #2.
+          let company: string | null = null;
+
+          const logoAlt = (card.querySelector('img[alt]') as HTMLImageElement | null)?.alt?.trim() || '';
+          if (logoAlt) company = stripLoading(logoAlt);
+
+          if (!company) {
+            const titleDiv = card.querySelector('[aria-label^="View " i][id]') as HTMLElement | null;
+            const region = titleDiv?.closest('[role="region"]') as HTMLElement | null;
+            if (titleDiv && region) {
+              const titleContainer = titleDiv.parentElement;
+              const spans = Array.from(region.querySelectorAll('span')) as HTMLElement[];
+              for (const sp of spans) {
+                if (titleContainer && titleContainer.contains(sp)) continue;
+                const txt = stripLoading((sp.textContent || '').trim());
+                if (txt && txt.length > 0 && txt.length <= 80) { company = txt; break; }
+              }
+            }
+          }
+
+          if (!company) {
+            const rawCompany = stripLoading(parts[0] || '');
+            const titleIdx = rawCompany.indexOf(title);
+            company = titleIdx > 0
+              ? rawCompany.slice(0, titleIdx).replace(/[_\s]+$/, '').trim()
+              : stripLoading(parts.find(p => p !== title && p.length > 1 && p.length < 60) || '') || 'Unknown';
+          }
           // Pre-strip date ranges (e.g. "May 24—Aug 9"), salary tokens, and school
           // collection labels so they don't bleed into the location match. Date ranges and
           // collection tags (e.g. "Cornell collection") concatenate directly with city names
