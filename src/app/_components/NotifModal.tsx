@@ -56,6 +56,9 @@ interface Props {
   onSave: () => void;
   saving: boolean;
   saved: boolean;
+  // Non-null when the last save attempt failed; rendered as red text next
+  // to the Save button so the user doesn't assume a 4xx/5xx was a success.
+  error: string | null;
 }
 
 const TIER_OPTIONS: { value: TierFilter; label: string }[] = [
@@ -258,6 +261,7 @@ export function NotifModal({
   onSave,
   saving,
   saved,
+  error,
 }: Props) {
   const [includeInput, setIncludeInput] = useState("");
   const [excludeInput, setExcludeInput] = useState("");
@@ -399,6 +403,11 @@ export function NotifModal({
           </Section>
         </div>
         <DialogFooter showCloseButton={false} className="pt-2">
+          {error && (
+            <span className="text-[11px] text-red-400 self-center mr-2" role="alert">
+              {error}
+            </span>
+          )}
           <Button
             size="sm"
             onClick={onSave}

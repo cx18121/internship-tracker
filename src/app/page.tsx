@@ -121,6 +121,10 @@ export default function InternshipsPage() {
   const [notifSkipHidden, setNotifSkipHidden] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
+  // Null when no error; set to a short string when the last save attempt
+  // returned non-ok or threw. Surface in NotifModal next to the Save button
+  // so a failed POST doesn't look identical to a successful one.
+  const [notifError, setNotifError] = useState<string | null>(null);
 
   // Hydration guard — URL sync waits until initial state is loaded
   const [hydrated, setHydrated] = useState(false);
@@ -408,8 +412,9 @@ export default function InternshipsPage() {
 
   async function saveNotifSettings() {
     setNotifSaving(true);
+    setNotifError(null);
     try {
-      await fetch("/api/internships/settings", {
+      const res = await fetch("/api/internships/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -425,9 +430,18 @@ export default function InternshipsPage() {
           skipHidden: notifSkipHidden,
         }),
       });
-      setNotifSaved(true);
-      setTimeout(() => setNotifSaved(false), 2000);
-    } catch {}
+      // fetch() resolves on 4xx/5xx, so we have to inspect res.ok before
+      // claiming success — otherwise a server-side failure looks identical
+      // to a successful save in the UI.
+      if (res.ok) {
+        setNotifSaved(true);
+        setTimeout(() => setNotifSaved(false), 2000);
+      } else {
+        setNotifError("Save failed");
+      }
+    } catch {
+      setNotifError("Save failed");
+    }
     setNotifSaving(false);
   }
 
@@ -1036,6 +1050,7 @@ export default function InternshipsPage() {
         onSave={saveNotifSettings}
         saving={notifSaving}
         saved={notifSaved}
+        error={notifError}
       />
     </div>
   );
