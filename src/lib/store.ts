@@ -297,6 +297,10 @@ function fromRow(r: Row): Internship {
     postedAt: r.posted_at,
     seenAt: r.seen_at,
     score: r.score,
+    // DB column is NULL when never scored, 'A'..'F' when scored. Surface as
+    // '' to consumers (UI does `?? "—"` so either works); the type contract
+    // stays `string` for back-compat. byLabel stats can now distinguish
+    // "unscored" (NULL in DB) from a hypothetical "blank label" string.
     scoreLabel: r.score_label ?? '',
     matchedKeywords: safeJsonParse<string[]>(r.matched_keywords, [], 'matched_keywords', r.id),
     isNew: r.is_new === 1,
@@ -334,7 +338,10 @@ function toRow(i: Internship): Record<string, unknown> {
     postedAt: i.postedAt,
     seenAt: i.seenAt,
     score: i.score ?? null,
-    scoreLabel: i.scoreLabel ?? '',
+    // Write NULL for missing/empty labels so the DB column reflects truth
+    // ("never scored") instead of conflating with a hypothetical empty
+    // string. Consumers still see '' via fromRow for type-contract stability.
+    scoreLabel: i.scoreLabel ? i.scoreLabel : null,
     matchedKeywords: JSON.stringify(i.matchedKeywords ?? []),
     isNew: i.isNew ? 1 : 0,
     applied: i.applied ? 1 : 0,
@@ -697,7 +704,12 @@ export function getStats(): {
     SELECT score_label, COUNT(*) as n FROM internships GROUP BY score_label
   `).all() as { score_label: string; n: number }[];
   const byLabel: Record<string, number> = {};
-  for (const r of byLabelRows) byLabel[r.score_label || ''] = r.n;
+  // null = never scored (e.g. legacy JSON-migrated rows). Bucket separately
+  // so stats can distinguish unscored rows from any future explicit blanks.
+  for (const r of byLabelRows) {
+    const key = r.score_label == null ? 'unscored' : r.score_label;
+    byLabel[key] = (byLabel[key] ?? 0) + r.n;
+  }
 
   const lastSeen = db.prepare(`SELECT seen_at FROM internships ORDER BY seen_at DESC LIMIT 1`).get() as { seen_at: string } | undefined;
   const lastPolledAt = lastSeen?.seen_at ?? null;
