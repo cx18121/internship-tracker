@@ -1,0 +1,3 @@
+# Posting health stays three modules (for now)
+
+Three revalidation/notify paths exist with overlapping concerns: `revalidateLinks` (HEAD-based, in `src/lib/store.ts`), `revalidateLinkedIn` (content-based, in `src/poller/linkedin-revalidate.ts`), and `isLinkLive` (HEAD-based, in `src/poller/notifier.ts`). A `PostingHealthChecker` adapter shape with three concrete impls would consolidate them and make the test surface one interface instead of three. **Deferred** until we add a fourth source-specific revalidator (e.g., Indeed) — at that point we'll have three adapters of the same shape and the seam is real (the "two adapters = real seam" rule). Today each impl works and the consolidation is speculative locality.
