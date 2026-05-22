@@ -274,11 +274,16 @@ export default function InternshipsPage() {
   // Abort any in-flight fetchData when filters change again before it lands —
   // otherwise a slow request from filter state N can overwrite a fast
   // request from filter state N+1, leaving the UI showing stale data.
+  //
+  // Gated on `hydrated` so the URL-hydration effect (which calls
+  // setSelectedSources / setMinScore) doesn't trigger a second full
+  // round-trip on cold load. First fetch uses the post-hydration values.
   useEffect(() => {
+    if (!hydrated) return;
     const abort = new AbortController();
     fetchData(false, abort.signal);
     return () => abort.abort();
-  }, [fetchData]);
+  }, [hydrated, fetchData]);
 
   // Stats + sources are filter-independent — they don't need the list
   // fetch's AbortController. Previously they shared it, so rapid filter
