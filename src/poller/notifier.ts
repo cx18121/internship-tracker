@@ -1,10 +1,26 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Internship } from '../lib/types';
-import { getInternships } from '../lib/store';
+import { getInternships, checkLinkStatus } from '../lib/store';
 import { isElite, isTopOrBetter } from '../lib/tiers';
 import { parseSeason } from '../lib/seasons';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
+
+// Live-link check for outbound notifications. SimplifyJobs's aggregated
+// data sometimes includes roles that have already been closed on the
+// upstream ATS — discovery says "new role!", we send a Discord embed
+// with the link, user clicks → Workday 404. The daily revalidateLinks()
+// catches these eventually, but for first-ingest notifications we need
+// a check at send time.
+//
+// Suppress only on definitively-dead statuses (404, 410). Transient or
+// ambiguous codes (401/403/5xx/-1) → fail open and let the message through:
+// some tenants throttle HEAD requests but still serve the role to users.
+async function isLinkLive(url: string): Promise<boolean> {
+  if (!url) return false;
+  const status = await checkLinkStatus(url, 5000).catch(() => -1);
+  return status !== 404 && status !== 410;
+}
 
 const SOURCE_EMOJIS: Record<string, string> = {
   SimplifyJobs: '⭐',
@@ -45,6 +61,21 @@ export async function sendBatchAlert(
     return false;
   }
 
+  // Validate links in parallel before sending — drop anything that returns
+  // 404/410. Max 10 eligible postings; 5s timeout each; ~1-2s total wall time.
+  const liveResults = await Promise.all(
+    eligible.map(async (p) => ({ p, live: await isLinkLive(p.link || '') })),
+  );
+  const live = liveResults.filter(r => r.live).map(r => r.p);
+  const dropped = eligible.length - live.length;
+  if (dropped > 0) {
+    console.log(`[notifier] Dropped ${dropped}/${eligible.length} postings with dead links (404/410)`);
+  }
+  if (live.length === 0) {
+    console.log('[notifier] All eligible postings had dead links — skipping alert');
+    return false;
+  }
+
   const token = process.env.DISCORD_BOT_TOKEN;
   const channelId = process.env.DISCORD_CHANNEL_INTERNSHIPS;
   if (!token || !channelId) {
@@ -57,7 +88,7 @@ export async function sendBatchAlert(
   const DELAY_MS = 1100;
   let sentAny = false;
 
-  for (const posting of eligible) {
+  for (const posting of live) {
     const color = posting.scoreLabel === 'A' ? 0x00ff88 : 0x5865f2;
     const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
     // Discord message-component fields:
