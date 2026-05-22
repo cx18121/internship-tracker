@@ -14,8 +14,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../../lib/types';
-import { pollATS, ATSTarget } from './ats';
+import { Internship, ATSTarget } from '../../lib/types';
+import { pollATS } from './ats';
+import { loadATSTargets } from '../../lib/utils/ats-discovery';
 import { loadInternships, archiveInternshipsByIds } from '../../lib/store';
 
 // ---------------------------------------------------------------------------
@@ -240,15 +241,9 @@ export async function scanPortals(): Promise<PortalScanOutput> {
   const rawListings = await pollATS();
   const snapshots = loadSnapshots();
 
-  // Load ats-targets.json to match listings to target slugs
-  let targets: ATSTarget[] = [];
-  try {
-    const configPath = path.join(process.cwd(), 'data', 'ats-targets.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    targets = config.targets ?? [];
-  } catch {
-    // No targets configured — skip enrichment
-  }
+  // Load ats-targets.json to match listings to target slugs. Empty array
+  // (missing/malformed file) means enrichment is a no-op.
+  const targets: ATSTarget[] = loadATSTargets();
 
   const enriched = enrichWithPortalMeta(rawListings, targets);
 
@@ -313,8 +308,8 @@ export async function scanPortals(): Promise<PortalScanOutput> {
 }
 
 // ---------------------------------------------------------------------------
-// Re-export everything from ats.ts so callers only need to import from here
+// Re-export the runtime entrypoint from ats.ts. ATSTarget is now canonical in
+// src/lib/types.ts — import from there directly.
 // ---------------------------------------------------------------------------
 export { pollATS } from './ats';
-export type { ATSTarget } from './ats';
 export { isInternTitle } from './ats';

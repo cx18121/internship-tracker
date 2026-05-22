@@ -62,3 +62,22 @@ export interface CycleStats {
   newScored: number;
   sent: number;
 }
+
+/**
+ * Canonical schema for entries in data/ats-targets.json. Loaded by
+ * loadATSTargets() (src/lib/utils/ats-discovery.ts). The workday-only fields
+ * (wdInstance, wdDomain, wdCsrfRequired, wdSkipPlaywright) are optional —
+ * runtime values for wdCsrfRequired and wdSkipPlaywright may also be
+ * overlaid from the workday-flags sidecar cache (see overlayWorkdayFlags
+ * in src/poller/pollers/ats.ts).
+ */
+export interface ATSTarget {
+  slug: string;
+  ats: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'icims' | 'smartrecruiters';
+  name?: string;
+  board?: string;             // Workday: job board path (e.g. 'NVIDIAExternalCareerSite')
+  wdInstance?: string;        // Workday: wd1 (default), wd3, wd5, etc.
+  wdDomain?: string;          // Workday: 'myworkdaysite.com' for site variant, default 'myworkdayjobs.com'
+  wdCsrfRequired?: boolean;   // Workday: true when direct CXS API returns 422 (needs Playwright)
+  wdSkipPlaywright?: boolean; // Workday: true when Playwright fallback has confirmed-failed; short-circuits future cycles
+}

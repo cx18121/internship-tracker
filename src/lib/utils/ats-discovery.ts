@@ -1,16 +1,27 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { ATSTarget } from '../types';
 
-export interface ATSTarget {
-  slug: string;
-  ats: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'icims' | 'smartrecruiters';
-  name?: string;
-  board?: string;      // Workday: job board name (e.g. 'NVIDIAExternalCareerSite')
-  wdInstance?: string; // Workday: instance suffix (e.g. 'wd5')
-  wdDomain?: string;   // Workday: base domain ('myworkdaysite.com' for site variant, default 'myworkdayjobs.com')
-}
+export type { ATSTarget } from '../types';
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'ats-targets.json');
+
+/**
+ * Shared loader for data/ats-targets.json. Single source of truth for the
+ * read path — runtime sites (pollATS, portal-scanner, /api/sources) call
+ * this instead of inline JSON.parse so a schema change touches one place.
+ *
+ * Returns an empty array if the file is missing or malformed; callers
+ * should treat that as "no targets configured" rather than fatal.
+ */
+export function loadATSTargets(): ATSTarget[] {
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+    return Array.isArray(config?.targets) ? config.targets : [];
+  } catch {
+    return [];
+  }
+}
 const DENYLIST_PATH = path.join(process.cwd(), 'data', 'ats-discovery-denylist.json');
 
 interface DenylistEntry { slug: string; reason?: string }

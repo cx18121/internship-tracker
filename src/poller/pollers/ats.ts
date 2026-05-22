@@ -1,21 +1,10 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
-import { Internship } from '../../lib/types';
+import { Internship, ATSTarget } from '../../lib/types';
+import { loadATSTargets } from '../../lib/utils/ats-discovery';
 
-const CONFIG_PATH = path.join(process.cwd(), 'data', 'ats-targets.json');
 const REQUEST_TIMEOUT = 10_000;
-
-export interface ATSTarget {
-  slug: string;
-  ats: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'icims' | 'smartrecruiters';
-  name?: string;
-  board?: string;            // Workday: job board path (e.g. 'NVIDIAExternalCareerSite')
-  wdInstance?: string;       // Workday: wd1 (default), wd3, wd5, etc.
-  wdDomain?: string;         // Workday: 'myworkdaysite.com' for site variant, default 'myworkdayjobs.com'
-  wdCsrfRequired?: boolean;  // Workday: true when direct CXS API returns 422 (needs Playwright)
-  wdSkipPlaywright?: boolean; // Workday: true when Playwright fallback has confirmed-failed (no CSRF cookie or API rejects); short-circuits future cycles to avoid ~5s of Playwright overhead per tenant per cycle
-}
 
 export function isInternTitle(title: string): boolean {
   return /\bintern(ship)?\b/i.test(title);
@@ -557,13 +546,12 @@ function overlayWorkdayFlags(targets: ATSTarget[]): ATSTarget[] {
 }
 
 export async function pollATS(): Promise<Partial<Internship>[]> {
-  if (!fs.existsSync(CONFIG_PATH)) {
-    console.warn('[ats] No config at', CONFIG_PATH);
+  const rawTargets = loadATSTargets();
+  if (rawTargets.length === 0) {
+    console.warn('[ats] No targets in data/ats-targets.json (file missing, malformed, or empty)');
     return [];
   }
-
-  const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  const targets: ATSTarget[] = overlayWorkdayFlags(config.targets || []);
+  const targets: ATSTarget[] = overlayWorkdayFlags(rawTargets);
   const now = new Date().toISOString();
   const results: Partial<Internship>[] = [];
 
