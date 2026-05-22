@@ -1,53 +1,5 @@
 import { Internship } from '../lib/types';
-
-// Known US cities that share names with international locations — exclude from international flagging
-const US_CITY_AMBIGUITY_MAP: Record<string, boolean> = {
-  'moscow, id': true, 'moscow, idaho': true,
-  'boise, id': true, 'nampa, id': true,
-  'lake zurich, il': true,
-  'manchester, nh': true, 'manchester, ct': true,
-  'dublin, oh': true, 'dublin, or': true,
-  'vienna, va': true, 'vienna, ny': true,
-  'paris, ky': true, 'paris, id': true,
-  'berlin, nh': true, 'berlin, wi': true,
-  'london, ky': true, 'london, oh': true,
-  'athens, ga': true, 'athens, oh': true,
-  'cairo, il': true,
-  'cambridge, ma': true, 'cambridge, md': true,
-  'spring, tx': true, 'spring, il': true,
-  'newcastle, de': true,
-};
-
-function isAmbiguousUSLocation(loc: string): boolean {
-  return loc in US_CITY_AMBIGUITY_MAP;
-}
-
-const NON_US_LOCATIONS = [
-  // Full country / region names
-  'canada', 'uk', 'united kingdom', 'ireland', 'germany', 'france',
-  'india', 'japan', 'australia', 'netherlands', 'sweden', 'switzerland',
-  'singapore', 'china', 'new zealand', 'austria', 'denmark', 'finland',
-  'norway', 'belgium', 'brussels', 'luxembourg',
-  // Specific international cities (without US state suffix)
-  'bangalore', 'shanghai', 'beijing', 'hong kong', 'shenzhen',
-  'warsaw', 'paris', 'paris,', 'berlin', 'tokyo', 'seoul', 'sydney', 'melbourne',
-  'amsterdam', 'prague', 'budapest', 'munich', 'frankfurt', 'zurich', 'geneva', 'vienna at',
-  'london', 'london,', 'london uk', 'manchester uk', 'edinburgh', 'toronto',
-  'dublin uk',
-  'bogota', 'buenos aires', 'lima', 'santiago', 'jakarta', 'manila',
-  'bangkok', 'kuala lumpur', 'taiwan', 'tel aviv', 'herzliya',
-  // Remote-prefixed international
-  'remote - poland', 'remote - india', 'remote - germany', 'remote - uk',
-  'remote - ireland', 'remote - australia', 'remote - japan', 'remote - singapore',
-  'remote in canada',
-  // Country codes that appear in location strings (2-letter ISO, uppercase or lowercase after comma-space)
-  // These are checked after splitting on comma; US state codes are filtered out
-];
-
-function isNonUSCountryCode(code: string): boolean {
-  const nonUS = ['cn', 'pl', 'mx', 'br', 'kr', 'jp', 'au', 'nz', 'sg', 'my', 'th', 'id', 'vn', 'ph', 'tw', 'in', 'pk', 'bd', 'np', 'lk', 'mm', 'kh', 'la', 'mm', 'kh'];
-  return nonUS.includes(code.toLowerCase());
-}
+import { classifyLocation } from './iso-locations';
 
 const PHD_MASTERS_PATTERNS = [
   '🎓', 'phd', 'ph.d', 'doctoral', 'masters required', 'ms required',
@@ -122,28 +74,15 @@ export interface FilterResult {
 }
 
 export function applyHardFilters(internship: Partial<Internship>): FilterResult {
-  const locationLower = (internship.location || '').toLowerCase();
   const titleLower = (internship.title || '').toLowerCase();
+  const locationLower = (internship.location || '').toLowerCase();
   const combined = `${titleLower} ${locationLower}`;
 
-  // If location is unknown/empty, pass — keep unconfirmed locations for manual review.
-  if (!internship.location || internship.location.trim() === '') {
-    // Treat as passing.
-  } else if (!isAmbiguousUSLocation(locationLower)) {
-    // Check non-US location substrings
-    for (const loc of NON_US_LOCATIONS) {
-      if (locationLower.includes(loc)) {
-        return { passed: false, reason: 'non_us' };
-      }
-    }
-    // Check country-code suffixes (e.g. "Shanghai, CN", "Mexico City, MX")
-    const parts = (internship.location || '').split(',');
-    for (const part of parts) {
-      const trimmed = part.trim();
-      if (trimmed.length === 2 && isNonUSCountryCode(trimmed)) {
-        return { passed: false, reason: 'non_us' };
-      }
-    }
+  // Location classification: 'us' / 'non_us' / 'unknown'. Empty or genuinely
+  // ambiguous locations come back as 'unknown' and pass — keep them for
+  // manual review rather than blanket-rejecting unstructured strings.
+  if (classifyLocation(internship.location || '') === 'non_us') {
+    return { passed: false, reason: 'non_us' };
   }
 
   // Require "intern" or "internship" in the title for every source.
