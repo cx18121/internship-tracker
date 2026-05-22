@@ -46,6 +46,13 @@ import { PAGE_SIZE, DATE_WINDOWS } from "./_lib/constants";
 import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
 import { isElite, isTopOrBetter } from "@/lib/tiers";
 import { parseSeason, seasonSortKey } from "@/lib/seasons";
+import {
+  ROLE_SPECIALIZATIONS,
+  isRoleId,
+  postingMatchesAnyRole,
+  postingMatchesRole,
+  type RoleId,
+} from "@/lib/role-taxonomy";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -66,6 +73,7 @@ export default function InternshipsPage() {
   const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
   const [tierFilter, setTierFilter] = useState<TierFilter>("all");
   const [selectedSeasons, setSelectedSeasons] = useState<string[]>([]);
+  const [selectedRoles, setSelectedRoles] = useState<RoleId[]>([]);
   const [dateWindow, setDateWindow] = useState<DateWindow>("all");
   const [showHidden, setShowHidden] = useState(false);
 
@@ -188,6 +196,9 @@ export default function InternshipsPage() {
     const seasons = parseList("seasons");
     if (seasons.length) setSelectedSeasons(seasons);
 
+    const roles = parseList("roles").filter(isRoleId);
+    if (roles.length) setSelectedRoles(roles);
+
     const window_ = sp.get("when") as DateWindow | null;
     if (window_ && DATE_WINDOWS.some((d) => d.value === window_)) setDateWindow(window_);
 
@@ -222,6 +233,7 @@ export default function InternshipsPage() {
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
     if (tierFilter !== "all") params.set("tier", tierFilter);
     if (selectedSeasons.length) params.set("seasons", selectedSeasons.join(","));
+    if (selectedRoles.length) params.set("roles", selectedRoles.join(","));
     if (dateWindow !== "all") params.set("when", dateWindow);
     if (viewMode !== "list") params.set("view", viewMode);
     if (viewMode === "list" && groupByCompany) params.set("group", "1");
@@ -234,7 +246,8 @@ export default function InternshipsPage() {
   }, [
     hydrated,
     selectedSources, selectedLocations, includeKeywords, excludeKeywords,
-    minScore, locationText, appliedFilter, tierFilter, selectedSeasons, dateWindow,
+    minScore, locationText, appliedFilter, tierFilter, selectedSeasons,
+    selectedRoles, dateWindow,
     searchText, showHidden,
     viewMode, groupByCompany, sortBy, currentPage,
   ]);
@@ -317,7 +330,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, minScore, selectedLocations, locationText,
     includeKeywords, excludeKeywords, appliedFilter, tierFilter,
-    selectedSeasons, dateWindow, sortBy, searchText, showHidden,
+    selectedSeasons, selectedRoles, dateWindow, sortBy, searchText, showHidden,
   ]);
 
   // Load notification settings
@@ -478,6 +491,7 @@ export default function InternshipsPage() {
     setAppliedFilter("all");
     setTierFilter("all");
     setSelectedSeasons([]);
+    setSelectedRoles([]);
     setDateWindow("all");
     setSortBy("score");
     setCurrentPage(1);
@@ -518,6 +532,23 @@ export default function InternshipsPage() {
     const set = new Set<string>();
     for (const i of internships) {
       for (const k of i.matchedKeywords ?? []) set.add(k.toLowerCase());
+    }
+    return set;
+  }, [internships]);
+
+  // Role IDs that match at least one loaded posting. Used to dim chips that
+  // would silently return zero hits in the current corpus (same UX cue as
+  // the keyword chips' "unknown" treatment).
+  const availableRoles = useMemo(() => {
+    const set = new Set<RoleId>();
+    for (const role of ROLE_SPECIALIZATIONS) {
+      if (set.has(role.id)) continue;
+      for (const i of internships) {
+        if (postingMatchesRole(i.matchedKeywords ?? [], role.id)) {
+          set.add(role.id);
+          break;
+        }
+      }
     }
     return set;
   }, [internships]);
@@ -569,6 +600,9 @@ export default function InternshipsPage() {
         const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
         if (excludeKeywords.some((k) => kws.includes(k.toLowerCase()))) return false;
       }
+      if (selectedRoles.length > 0 && !postingMatchesAnyRole(i.matchedKeywords ?? [], selectedRoles)) {
+        return false;
+      }
       return true;
     })
     .sort((a, b) => {
@@ -593,6 +627,7 @@ export default function InternshipsPage() {
     (excludeKeywords.length > 0 ? 1 : 0) +
     (tierFilter !== "all" ? 1 : 0) +
     (selectedSeasons.length > 0 ? 1 : 0) +
+    (selectedRoles.length > 0 ? 1 : 0) +
     (dateWindow !== "all" ? 1 : 0);
 
   const hiddenCount = useMemo(
@@ -640,6 +675,9 @@ export default function InternshipsPage() {
         const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
         if (excludeKeywords.some((k) => kws.includes(k.toLowerCase()))) continue;
       }
+      if (selectedRoles.length > 0 && !postingMatchesAnyRole(i.matchedKeywords ?? [], selectedRoles)) {
+        continue;
+      }
       all++;
       if (i.applied) applied++;
     }
@@ -647,7 +685,7 @@ export default function InternshipsPage() {
   }, [
     internships, showHidden, searchLower, selectedSources, minScore, tierFilter,
     selectedSeasons, windowCutoff, selectedLocations, locationText,
-    includeKeywords, excludeKeywords,
+    includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
   return (
@@ -765,15 +803,18 @@ export default function InternshipsPage() {
               selectedSources={selectedSources}
               tierFilter={tierFilter}
               selectedSeasons={selectedSeasons}
+              selectedRoles={selectedRoles}
               minScore={minScore}
               selectedLocations={selectedLocations}
               locationText={locationText}
               includeKeywords={includeKeywords}
               excludeKeywords={excludeKeywords}
               knownKeywords={knownKeywords}
+              availableRoles={availableRoles}
               setSelectedSources={setSelectedSources}
               setTierFilter={setTierFilter}
               setSelectedSeasons={setSelectedSeasons}
+              setSelectedRoles={setSelectedRoles}
               setMinScore={setMinScore}
               setSelectedLocations={setSelectedLocations}
               setLocationText={setLocationText}
@@ -910,6 +951,7 @@ export default function InternshipsPage() {
               selectedSources={selectedSources}
               tierFilter={tierFilter}
               selectedSeasons={selectedSeasons}
+              selectedRoles={selectedRoles}
               minScore={minScore}
               selectedLocations={selectedLocations}
               locationText={locationText}
@@ -920,6 +962,7 @@ export default function InternshipsPage() {
               setSelectedSources={setSelectedSources}
               setTierFilter={setTierFilter}
               setSelectedSeasons={setSelectedSeasons}
+              setSelectedRoles={setSelectedRoles}
               setMinScore={setMinScore}
               setSelectedLocations={setSelectedLocations}
               setLocationText={setLocationText}
@@ -1024,15 +1067,18 @@ export default function InternshipsPage() {
           selectedSources={selectedSources}
           tierFilter={tierFilter}
           selectedSeasons={selectedSeasons}
+          selectedRoles={selectedRoles}
           minScore={minScore}
           selectedLocations={selectedLocations}
           locationText={locationText}
           includeKeywords={includeKeywords}
           excludeKeywords={excludeKeywords}
           knownKeywords={knownKeywords}
+          availableRoles={availableRoles}
           setSelectedSources={setSelectedSources}
           setTierFilter={setTierFilter}
           setSelectedSeasons={setSelectedSeasons}
+          setSelectedRoles={setSelectedRoles}
           setMinScore={setMinScore}
           setSelectedLocations={setSelectedLocations}
           setLocationText={setLocationText}

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { LOCATION_PRESETS } from "../_lib/constants";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { ELITE_COUNT, TOP_COUNT } from "@/lib/tiers";
+import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
   selectedSources: string[];
   tierFilter: TierFilter;
   selectedSeasons: string[];
+  selectedRoles: RoleId[];
   minScore: number;
   selectedLocations: string[];
   locationText: string;
@@ -27,10 +29,14 @@ interface Props {
   // the include/exclude filter matches against the scorer's matchedKeywords,
   // not free text, so an unknown keyword silently zeroes out the result list.
   knownKeywords: Set<string>;
+  // Role IDs that match at least one posting in the loaded corpus. Roles
+  // outside this set get dimmed the same way unknown keyword chips do.
+  availableRoles: Set<RoleId>;
   // setters
   setSelectedSources: (fn: (prev: string[]) => string[]) => void;
   setTierFilter: (t: TierFilter) => void;
   setSelectedSeasons: (fn: (prev: string[]) => string[]) => void;
+  setSelectedRoles: (fn: (prev: RoleId[]) => RoleId[]) => void;
   setMinScore: (n: number) => void;
   setSelectedLocations: (fn: (prev: string[]) => string[]) => void;
   setLocationText: (s: string) => void;
@@ -101,15 +107,18 @@ export function FilterRail(props: Props) {
     selectedSources,
     tierFilter,
     selectedSeasons,
+    selectedRoles,
     minScore,
     selectedLocations,
     locationText,
     includeKeywords,
     excludeKeywords,
     knownKeywords,
+    availableRoles,
     setSelectedSources,
     setTierFilter,
     setSelectedSeasons,
+    setSelectedRoles,
     setMinScore,
     setSelectedLocations,
     setLocationText,
@@ -167,6 +176,32 @@ export function FilterRail(props: Props) {
                   : `Top ${ELITE_COUNT + TOP_COUNT}`}
             </Chip>
           ))}
+        </div>
+      </Section>
+
+      <Section label="Role">
+        <div className="flex flex-wrap gap-1.5">
+          {ROLE_SPECIALIZATIONS.map((r) => {
+            const active = selectedRoles.includes(r.id);
+            const unknown = !availableRoles.has(r.id);
+            return (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setSelectedRoles((prev) => toggleArr(prev, r.id))}
+                title={unknown ? "No postings match this role in the current corpus" : undefined}
+                className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
+                  active
+                    ? "border-white/30 bg-white/10 text-white"
+                    : unknown
+                      ? "border-white/[0.06] bg-transparent text-white/25 hover:border-white/15"
+                      : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
+                }`}
+              >
+                {r.label}
+              </button>
+            );
+          })}
         </div>
       </Section>
 

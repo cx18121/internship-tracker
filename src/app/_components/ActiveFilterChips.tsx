@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import { formatSeasonLabel } from "@/lib/seasons";
+import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter, DateWindow } from "../_lib/types";
 import { DATE_WINDOWS } from "../_lib/constants";
 
@@ -15,6 +16,7 @@ interface Props {
   selectedSources: string[];
   tierFilter: TierFilter;
   selectedSeasons: string[];
+  selectedRoles: RoleId[];
   minScore: number;
   selectedLocations: string[];
   locationText: string;
@@ -26,6 +28,7 @@ interface Props {
   setSelectedSources: (fn: (prev: string[]) => string[]) => void;
   setTierFilter: (t: TierFilter) => void;
   setSelectedSeasons: (fn: (prev: string[]) => string[]) => void;
+  setSelectedRoles: (fn: (prev: RoleId[]) => RoleId[]) => void;
   setMinScore: (n: number) => void;
   setSelectedLocations: (fn: (prev: string[]) => string[]) => void;
   setLocationText: (s: string) => void;
@@ -71,6 +74,7 @@ export function ActiveFilterChips(props: Props) {
     selectedSources,
     tierFilter,
     selectedSeasons,
+    selectedRoles,
     minScore,
     selectedLocations,
     locationText,
@@ -81,6 +85,7 @@ export function ActiveFilterChips(props: Props) {
     setSelectedSources,
     setTierFilter,
     setSelectedSeasons,
+    setSelectedRoles,
     setMinScore,
     setSelectedLocations,
     setLocationText,
@@ -129,6 +134,18 @@ export function ActiveFilterChips(props: Props) {
         onClear={() => setSelectedSeasons((prev) => prev.filter((x) => x !== t))}
       />,
     );
+
+  for (const r of selectedRoles) {
+    const role = ROLE_SPECIALIZATIONS.find((x) => x.id === r);
+    if (!role) continue;
+    chips.push(
+      <Pill
+        key={`role-${r}`}
+        label={`Role: ${role.label}`}
+        onClear={() => setSelectedRoles((prev) => prev.filter((x) => x !== r))}
+      />,
+    );
+  }
 
   for (const l of selectedLocations)
     chips.push(
