@@ -1,4 +1,6 @@
 import md5 from 'md5';
+import * as fs from 'fs';
+import * as path from 'path';
 import { Internship, CycleStats } from '../lib/types';
 import { stripUtm } from '../lib/utils/normalize';
 import { pollGitHub } from './pollers/github';
@@ -16,19 +18,52 @@ import { loadNotifSettings } from '../lib/notifSettings';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
-async function pollFastSources(stats: CycleStats, allRaw: Partial<Internship>[]): Promise<void> {
+// Per-source last-successful-fetch timestamps. Sidecar file (not poll-stats.json
+// because that lives behind store.ts and we want this independent of stored
+// rows). Source-down detection reads this — keying off seenAt is wrong because
+// cross-source dedup bumps seenAt on rediscovery, masking quiet sources.
+const SOURCE_FETCH_HISTORY_PATH = path.join(process.cwd(), 'data', 'source-fetch-history.json');
+
+interface SourceFetchHistory {
+  [source: string]: string; // ISO timestamp of last successful fetch
+}
+
+function loadSourceFetchHistory(): SourceFetchHistory {
+  try {
+    return JSON.parse(fs.readFileSync(SOURCE_FETCH_HISTORY_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveSourceFetchHistory(history: SourceFetchHistory): void {
+  const dir = path.dirname(SOURCE_FETCH_HISTORY_PATH);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(SOURCE_FETCH_HISTORY_PATH, JSON.stringify(history, null, 2));
+}
+
+async function pollFastSources(
+  stats: CycleStats,
+  allRaw: Partial<Internship>[],
+  fetched: Set<string>,
+): Promise<void> {
   // Fast tier — sources that finish in seconds and refresh often.
   // SimplifyJobs RSS is the only one in this tier today (~10s total).
   try {
     const githubResults = await pollGitHub();
     allRaw.push(...githubResults);
     stats.sourcesPolled.push('SimplifyJobs');
+    fetched.add('SimplifyJobs');
   } catch (err: any) {
     console.error('[agent] GitHub poller failed:', err.message);
   }
 }
 
-async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[]): Promise<void> {
+async function pollSlowSources(
+  stats: CycleStats,
+  allRaw: Partial<Internship>[],
+  fetched: Set<string>,
+): Promise<void> {
   // Slow tier runs three lanes in parallel:
   //   1. HTTP lane (pure JSON/HTTP, no headless browsers) — parallel within
   //   2. Playwright lane (one browser at a time to cap memory) — serial within
@@ -45,6 +80,12 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
           allRaw.push(...listings);
           const srcs = [...new Set(listings.map(r => r.source).filter(Boolean))] as string[];
           stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));
+          // scanPortals returning without throwing = ATS HTTP layer is alive.
+          // Record all known ATS sources as fetched even when they returned 0
+          // listings (a portal with no current interns is still healthy).
+          for (const src of ['Greenhouse', 'Lever', 'Ashby', 'Workday', 'iCIMS', 'SmartRecruiters']) {
+            fetched.add(src);
+          }
           for (const [target, count] of Object.entries(archivedByTarget)) {
             console.log(`[agent] ATS portal ${target}: ${count} listing(s) disappeared and were archived`);
           }
@@ -62,6 +103,7 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       const r = await pollHandshake();
       allRaw.push(...r);
       if (r.length > 0) stats.sourcesPolled.push('Handshake');
+      fetched.add('Handshake');
     } catch (err: any) {
       console.error('[agent] Handshake poller failed:', err.message);
     }
@@ -69,6 +111,7 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       const r = await pollYCWaaS();
       allRaw.push(...r);
       if (r.length > 0) stats.sourcesPolled.push('YC WaaS');
+      fetched.add('YC WaaS');
     } catch (err: any) {
       console.error('[agent] YC WaaS poller failed:', err.message);
     }
@@ -80,6 +123,10 @@ async function pollSlowSources(stats: CycleStats, allRaw: Partial<Internship>[])
       allRaw.push(...r);
       const srcs = [...new Set(r.map(j => j.source).filter(Boolean))] as string[];
       stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));
+      // JobSpy spans several sub-sources (Indeed, LinkedIn, Glassdoor, ZipRecruiter)
+      // and one missing doesn't mean the whole subprocess failed. Record each one
+      // we got back as alive; the rest will appear quiet only if they're truly down.
+      for (const s of srcs) fetched.add(s);
     } catch (err: any) {
       console.error('[agent] JobSpy poller failed:', err.message);
     }
@@ -103,10 +150,25 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
   };
 
   const allRaw: Partial<Internship>[] = [];
+  // Per-source successful-fetch tracker. A "fetch" succeeds when the poller's
+  // HTTP/browser call returned a parseable response — even if zero internships
+  // came back. This is the right signal for source-health alerts.
+  const fetched = new Set<string>();
 
   console.log(`[agent] Starting ${tier} cycle`);
-  if (tier === 'fast' || tier === 'all') await pollFastSources(stats, allRaw);
-  if (tier === 'slow' || tier === 'all') await pollSlowSources(stats, allRaw);
+  if (tier === 'fast' || tier === 'all') await pollFastSources(stats, allRaw, fetched);
+  if (tier === 'slow' || tier === 'all') await pollSlowSources(stats, allRaw, fetched);
+
+  // Persist per-source last-fetch-at to the sidecar. checkAndAlertSourceHealth
+  // reads this to decide which sources have actually gone quiet vs. just had
+  // a slow week. Merge with prior history so a partial cycle (fast only)
+  // doesn't blank out slow-source timestamps.
+  if (fetched.size > 0) {
+    const history = loadSourceFetchHistory();
+    const nowIso = new Date().toISOString();
+    for (const src of fetched) history[src] = nowIso;
+    saveSourceFetchHistory(history);
+  }
 
   stats.rawFetched = allRaw.length;
   console.log(`[agent] Fetched ${stats.rawFetched} raw postings from ${stats.sourcesPolled.join(', ')}`);

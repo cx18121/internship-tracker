@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { Internship } from '../lib/types';
-import { getInternships, checkLinkStatus } from '../lib/store';
+import { checkLinkStatus } from '../lib/store';
 import { isElite, isTopOrBetter } from '../lib/tiers';
 import { parseSeason } from '../lib/seasons';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
@@ -212,7 +212,17 @@ export async function sendBatchAlert(
 
 const ALERT_STATE_PATH = path.join(process.cwd(), 'data', 'source-alerts.json');
 const NOTIF_SETTINGS_PATH = path.join(process.cwd(), 'data', 'notif-settings.json');
+const SOURCE_FETCH_HISTORY_PATH = path.join(process.cwd(), 'data', 'source-fetch-history.json');
 const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+function loadSourceFetchHistory(): Record<string, string> {
+  try {
+    return JSON.parse(fs.readFileSync(SOURCE_FETCH_HISTORY_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
 
 interface AlertState {
   // Map of source name → ISO timestamp when we alerted for this outage.
@@ -258,36 +268,36 @@ async function postDiscordMessage(content: string): Promise<boolean> {
 }
 
 /**
- * Compares per-source activity against the persisted alert state, fires new
- * "down" / "recovered" Discord messages, and updates the state. Gated by the
- * `sourceDownAlerts` toggle in data/notif-settings.json.
+ * Compares per-source fetch activity against the persisted alert state, fires
+ * new "down" / "recovered" Discord messages, and updates the state. Gated by
+ * the `sourceDownAlerts` toggle in data/notif-settings.json.
  *
- * "Down" rule: zero records in the last 24h while >0 in the last 7d. This
- * means the source was active recently but has gone quiet — not a source
- * we've simply never had data from.
+ * "Down" rule: the source's last successful fetch (recorded by agent.ts in
+ * data/source-fetch-history.json) is older than 24h, but it was fetched
+ * successfully within the last 7d. This decouples liveness from row counts:
+ * cross-source dedup bumps a stored row's `seenAt` on rediscovery, so
+ * counting "rows seen in last 24h" made every Indeed-also-on-Greenhouse
+ * posting look like fresh Indeed activity. Reading the fetch-history
+ * sidecar instead means "the poller actually called this source's API and
+ * got a parseable response" is what gates the alert.
  */
 export async function checkAndAlertSourceHealth(): Promise<void> {
   if (!sourceDownAlertsEnabled()) return;
 
   const now = Date.now();
-  const allRecords = getInternships({ includeArchived: true });
-
-  type Counts = { last24h: number; last7d: number };
-  const counts = new Map<string, Counts>();
-  for (const r of allRecords) {
-    const c = counts.get(r.source) ?? { last24h: 0, last7d: 0 };
-    const age = now - new Date(r.seenAt).getTime();
-    if (age <= DAY_MS) c.last24h++;
-    if (age <= 7 * DAY_MS) c.last7d++;
-    counts.set(r.source, c);
-  }
+  const history = loadSourceFetchHistory();
 
   const state = loadAlertState();
   const downNow: string[] = [];
   const recoveredNow: string[] = [];
 
-  for (const [source, c] of counts) {
-    const isDown = c.last24h === 0 && c.last7d > 0;
+  // Only evaluate sources we have any history for — a source we've never
+  // successfully fetched isn't "down", it's "not configured".
+  for (const [source, lastIso] of Object.entries(history)) {
+    const age = now - new Date(lastIso).getTime();
+    // Down only if quiet for 24h but had a successful fetch in the last 7d.
+    // Anything stale > 7d → don't alert (probably retired/disabled source).
+    const isDown = age > DAY_MS && age <= WEEK_MS;
     const alreadyAlerted = !!state.alertedSources[source];
     if (isDown && !alreadyAlerted) {
       downNow.push(source);
