@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { runCycle } from './agent';
 import { revalidateLinks, closeDb } from '../lib/store';
+import { revalidateLinkedIn } from './linkedin-revalidate';
 
 // Two-tier polling:
 //   Fast tier (default 15 min) — SimplifyJobs RSS only. Quick to fetch, high
@@ -60,6 +61,14 @@ async function safeRevalidate(): Promise<void> {
     await revalidateLinks();
   } catch (err) {
     console.error('[internship-tracker] Link revalidation threw:', err);
+  }
+  // LinkedIn returns HTTP 200 for closed jobs, so it slips past the HEAD-check
+  // pass above. Run the content-based sweep on the same daily cadence to keep
+  // the LinkedIn corpus from accumulating stale entries.
+  try {
+    await revalidateLinkedIn();
+  } catch (err) {
+    console.error('[internship-tracker] LinkedIn revalidation threw:', err);
   }
 }
 
