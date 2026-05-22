@@ -296,7 +296,7 @@ export function NotifModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5 max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-2xl bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5 max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white text-[15px] font-semibold">
             <Bell className="h-3.5 w-3.5 text-white/60" />
