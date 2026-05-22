@@ -146,6 +146,25 @@ test('Zero raw score → finalScore = 0', () => {
   assert.strictEqual(r.score, 0);
 });
 
+// Verify the config-injection seam: a synthetic config with a single role
+// keyword and no other tiers should drive scoring entirely off the injected
+// values, with no filesystem read.
+test('scoreInternship accepts an injected config — exercises seam without touching disk', () => {
+  const synthetic = {
+    scoringCeiling: 100,
+    companyTiers: {},
+    roleTiers: { T1: { points: 42, keywords: ['unicorn engineer'] } },
+    techStack: {},
+    techStackCap: 0,
+    locationBonus: {},
+  };
+  const r = scoreInternship({ title: 'Unicorn Engineer Intern', company: '', location: '' }, synthetic);
+  assert.strictEqual(r.score, 42, `injected role tier should drive the whole score, got ${r.score}`);
+  assert.deepStrictEqual(r.matchedKeywords, ['unicorn engineer']);
+  assert.strictEqual(r.breakdown.role, 42);
+  assert.strictEqual(r.breakdown.company, 0);
+});
+
 // ==============================================================
 // 3. Dedup test
 // ==============================================================

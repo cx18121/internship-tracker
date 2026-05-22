@@ -9,7 +9,7 @@ import type { Internship } from "./types";
 interface TieredKeywords { points: number; keywords: string[] }
 interface CompanyTier   { points: number; companies: string[] }
 
-interface ScoringConfig {
+export interface ScoringConfig {
   scoringCeiling: number;
   companyTiers: Record<string, CompanyTier>;
   roleTiers: Record<string, TieredKeywords>;
@@ -28,6 +28,14 @@ function loadConfig(): ScoringConfig {
     _config = JSON.parse(raw) as ScoringConfig;
   }
   return _config;
+}
+
+/**
+ * Clear the cached config. Test helper — production code should not call this.
+ * After clearing, the next `loadConfig()` re-reads the file.
+ */
+export function _resetConfigCache(): void {
+  _config = null;
 }
 
 // ---------------------------------------------------------------------------
@@ -134,23 +142,31 @@ export interface ScoreResult {
   matchedKeywords: string[];
 }
 
-export function scoreInternship(entry: Partial<Internship>): ScoreResult {
-  const config = loadConfig();
+/**
+ * Score an internship against the scoring config.
+ *
+ * @param entry  The internship to score (only title/company/description/location are read).
+ * @param config Optional config override — defaults to the cached load of
+ *               data/scoring-config.json. Tests pass a synthetic config here
+ *               to verify tier boundaries without touching the filesystem.
+ */
+export function scoreInternship(entry: Partial<Internship>, config?: ScoringConfig): ScoreResult {
+  const cfg = config ?? loadConfig();
   const title = entry.title ?? '';
   const company = entry.company ?? '';
   const description = entry.description ?? '';
   const matched: string[] = [];
 
-  const role = scoreRole(title, config, matched);
-  const coPts = scoreCompany(company, config, matched);
+  const role = scoreRole(title, cfg, matched);
+  const coPts = scoreCompany(company, cfg, matched);
   // Tech keywords can appear in either title or description.
-  const tech = scoreTech(`${title} ${description}`, config, matched);
+  const tech = scoreTech(`${title} ${description}`, cfg, matched);
   // Domain signals are usually only in the description.
-  const domain = scoreDomain(description, config, matched);
-  const loc = scoreLocation(entry.location ?? '', config, matched);
+  const domain = scoreDomain(description, cfg, matched);
+  const loc = scoreLocation(entry.location ?? '', cfg, matched);
 
   const raw = role + coPts + tech + domain + loc;
-  const score = Math.max(0, Math.min(raw, config.scoringCeiling));
+  const score = Math.max(0, Math.min(raw, cfg.scoringCeiling));
 
   let scoreLabel: ScoreResult['scoreLabel'];
   if      (score >= 75) scoreLabel = 'A';
