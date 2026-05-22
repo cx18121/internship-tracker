@@ -249,21 +249,15 @@ export default function InternshipsPage() {
       // Always fetch hidden so the toggle is instant; filter client-side.
       params.set("includeHidden", "1");
 
-      const [listRes, statsRes, sourcesRes] = await Promise.all([
-        fetch(`/api/internships?${params.toString()}`, { signal }),
-        fetch("/api/internships/stats", { signal }),
-        fetch("/api/internships/sources", { signal }),
-      ]);
+      const listRes = await fetch(`/api/internships?${params.toString()}`, { signal });
 
-      if (listRes.status === 503 || statsRes.status === 503) {
+      if (listRes.status === 503) {
         setOffline(true);
         return;
       }
       setOffline(false);
 
       if (listRes.ok) setInternships(await listRes.json());
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (sourcesRes.ok) setSources(await sourcesRes.json());
     } catch (err) {
       // AbortError = a newer fetch superseded this one; leave UI alone so
       // the in-flight request's setInternships doesn't get stomped by a
@@ -285,6 +279,29 @@ export default function InternshipsPage() {
     fetchData(false, abort.signal);
     return () => abort.abort();
   }, [fetchData]);
+
+  // Stats + sources are filter-independent — they don't need the list
+  // fetch's AbortController. Previously they shared it, so rapid filter
+  // toggling could cancel stats mid-flight and leave it null forever (the
+  // header showed "—" until the user reloaded). Fetched once on mount and
+  // re-fetched on manual Refresh.
+  const fetchStatsAndSources = useCallback(async () => {
+    try {
+      const [statsRes, sourcesRes] = await Promise.all([
+        fetch("/api/internships/stats"),
+        fetch("/api/internships/sources"),
+      ]);
+      if (statsRes.ok) setStats(await statsRes.json());
+      if (sourcesRes.ok) setSources(await sourcesRes.json());
+    } catch {
+      // Stats failure shouldn't toggle the offline banner — the list
+      // endpoint is the source of truth for "is the API up?".
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchStatsAndSources();
+  }, [fetchStatsAndSources]);
 
   // Reset to page 1 when filters or sort change. Skip during initial hydration
   // so a shared URL like ?page=3&sources=Indeed lands on page 3, not page 1.
@@ -708,7 +725,7 @@ export default function InternshipsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => fetchData(true)}
+              onClick={() => { void fetchData(true); void fetchStatsAndSources(); }}
               disabled={refreshing}
               aria-label="Refresh"
               className="gap-1.5 h-7 px-2 sm:px-2.5 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
