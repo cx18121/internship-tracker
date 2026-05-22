@@ -1,5 +1,6 @@
 import Parser from 'rss-parser';
 import { Internship } from '../../lib/types';
+import { stripUtm } from '../../lib/utils/normalize';
 
 const parser = new Parser({
   timeout: 15000,
@@ -28,7 +29,10 @@ export async function pollRemoteOK(): Promise<Partial<Internship>[]> {
       for (const item of feed.items || []) {
         const title = (item.title || '').trim();
         const link = item.link || item.guid || '';
-        const key = `${title}|${link}`;
+        // Normalize the link before keying — the three feeds we hit overlap
+        // (intern × dev × engineer) and RemoteOK appends different utm/source
+        // params on each, so the raw-link key let duplicates through.
+        const key = `${title}|${stripUtm(link)}`;
         if (seen.has(key)) continue;
         seen.add(key);
 
