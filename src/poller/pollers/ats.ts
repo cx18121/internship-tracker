@@ -557,9 +557,16 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   const now = new Date().toISOString();
   const results: Partial<Internship>[] = [];
 
-  // Separate Playwright-required Workday targets to batch browser startup
-  const csrfTargets = targets.filter(t => t.ats === 'workday' && t.wdCsrfRequired);
-  const regularTargets = targets.filter(t => !(t.ats === 'workday' && t.wdCsrfRequired));
+  // Separate Playwright-required Workday targets to batch browser startup.
+  // Tenants flagged wdSkipPlaywright have already failed the Playwright path
+  // (no CSRF cookie or repeated API rejects) — keep them out of both queues
+  // so we don't burn ~5s/cycle re-attempting forever.
+  const csrfTargets = targets.filter(
+    t => t.ats === 'workday' && t.wdCsrfRequired && !t.wdSkipPlaywright,
+  );
+  const regularTargets = targets.filter(
+    t => !(t.ats === 'workday' && t.wdCsrfRequired) && !(t.ats === 'workday' && t.wdSkipPlaywright),
+  );
   // Workday targets that 422 in the direct CXS call get queued here for the
   // Playwright/CSRF fallback (and cached as wdCsrfRequired after first success).
   const csrfFallback: ATSTarget[] = [];
