@@ -75,25 +75,30 @@ function Section({
 
 function Chip({
   active,
+  dimmed,
   onClick,
   children,
   title,
 }: {
   active: boolean;
+  /** When true, render in the muted "not present in current corpus" style.
+   *  Same UX cue as the unknown-keyword treatment elsewhere in the rail. */
+  dimmed?: boolean;
   onClick: () => void;
   children: React.ReactNode;
   title?: string;
 }) {
+  const style = active
+    ? "border-white/30 bg-white/10 text-white"
+    : dimmed
+      ? "border-white/[0.06] bg-transparent text-white/25 hover:border-white/15"
+      : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]";
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
-      className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
-        active
-          ? "border-white/30 bg-white/10 text-white"
-          : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
-      }`}
+      className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${style}`}
     >
       {children}
     </button>
@@ -181,27 +186,17 @@ export function FilterRail(props: Props) {
 
       <Section label="Role">
         <div className="flex flex-wrap gap-1.5">
-          {ROLE_SPECIALIZATIONS.map((r) => {
-            const active = selectedRoles.includes(r.id);
-            const unknown = !availableRoles.has(r.id);
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => setSelectedRoles((prev) => toggleArr(prev, r.id))}
-                title={unknown ? "No postings match this role in the current corpus" : undefined}
-                className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
-                  active
-                    ? "border-white/30 bg-white/10 text-white"
-                    : unknown
-                      ? "border-white/[0.06] bg-transparent text-white/25 hover:border-white/15"
-                      : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
-                }`}
-              >
-                {r.label}
-              </button>
-            );
-          })}
+          {ROLE_SPECIALIZATIONS.map((r) => (
+            <Chip
+              key={r.id}
+              active={selectedRoles.includes(r.id)}
+              dimmed={!availableRoles.has(r.id)}
+              onClick={() => setSelectedRoles((prev) => toggleArr(prev, r.id))}
+              title={!availableRoles.has(r.id) ? "No postings match this role in the current corpus" : undefined}
+            >
+              {r.label}
+            </Chip>
+          ))}
         </div>
       </Section>
 
