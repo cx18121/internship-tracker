@@ -175,8 +175,18 @@ async function fetchViaSSR(now: string): Promise<Partial<Internship>[]> {
         responseType: 'text',
       });
       const match = /data-page="([\s\S]*?)"/.exec(html);
-      if (!match) continue;
-      for (const j of extractInterns(match[1], now)) {
+      if (!match) {
+        console.warn(`[yc-waas] SSR role ${path}: data-page attribute not found — markup may have changed`);
+        continue;
+      }
+      const interns = extractInterns(match[1], now);
+      if (interns.length === 0) {
+        // Either the regex captured the wrong slice (e.g. truncated at an
+        // embedded quote inside the attribute) or the page genuinely had
+        // zero intern roles. Warn so we see this in logs.
+        console.warn(`[yc-waas] SSR role ${path}: extracted 0 intern roles from data-page`);
+      }
+      for (const j of interns) {
         if (j.link) found.set(j.link, j);
       }
     } catch (e: any) {
