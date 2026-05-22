@@ -1,5 +1,3 @@
-export const SCORE_LABELS = ["A", "B", "C", "D", "F"] as const;
-
 export const LOCATION_PRESETS = ["Remote", "NYC", "SF", "Seattle", "Boston", "Austin"];
 
 export const PAGE_SIZE = 50;

@@ -94,14 +94,3 @@ export function parseSalary(input: string | null | undefined): Salary {
   return EMPTY;
 }
 
-/**
- * Normalize a Salary's range to hourly USD (using 2080 working hours/year,
- * 173.33 hours/month). Returns `null` if unparseable.
- *
- * Used for cross-posting comparisons (sort/filter by hourly).
- */
-export function toHourly(s: Salary): { min: number; max: number } | null {
-  if (s.min === null || s.max === null || s.unit === null) return null;
-  const div = s.unit === 'hourly' ? 1 : s.unit === 'monthly' ? 173.33 : 2080;
-  return { min: s.min / div, max: s.max / div };
-}

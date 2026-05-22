@@ -762,8 +762,6 @@ export function savePollStats(stats: {
   }, null, 2));
 }
 
-export { getStats as getLatestPollStats };
-
 export function getInternships(filters?: {
   source?: string;
   sources?: string[];

@@ -34,13 +34,6 @@ export interface Sources {
   byType: Record<string, number>;
 }
 
-export interface SourceHealthEntry {
-  name: string;
-  total: number;
-  last24h: number;
-  last7d: number;
-}
-
 export type AppliedFilter = "all" | "applied" | "not-applied";
 export type SortBy = "score" | "posted";
 export type TierFilter = "all" | "top-or-better" | "elite";
