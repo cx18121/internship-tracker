@@ -96,7 +96,15 @@ export async function POST(request: Request) {
     return new Response("invalid signature", { status: 401 });
   }
 
-  const body = JSON.parse(rawBody);
+  // Even after a valid signature, a signed-but-malformed body would throw
+  // through JSON.parse and become an unhandled 500. Return 400 instead so
+  // Discord retries don't pile up against an opaque error.
+  let body: Record<string, unknown> & { data?: Record<string, unknown>; message?: Record<string, unknown> };
+  try {
+    body = JSON.parse(rawBody);
+  } catch {
+    return Response.json({ error: 'bad json' }, { status: 400 });
+  }
 
   // PING — Discord's verification handshake when you register the endpoint
   if (body.type === PING) {
@@ -114,7 +122,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const original = body.message ?? {};
+    const original = (body.message ?? {}) as { embeds?: unknown[]; components?: unknown[] };
     const applyUrl = extractApplyUrl(original.components);
     let nextState: ButtonState;
     let footerNote: string | null;
@@ -144,7 +152,8 @@ export async function POST(request: Request) {
 
     // Rebuild embed footer: strip any prior action suffix, then append the
     // new note if we have one. Cleanly round-trips applied → undone → re-applied.
-    const newEmbeds = (original.embeds ?? []).map((e: { footer?: { text?: string }; [k: string]: unknown }) => {
+    const newEmbeds = (original.embeds ?? []).map((raw) => {
+      const e = (raw ?? {}) as { footer?: { text?: string }; [k: string]: unknown };
       const base = stripActionFooter(e.footer?.text ?? "");
       const text = footerNote ? `${base}${base ? " · " : ""}${footerNote}` : base;
       return { ...e, footer: { text } };
