@@ -18,7 +18,7 @@
 // before: country coverage now comes from country-list (ISO 3166-1 alpha-2)
 // instead of being maintained by hand.
 
-import { getCodes, getNames } from 'country-list';
+import iso from 'iso-3166-1';
 
 export type LocationClassification = 'us' | 'non_us' | 'unknown';
 
@@ -74,23 +74,40 @@ const COUNTRY_NAME_ALIASES = new Set<string>([
   'great britain', 'britain', 'england', 'scotland', 'wales', 'northern ireland',
 ]);
 
-// ISO 3166-1 alpha-2 codes (lowercased) excluding US. Built at module init
-// so we stay current with ISO updates without hand-maintaining the list.
+// ISO 3166-1 alpha-2 + alpha-3 codes (lowercased) excluding US. Built at
+// module init so we stay current with ISO updates without hand-maintaining
+// the list. Alpha-3 codes catch prefixed formats like "MYS - PETALING JAYA"
+// (5 rows in DB), "POL - Gdansk, Poland", "CAN - Burlington, ON".
 const NON_US_COUNTRY_CODES: Set<string> = new Set(
-  getCodes()
-    .map((c) => c.toLowerCase())
-    .filter((c) => c !== 'us'),
+  iso.all().flatMap((c) =>
+    c.alpha2 === 'US' ? [] : [c.alpha2.toLowerCase(), c.alpha3.toLowerCase()],
+  ),
 );
 
-// ISO country names with parentheticals stripped, lowercased, minus US,
-// plus the colloquial aliases above. Several ISO names contain commas
-// (e.g. "Tanzania, the United Republic of") — after the cleanup they
-// still contain a comma, so the parts-based exact-match check naturally
-// skips them and the substring fallback below picks them up.
+// ISO country names with "Republic of", "Islamic Republic of", etc. prefixes
+// stripped + parentheticals removed, lowercased, minus US, plus the
+// colloquial aliases above. The strip patterns let "Republic of Korea"
+// match real-world "korea" tokens; full forms still survive for substring
+// fallback.
+function normalizeCountryName(name: string): string {
+  return name
+    .replace(/\s*\([^)]*\)/g, '')
+    .replace(/^the\s+/i, '')
+    .replace(/^(islamic|democratic|federal|bolivarian|plurinational|democratic people's)\s+republic of\s+/i, '')
+    .replace(/^republic of\s+/i, '')
+    .replace(/^state of\s+/i, '')
+    .replace(/^kingdom of\s+/i, '')
+    .replace(/^united republic of\s+/i, '')
+    .replace(/^syrian arab republic.*/i, 'syria')
+    .replace(/^russian federation.*/i, 'russian federation') // keep stable for alias map
+    .trim()
+    .toLowerCase();
+}
 const NON_US_COUNTRY_NAMES: Set<string> = new Set([
-  ...getNames()
-    .map((n) => n.replace(/\s*\([^)]*\)/g, '').trim().toLowerCase())
-    .filter((n) => n && n !== 'united states of america'),
+  ...iso.all()
+    .filter((c) => c.alpha2 !== 'US')
+    .map((c) => normalizeCountryName(c.country))
+    .filter(Boolean),
   ...COUNTRY_NAME_ALIASES,
 ]);
 
