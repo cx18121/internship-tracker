@@ -218,7 +218,6 @@ export async function sendBatchAlert(
 // ---------------------------------------------------------------------------
 
 const ALERT_STATE_PATH = path.join(process.cwd(), 'data', 'source-alerts.json');
-const NOTIF_SETTINGS_PATH = path.join(process.cwd(), 'data', 'notif-settings.json');
 const SOURCE_FETCH_HISTORY_PATH = path.join(process.cwd(), 'data', 'source-fetch-history.json');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
@@ -246,15 +245,6 @@ function loadAlertState(): AlertState {
 
 function saveAlertState(state: AlertState): void {
   fs.writeFileSync(ALERT_STATE_PATH, JSON.stringify(state, null, 2));
-}
-
-function sourceDownAlertsEnabled(): boolean {
-  try {
-    const settings = JSON.parse(fs.readFileSync(NOTIF_SETTINGS_PATH, 'utf-8')) as { sourceDownAlerts?: boolean };
-    return settings.sourceDownAlerts === true;
-  } catch {
-    return false;
-  }
 }
 
 async function postDiscordMessage(content: string): Promise<boolean> {
@@ -289,7 +279,7 @@ async function postDiscordMessage(content: string): Promise<boolean> {
  * got a parseable response" is what gates the alert.
  */
 export async function checkAndAlertSourceHealth(): Promise<void> {
-  if (!sourceDownAlertsEnabled()) return;
+  if (!loadNotifSettings().sourceDownAlerts) return;
 
   const now = Date.now();
   const history = loadSourceFetchHistory();
