@@ -6,9 +6,9 @@
 // Multi-membership is intentional:
 //   - "research scientist" → ai-ml AND research (AI research is a real cluster)
 //   - "applied scientist"  → ai-ml AND research (same reason)
-//   - "embedded"           → mobile only. Mobile here is shorthand for "lives
-//     on the device" (mobile + embedded + systems programming) rather than
-//     iOS/Android proper. Embedded fits that cluster better than infra/devops.
+//   - "embedded"           → infra. Embedded systems live closer to the OS /
+//     hardware-platform layer than to iOS/Android mobile apps. Same call for
+//     "systems programming". Mobile is iOS/Android proper.
 //
 // Matching is case-insensitive substring overlap against the scorer's
 // matchedKeywords tags (NOT free-text on the title), so the chip filter
@@ -49,7 +49,8 @@ export const ROLE_SPECIALIZATIONS = [
     label: 'Infra / DevOps',
     keywords: [
       'infrastructure', 'cloud engineer', 'devops', 'site reliability', 'sre',
-      'distributed systems', 'build engineer', 'tooling',
+      'distributed systems', 'build engineer', 'tooling', 'embedded',
+      'systems programming',
     ],
   },
   {
@@ -63,7 +64,7 @@ export const ROLE_SPECIALIZATIONS = [
   {
     id: 'mobile',
     label: 'Mobile',
-    keywords: ['mobile engineer', 'embedded', 'systems programming'],
+    keywords: ['mobile engineer'],
   },
   {
     id: 'quant',
