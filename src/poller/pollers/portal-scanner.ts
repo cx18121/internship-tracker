@@ -168,19 +168,35 @@ function enrichWithPortalMeta(
       const atsJobId = extractPortalJobId(listing.link ?? '', atsSource);
       if (!atsJobId) return null;
 
-      // Match to a target by ats type (source) and URL hostname
+      // Match to a target by ats type (source) and the slug encoded in the
+      // listing URL. Substring-on-hostname (the old approach) tagged every
+      // Lever/Ashby/Workday listing with whichever target happened to come
+      // first in config — break portal-disappearance archival across all
+      // tenants on the same ATS.
       let atsTarget = '';
       try {
-        const linkHost = new URL(listing.link ?? '').hostname;
+        const linkUrl = new URL(listing.link ?? '');
+        const linkHost = linkUrl.hostname;
+        const pathSegments = linkUrl.pathname.split('/').filter(Boolean);
+        const firstPath = pathSegments[0] ?? '';
         const matched = targets.find((t) => {
           if (t.ats !== atsSource.toLowerCase()) return false;
-          // Compare hostname part: e.g. "boards.greenhouse.io" for Greenhouse
-          if (atsSource === 'Greenhouse') return linkHost.includes(t.slug);
-          if (atsSource === 'Lever') return linkHost.includes('lever');
-          if (atsSource === 'Ashby') return linkHost.includes('ashbyhq');
-          if (atsSource === 'Workday') return linkHost.includes('workday');
-          if (atsSource === 'iCIMS') return linkHost.includes('icims');
-          if (atsSource === 'SmartRecruiters') return linkHost.includes('smartrecruiters');
+          // Greenhouse: boards.greenhouse.io/{slug}/jobs/{id} (or job-boards.greenhouse.io/{slug}/...)
+          if (atsSource === 'Greenhouse') return firstPath === t.slug;
+          // Lever: jobs.lever.co/{slug}/{id}
+          if (atsSource === 'Lever') return firstPath === t.slug;
+          // Ashby: jobs.ashbyhq.com/{slug}/{id}
+          if (atsSource === 'Ashby') return firstPath === t.slug;
+          // SmartRecruiters: jobs.smartrecruiters.com/{slug}/{id}
+          if (atsSource === 'SmartRecruiters') return firstPath === t.slug;
+          // iCIMS: careers-{slug}.icims.com
+          if (atsSource === 'iCIMS') return linkHost.startsWith(`careers-${t.slug}.`);
+          // Workday: {slug}.{wdInstance}.myworkdayjobs.com OR site-variant
+          // {wdInstance}.myworkdaysite.com/recruiting/{slug}/...
+          if (atsSource === 'Workday') {
+            if (linkHost.startsWith(`${t.slug}.`)) return true;
+            return pathSegments[0] === 'recruiting' && pathSegments[1] === t.slug;
+          }
           return false;
         });
         atsTarget = matched?.slug ?? '';
