@@ -6,9 +6,12 @@
  *   - Query params: utm_source, utm_medium, utm_campaign, utm_term, utm_content,
  *     ref, referrer, ref_, affiliated, affiliate, partner, source
  *   - Fragment identifiers used for tracking: #ref=, #utm-
- *   - Indeed's jk= (viewjob encryption key — not semantic)
  *   - LinkedIn's trk= parameters
- *   - Glassdoor'siorq= redirect param
+ *   - Glassdoor's iorq= redirect param
+ *
+ * NOTE: Indeed's `jk=` is the actual job identifier, not tracking — keep it.
+ * Stripping it collapsed every Indeed posting to the same `viewjob` URL and
+ * destroyed dedup keys for that source.
  */
 export function stripUtm(url: string): string {
   if (!url) return url;
@@ -22,8 +25,7 @@ export function stripUtm(url: string): string {
       'utm_id', 'utm_cid', 'utm_reader', 'utm_viz_id',
       'ref', 'referrer', 'ref_', 'affiliated', 'affiliate', 'partner',
       'source', 'trk', 'trkInfo', 'trkCampaign',
-      'ic', 'i',  // LinkedIn tracking
-      'jk',       // Indeed viewjob encryption key
+      'ic',       // LinkedIn tracking
       'iorq',     // Glassdoor redirect
       'vnp', 'vnp_', // generic tracking
     ]);
