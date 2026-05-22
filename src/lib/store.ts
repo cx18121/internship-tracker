@@ -512,6 +512,12 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
     // re-score with current config, and backfill description/salary/ATS
     // fields if they were null. User state (applied / hidden / applied_at /
     // application_url / application_status) is preserved.
+    //
+    // The stored `link` is intentionally NOT overwritten: the row's id is
+    // md5(company + title + stripUtm(link)), so by construction a refresh
+    // means the *original* link was identical. Meanwhile other writers
+    // (find-ats-links-daily.ts) upgrade the stored link to a direct ATS URL;
+    // overwriting on every poll would clobber that upgrade.
     const refreshOnRediscovery = db.prepare(`
       UPDATE internships SET
         seen_at          = @seenAt,
@@ -519,7 +525,6 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         score            = @score,
         score_label      = @scoreLabel,
         matched_keywords = @matchedKeywords,
-        link             = @link,
         description      = COALESCE(NULLIF(description, ''), @description),
         salary_text      = COALESCE(salary_text, @salaryText),
         salary_min       = COALESCE(salary_min,  @salaryMin),
