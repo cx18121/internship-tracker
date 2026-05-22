@@ -1,10 +1,10 @@
 # syntax=docker/dockerfile:1
-# Slim Node base + only the Playwright browsers we actually use (Chromium
-# for yc-waas, Firefox for handshake + workday-csrf-fallback). The official
-# mcr.microsoft.com/playwright image bundles Chromium + Firefox + WebKit
-# + Edge channels + every dev tool — ~1.5GB shipped, ~700MB resident at
-# idle. We don't use WebKit anywhere, so dropping it cuts image size to
-# ~700MB and idle memory roughly in half.
+# Slim Node base + Firefox only. Handshake's auth flow specifically needs
+# Firefox to evade Cornell SSO + Handshake's headless-Chrome bot detection
+# (see feedback memory), so we standardize the other Playwright pollers on
+# Firefox too rather than ship two browsers. Dropping Chromium saves another
+# ~250MB image size + cold-start time on top of the WebKit-drop from the
+# previous commit.
 FROM node:22-slim
 
 # Python (for JobSpy) + curl/ca-certs (for `playwright install` to download
@@ -20,11 +20,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-# Browser binaries + their system libs. `--with-deps` installs the apt
-# packages each browser needs (nss, fonts, etc.); listing chromium and
-# firefox explicitly skips webkit. Browser version is pinned by the
+# Firefox binary + its system libs. `--with-deps` installs the apt packages
+# (nss, fonts, etc.) the browser needs. Browser version is pinned by the
 # `playwright` npm package version, so this stays in sync with the SDK.
-RUN npx playwright install --with-deps chromium firefox \
+RUN npx playwright install --with-deps firefox \
  && rm -rf /var/lib/apt/lists/* /root/.cache/ms-playwright-cli
 
 # Python venv for JobSpy.

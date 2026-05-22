@@ -1,4 +1,8 @@
-import { chromium } from 'playwright';
+// Firefox (not Chromium) so the Docker image only needs one browser binary —
+// see [[feedback-handshake-firefox]]: Handshake auth requires Firefox and
+// can't be swapped, so we standardize the other pollers on Firefox too.
+// YC WaaS has no bot-detection concerns; the choice is purely about image size.
+import { firefox } from 'playwright';
 import { Internship } from '../../lib/types';
 
 const BASE_URL = 'https://www.workatastartup.com';
@@ -125,7 +129,7 @@ interface RawJob {
  * coverage roughly 5x's that).
  */
 async function fetchViaPlaywright(now: string): Promise<Partial<Internship>[]> {
-  const browser = await chromium.launch({ headless: true });
+  const browser = await firefox.launch({ headless: true });
   const page = await browser.newPage();
   const found = new Map<string, Partial<Internship>>();
 
