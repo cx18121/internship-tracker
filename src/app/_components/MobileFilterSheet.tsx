@@ -52,8 +52,16 @@ export function MobileFilterSheet({ open, onClose, children }: Props) {
     }
     document.addEventListener("keydown", onKey);
 
-    // Move focus into the sheet so screen readers + keyboard users land here.
-    panelRef.current?.focus();
+    // Move focus to the first focusable element INSIDE the sheet — not the
+    // wrapping panel div. The trap's first/last math compares against
+    // document.activeElement, and if the active element is the panel itself
+    // (tabIndex=-1) it matches neither first nor last, so a Shift+Tab from
+    // that state escapes the trap and lands behind the backdrop.
+    const firstFocusable = panelRef.current?.querySelector<HTMLElement>(
+      'a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])',
+    );
+    if (firstFocusable) firstFocusable.focus();
+    else panelRef.current?.focus();
 
     return () => {
       document.body.style.overflow = prevOverflow;
