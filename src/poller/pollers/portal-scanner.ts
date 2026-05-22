@@ -76,9 +76,13 @@ export function extractPortalJobId(link: string, atsSource: string): string | nu
       return m ? m[1] : null;
     }
     if (atsSource === 'Lever') {
-      // https://jobs.lever.co/{company}/{uuid} — last segment is the job id
+      // https://jobs.lever.co/{company}/{uuid} — last segment is the job id.
+      // pollLever() falls back to j.applyUrl when hostedUrl is missing, which
+      // ends in /apply. Drop that suffix so all Lever rows from the same
+      // tenant don't collide on the literal job id "apply".
       const parts = pathname.split('/').filter(Boolean);
-      return parts.length >= 2 ? parts[parts.length - 1] : null;
+      const trimmed = parts[parts.length - 1] === 'apply' ? parts.slice(0, -1) : parts;
+      return trimmed.length >= 2 ? trimmed[trimmed.length - 1] : null;
     }
     if (atsSource === 'Ashby') {
       // https://jobs.ashbyhq.com/{board}/{id}
