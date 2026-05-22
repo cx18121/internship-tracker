@@ -16,7 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Internship } from '../../lib/types';
 import { pollATS, ATSTarget } from './ats';
-import { loadInternships, saveInternships } from '../../lib/store';
+import { loadInternships, archiveInternshipsByIds } from '../../lib/store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -270,6 +270,7 @@ export async function scanPortals(): Promise<PortalScanOutput> {
   // Update snapshots and archive disappeared listings
   const archivedByTarget: Record<string, number> = {};
   const internships = loadInternships();
+  const allArchivedIds: string[] = [];
 
   // Must match the source labels ats.ts writes when storing internships,
   // otherwise archival never matches. Naive .toUpperCase()-on-first-letter
@@ -294,6 +295,7 @@ export async function scanPortals(): Promise<PortalScanOutput> {
     const { archived } = archiveDisappeared(internships, currentIds, atsSource, targetSlug);
     if (archived.length > 0) {
       archivedByTarget[targetSlug] = archived.length;
+      allArchivedIds.push(...archived);
       console.log(`[portal-scanner] ${targetSlug}: archived ${archived.length} disappeared listing(s)`);
     }
 
@@ -304,8 +306,14 @@ export async function scanPortals(): Promise<PortalScanOutput> {
     };
   }
 
-  if (Object.keys(archivedByTarget).length > 0) {
-    saveInternships(internships);
+  // Narrow per-id UPDATE inside withLock instead of saveInternships(internships)
+  // (full-column upsert of every row). scanPortals holds the in-memory
+  // `internships` array across slow ATS HTTP fetches, so a full-row write
+  // at the end would clobber any PATCH from the UI/Discord/daily-ATS-script
+  // that landed in the meantime. archiveDisappeared mutates only `archived`,
+  // and we now persist only that column for exactly the affected ids.
+  if (allArchivedIds.length > 0) {
+    await archiveInternshipsByIds(allArchivedIds);
   }
   saveSnapshots(snapshots);
 

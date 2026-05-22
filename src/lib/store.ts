@@ -640,6 +640,26 @@ export async function patchInternship(id: string, patch: Partial<Internship>): P
   });
 }
 
+/**
+ * Mark the given ids as archived. Narrow per-id UPDATE inside withLock so
+ * callers that hold a stale in-memory snapshot for minutes (e.g. portal
+ * scanner doing slow ATS fetches) don't clobber concurrent PATCHes by
+ * upserting every column on every row they looked at.
+ */
+export async function archiveInternshipsByIds(ids: string[]): Promise<number> {
+  if (ids.length === 0) return 0;
+  return withLock(() => {
+    const db = getDb();
+    const stmt = db.prepare('UPDATE internships SET archived = 1 WHERE id = ?');
+    const tx = db.transaction((list: string[]) => {
+      let changed = 0;
+      for (const id of list) changed += stmt.run(id).changes;
+      return changed;
+    });
+    return tx(ids);
+  });
+}
+
 export async function archiveStalePostings(daysOld = 30): Promise<number> {
   // Serialize against the poll-cycle transaction in deduplicateAndStore so
   // two large writers don't compete on the WAL during a stale-archive sweep.
