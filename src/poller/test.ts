@@ -367,6 +367,23 @@ test('ats-discovery: Greenhouse URL extracts slug correctly', () => {
   assert.strictEqual(target!.ats, 'greenhouse');
 });
 
+test('ats-discovery: deny-list shape is valid + includes the 4 audited dead slugs', () => {
+  const denylistPath = path.join(process.cwd(), 'data', 'ats-discovery-denylist.json');
+  assert.ok(fs.existsSync(denylistPath), 'data/ats-discovery-denylist.json must exist');
+  const raw = JSON.parse(fs.readFileSync(denylistPath, 'utf-8'));
+  assert.ok(Array.isArray(raw.denied), 'denylist.denied must be an array');
+  for (const entry of raw.denied) {
+    assert.ok(entry.slug && typeof entry.slug === 'string', `each entry needs a string slug, got ${JSON.stringify(entry)}`);
+  }
+  const slugs = new Set(raw.denied.map((e: { slug: string }) => e.slug));
+  // These 4 came out of the 2026-05-20 Workday audit (commit 1bc0c09) and
+  // kept getting re-added by SimplifyJobs link discovery — they're the
+  // canonical regression test for the deny-list seam.
+  for (const dead of ['kar', 'netflix', 'evrazna', 'cambiahealth']) {
+    assert.ok(slugs.has(dead), `deny-list should include audited dead slug '${dead}'`);
+  }
+});
+
 test('ats-discovery: non-ATS URL returns null', () => {
   const target = discoverATSTarget('https://linkedin.com/jobs/view/123', 'Some Company');
   assert.strictEqual(target, null, 'Non-ATS URL should return null');

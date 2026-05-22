@@ -1,0 +1,9 @@
+{
+  "_comment": "Slugs that ats-discovery.saveDiscoveredTargets() will never auto-add and will actively prune from ats-targets.json. Use this when a target gets removed for cause (board doesn't exist, employee-only, etc.) but keeps getting re-discovered via SimplifyJobs or Handshake links. ats-targets.json stays the curation source of truth; this file is the curation negation.",
+  "denied": [
+    { "slug": "kar",          "reason": "OPENLANE_Careers / wd1 — board no longer exists (audited 2026-05-20)" },
+    { "slug": "netflix",      "reason": "Netflix Workday wd1 — Netflix doesn't use a public Workday board (audited 2026-05-20). The Lever-based 'netflix' entry is separate and legitimate." },
+    { "slug": "evrazna",      "reason": "EVRAZ / wd5 — board no longer exists (audited 2026-05-20)" },
+    { "slug": "cambiahealth", "reason": "Cambia Health External / wd1 — board no longer exists (audited 2026-05-20)" }
+  ]
+}
