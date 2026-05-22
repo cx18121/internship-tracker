@@ -97,8 +97,15 @@ async function fetchAshbyDescription(slug: string, jobId: string): Promise<strin
       headers: { 'Accept': 'text/html', 'User-Agent': 'Mozilla/5.0' },
       responseType: 'text',
     });
-    const m = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
-    if (!m) return '';
+    // Markup is `window.__appData = {…};` followed by either a newline (legacy)
+    // or `</script>` (current). Accept both, plus end-of-string. Without the
+    // alternation, an Ashby DOM tweak that drops the trailing newline causes
+    // silent 0-description returns across every Ashby tenant.
+    const m = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
+    if (!m) {
+      console.warn(`[ats] Ashby ${slug}/${jobId}: __appData regex missed — markup may have changed`);
+      return '';
+    }
     const data = JSON.parse(m[1]);
     // Detail page exposes the role directly at data.posting with descriptionHtml.
     // List page uses data.jobBoard.jobPostings[] but those entries DON'T include
@@ -120,8 +127,11 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
     responseType: 'text',
   });
 
-  const match = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
-  if (!match) return [];
+  const match = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
+  if (!match) {
+    console.warn(`[ats] Ashby ${target.slug}: __appData regex missed on board page — markup may have changed`);
+    return [];
+  }
 
   let appData: any;
   try {

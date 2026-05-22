@@ -216,8 +216,13 @@ async function fetchDescriptionByUrl(url: string): Promise<string> {
         headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html' },
         responseType: 'text',
       });
-      const am = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
-      if (!am) return '';
+      // Accept newline OR </script> after the trailing semicolon — see
+      // matching note in pollers/ats.ts fetchAshbyDescription.
+      const am = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
+      if (!am) {
+        console.warn(`[github] Ashby ${slug}/${jobId}: __appData regex missed — markup may have changed`);
+        return '';
+      }
       const appData = JSON.parse(am[1]);
       const posting = appData?.posting
         ?? appData?.jobBoard?.jobPostings?.find((p: { id: string }) => p.id === jobId)
