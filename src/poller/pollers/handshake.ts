@@ -205,8 +205,15 @@ async function enrichWithDetailLinks(
     if (!job.link) return;
     const page = await context.newPage();
     try {
-      await page.goto(job.link, { waitUntil: 'domcontentloaded', timeout: 15000 });
-      await page.waitForTimeout(1200);
+      // Card anchors point to /job-search/{id}, which renders the listing
+      // SPA with a small sidebar — no <data-hook="job-details-page">
+      // wrapper, no real description text. The dedicated detail view at
+      // /jobs/{id} has both. Verified via probe on 2026-05-22.
+      const detailUrl = job.link.replace(/\/job-search\/(\d+)/, '/jobs/$1');
+      await page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
+      // Detail page is a React SPA; the description block is injected via
+      // an XHR that takes ~2-3s to settle.
+      await page.waitForTimeout(3000);
 
       const detail = await page.evaluate((patterns: string[]) => {
         const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
@@ -230,23 +237,43 @@ async function enrichWithDetailLinks(
           }
         }
 
-        // Description: try several Handshake-flavored selectors. Previous code
-        // had a `body p` fallback that scooped up nav/footer text when the
-        // selectors missed — dropped because polluted descriptions are worse
-        // than empty ones (downstream salary/keyword parsing trips on noise).
-        const descSelectors = [
-          '[data-hook*="job-description"]',
-          '[data-hook*="description"]',
-          '[data-hook*="job-detail-body"]',
-          '[data-hook*="job-overview"]',
-          '[data-hook*="job-body"]',
-        ];
+        // Description: scope to [data-hook="job-details-page"] (the wrapper
+        // present only on the dedicated detail view), strip known noise
+        // subsections, and take the remaining text. The detail-root is
+        // bounded to job-specific content — no site nav/footer to pollute
+        // the way the old `body p` fallback did, so this is safe.
+        //
+        // Tried two narrower strategies first (Description: prefix; longest
+        // single <p>) — both missed on 3/5 sample postings because
+        // Handshake's detail layout varies: some employers get rendered
+        // with a "Description:" header, others get raw <p> tags, others
+        // split job-body across non-<p> divs.
         let description = '';
         let descSelectorHit = '';
-        for (const sel of descSelectors) {
-          const el = document.querySelector(sel);
-          const text = el?.textContent?.trim() ?? '';
-          if (text.length > 100) { description = text; descSelectorHit = sel; break; }
+        const detailRoot = document.querySelector('[data-hook="job-details-page"]') as HTMLElement | null;
+        if (detailRoot) {
+          // Clone so we can prune subtrees without mutating the live DOM.
+          const clone = detailRoot.cloneNode(true) as HTMLElement;
+          // Apply-modal content is a form ("Attach your resume…"); not the
+          // posting body. Remove it before extracting text.
+          clone.querySelectorAll('[data-hook="apply-modal-content"]').forEach(el => el.remove());
+          // Similar-jobs sidebar — each entry has its own job-hide-button
+          // hook. Removing them removes the entire "more jobs like this"
+          // list while keeping the description proper.
+          clone.querySelectorAll('[data-hook^="job-hide-button-"]').forEach(el => {
+            // Walk up to the nearest card container and remove it.
+            let target: HTMLElement | null = el as HTMLElement;
+            for (let i = 0; i < 6 && target; i++) {
+              if (target.parentElement?.children && target.parentElement.children.length > 1) break;
+              target = target.parentElement;
+            }
+            (target ?? el).remove();
+          });
+          const text = (clone.textContent || '').trim();
+          if (text.length > 100) {
+            description = text;
+            descSelectorHit = 'job-details-page (apply-modal + similar-jobs stripped)';
+          }
         }
         description = description.replace(/\s+/g, ' ').trim().slice(0, 4000);
 
