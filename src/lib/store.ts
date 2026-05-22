@@ -764,6 +764,7 @@ export { getStats as getLatestPollStats };
 
 export function getInternships(filters?: {
   source?: string;
+  sources?: string[];
   minScore?: number;
   label?: string;
   includeArchived?: boolean;
@@ -777,7 +778,16 @@ export function getInternships(filters?: {
 
   if (!filters?.includeArchived) where.push('archived = 0');
   if (!filters?.includeHidden) where.push('hidden = 0');
-  if (filters?.source) {
+  // Prefer multi-source `sources` over single `source` if both are provided.
+  // The list route used to flatten multi → undefined when length > 1, which
+  // silently returned everything; pass the array through here instead.
+  if (filters?.sources && filters.sources.length > 0) {
+    const placeholders = filters.sources.map((_, i) => `@source${i}`).join(', ');
+    where.push(`LOWER(source) IN (${placeholders})`);
+    filters.sources.forEach((s, i) => {
+      params[`source${i}`] = s.toLowerCase();
+    });
+  } else if (filters?.source) {
     where.push('LOWER(source) = @source');
     params.source = filters.source.toLowerCase();
   }

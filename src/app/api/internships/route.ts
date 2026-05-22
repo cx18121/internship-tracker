@@ -10,7 +10,10 @@ export async function GET(request: Request) {
 
   const rawSources = sp.get("sources") ?? sp.get("source");
   const multi = rawSources ? rawSources.split(",").map(s => s.trim()).filter(Boolean) : undefined;
-  const source = multi && multi.length === 1 ? multi[0] : (sp.get("source") && !multi ? sp.get("source")! : undefined);
+  // Single-source path stays the same; multi-source (2+) is now passed
+  // through as `sources` instead of being silently collapsed to undefined.
+  const sources = multi && multi.length > 1 ? multi : undefined;
+  const source = multi && multi.length === 1 ? multi[0] : undefined;
 
   const rawScore = sp.get("minScore") ? parseInt(sp.get("minScore")!, 10) : undefined;
   const minScore = rawScore !== undefined && Number.isFinite(rawScore)
@@ -28,7 +31,7 @@ export async function GET(request: Request) {
   const q = sp.get("q")?.trim() || undefined;
   const includeHidden = sp.get("includeHidden") === "1" || sp.get("hidden") === "1";
 
-  const all = getInternships({ source, minScore, label, sort, search: q, includeHidden });
+  const all = getInternships({ source, sources, minScore, label, sort, search: q, includeHidden });
   const sliced = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
   return Response.json(sliced);
 }
