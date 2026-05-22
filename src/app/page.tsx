@@ -324,11 +324,16 @@ export default function InternshipsPage() {
     setPending(id, true);
 
     setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: !current } : i)));
-    const newDates = { ...appliedDates };
-    if (!current) newDates[id] = new Date().toISOString();
-    else delete newDates[id];
-    setAppliedDates(newDates);
-    lsSet(LS_DATES_KEY, newDates);
+    // Functional update so rapid toggles on different rows compose on top
+    // of each other's writes — a captured `appliedDates` snapshot would let
+    // the second click stomp the first row's entry in state and localStorage.
+    setAppliedDates((prev) => {
+      const next = { ...prev };
+      if (!current) next[id] = new Date().toISOString();
+      else delete next[id];
+      lsSet(LS_DATES_KEY, next);
+      return next;
+    });
 
     let ok = false;
     try {
@@ -347,11 +352,13 @@ export default function InternshipsPage() {
       // failed PATCH would silently leave the UI in the optimistic state
       // while the DB rejected the change. Roll back explicitly.
       setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current } : i)));
-      const reverted = { ...appliedDates };
-      if (current) reverted[id] = new Date().toISOString();
-      else delete reverted[id];
-      setAppliedDates(reverted);
-      lsSet(LS_DATES_KEY, reverted);
+      setAppliedDates((prev) => {
+        const next = { ...prev };
+        if (current) next[id] = new Date().toISOString();
+        else delete next[id];
+        lsSet(LS_DATES_KEY, next);
+        return next;
+      });
     }
     setPending(id, false);
   }
@@ -389,10 +396,14 @@ export default function InternshipsPage() {
   }
 
   function updateNote(id: string, note: string) {
-    const updated = { ...notesMap, [id]: note };
-    if (!note) delete updated[id];
-    setNotesMap(updated);
-    lsSet(LS_NOTES_KEY, updated);
+    // Functional update + lsSet inside the updater so two rapid edits on
+    // different ids don't stomp each other via stale `notesMap` closure.
+    setNotesMap((prev) => {
+      const next = { ...prev, [id]: note };
+      if (!note) delete next[id];
+      lsSet(LS_NOTES_KEY, next);
+      return next;
+    });
   }
 
   async function saveNotifSettings() {
