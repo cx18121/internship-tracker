@@ -151,9 +151,14 @@ function parseRows(html: string): { company: string; title: string; location: st
     const title = stripHtml(cells[1]);
     const locationRaw = cells[2];
 
-    // Detect multi-location cells (contain <details>)
+    // Detect multi-location cells (contain <details>) — when present, use
+    // the first parsed location as the primary `location` field. stripHtml
+    // on the <details> cell concatenates the children into a single string
+    // and occasionally drops the separator, producing artifacts like
+    // "State College, PAReston, VA" (PA + Reston with no space/comma).
+    // The full list is preserved in multiLocation for the UI.
     const multiLoc = parseMultiLocation(locationRaw);
-    const location = stripHtml(locationRaw);
+    const location = multiLoc?.locations[0] || stripHtml(locationRaw);
     const link = extractHref(cells[3]);
 
     if (company === '↳') continue; // continuation row for multi-location, skip
