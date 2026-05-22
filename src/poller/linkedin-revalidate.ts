@@ -39,6 +39,12 @@ const CLOSED_MARKERS = [
   /No longer accepting applications/i,
 ];
 
+// HTTP statuses that confirm the LinkedIn posting is gone. 404 means the
+// guest API can't find the jobId (posting deleted), 410 is explicit Gone,
+// 451 is unavailable-for-legal-reasons (rare). Treat all three as
+// "archive immediately" — same as the closed-marker path.
+const DEAD_STATUSES = new Set([404, 410, 451]);
+
 // Stop early if we see this many consecutive HTTP errors — likely means
 // LinkedIn has started rate-limiting us or the guest endpoint changed.
 // At concurrency=1 with 1.5s jitter, a long streak indicates a real block,
@@ -196,7 +202,16 @@ export async function revalidateLinkedIn(opts: {
       const { ok, html, status } = await fetchGuestApiHtml(t.jobId, timeoutMs);
       statusCounts[String(status)] = (statusCounts[String(status)] ?? 0) + 1;
 
-      if (!ok) {
+      if (DEAD_STATUSES.has(status)) {
+        // Confirmed dead — archive immediately, same as the closed-marker path.
+        // Not counted as an error; reset the streak so transient 429s after a
+        // run of 404s don't trigger early bailout.
+        errorStreak = 0;
+        checkedIds.push(t.id);
+        closedIds.push(t.id);
+        // No need to back off as hard — 404 is fast and cheap on LinkedIn's side.
+        await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 800) + workerIdx * 50));
+      } else if (!ok) {
         errorCount++;
         errorStreak++;
         if (errorStreak >= ERROR_STREAK_BAILOUT) {
