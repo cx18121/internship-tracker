@@ -85,7 +85,10 @@ export async function POST(request: Request) {
   const current = load();
   const next: NotifSettings = {
     minScore:
-      typeof body.minScore === "number"
+      // Number.isFinite — `typeof NaN === "number"` is true, so a NaN
+      // from the client would slip past the typeof check and `Math.round`
+      // would propagate NaN into the saved JSON as `null`.
+      typeof body.minScore === "number" && Number.isFinite(body.minScore)
         ? Math.max(0, Math.min(100, Math.round(body.minScore)))
         : current.minScore,
     sourceDownAlerts:

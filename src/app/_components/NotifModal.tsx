@@ -300,7 +300,14 @@ export function NotifModal({
               min={0}
               max={100}
               value={minScore}
-              onChange={(e) => onMinScoreChange(Number(e.target.value))}
+              onChange={(e) => {
+                // Empty string → Number("") === 0, but other non-numeric
+                // input (e.g. "e", "-", paste of "abc") → NaN. Coerce NaN to
+                // 0 so the server doesn't get a number-typed NaN, which
+                // sneaks past `typeof === 'number'` and writes `null` to JSON.
+                const n = Number(e.target.value);
+                onMinScoreChange(Number.isFinite(n) ? n : 0);
+              }}
               className="w-20 h-7 text-[13px] bg-white/[0.04] border-white/10 tabular-nums"
             />
           </Section>
