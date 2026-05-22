@@ -360,6 +360,16 @@ test('ats-discovery: non-ATS URL returns null', () => {
 async function runArchiveTests(): Promise<void> {
   console.log('\n── Archive tests ─────────────────────────────────────────');
 
+  // archiveStalePostings() with a default cutoff is destructive against the
+  // real DB — it archives EVERY row whose seen_at is older than the cutoff,
+  // not just the test row this test inserts. Bit us once already (a normal
+  // `npm test` run silently archived ~370 stale rows). Opt-in: set
+  // TEST_INCLUDE_DESTRUCTIVE=1 to run it (against a throwaway DB ideally).
+  if (process.env.TEST_INCLUDE_DESTRUCTIVE !== '1') {
+    console.log('SKIP  archiveStalePostings() test (set TEST_INCLUDE_DESTRUCTIVE=1 to run)');
+    return;
+  }
+
   await testAsync('archiveStalePostings() archives old internships, getInternships respects includeArchived', async () => {
     const testId = `test-archive-${Date.now()}`;
     const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
