@@ -3,8 +3,8 @@
  *
  * Why this exists: LinkedIn returns HTTP 200 for jobs that are no longer
  * accepting applications, so the HEAD-status check in `revalidateLinks`
- * can't detect them. Random sampling in 2026-05 showed 60% of active
- * LinkedIn rows had become stale this way.
+ * can't detect them. Random sampling in 2026-05 showed ~15-60% of active
+ * LinkedIn rows had become stale this way (varied by sample).
  *
  * Detection: fetch the public guest-API endpoint
  *   https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{jobId}
@@ -12,9 +12,19 @@
  * "No longer accepting applications" text as a redundancy). Both are
  * injected by LinkedIn's SSR when the posting is closed.
  *
- * Politeness: small concurrency, 250ms inter-request jitter, early bailout
- * on a streak of non-2xx responses (most likely rate-limit/blocking).
+ * Politeness: concurrency=1 with ~1.5s jitter empirically clears LinkedIn's
+ * rate limiter; concurrency≥3 brings the error rate to ~50%. Bails early
+ * on a long streak of errors (likely IP block).
+ *
+ * Incremental scheduling: rather than re-checking all ~1300 active LinkedIn
+ * rows daily (~33min/run), each scheduled invocation only checks rows that
+ * haven't been LinkedIn-checked in the last CHECK_TTL_DAYS days. We keep
+ * that history in a small sidecar JSON (separate from the shared
+ * `last_checked_at` column, which tracks HEAD checks and doesn't validate
+ * LinkedIn content state). Steady-state: ~5min/day for ~7-day TTL.
  */
+import * as fs from 'fs';
+import * as path from 'path';
 import { getInternships, archiveInternshipsByIds } from '../lib/store';
 
 const GUEST_API = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/';
@@ -35,7 +45,37 @@ const CLOSED_MARKERS = [
 // not transient noise.
 const ERROR_STREAK_BAILOUT = 15;
 
+// Days between rechecks of the same posting. With ~1300 active rows and a
+// 7-day TTL, the steady-state daily slice is ~185 rows ≈ 5 min/run.
+const CHECK_TTL_DAYS = 7;
+
+const HISTORY_PATH = path.join(process.cwd(), 'data', 'linkedin-check-history.json');
+
+interface CheckHistory {
+  [id: string]: string; // ISO timestamp of the last LinkedIn-content check
+}
+
+function loadHistory(): CheckHistory {
+  try {
+    if (!fs.existsSync(HISTORY_PATH)) return {};
+    return JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf-8')) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveHistory(history: CheckHistory): void {
+  try {
+    fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
+  } catch (e: any) {
+    console.warn(`[linkedin-revalidate] Failed to write history sidecar: ${e.message}`);
+  }
+}
+
 export interface LinkedInRevalResult {
+  /** Eligible after applying the TTL filter (excludes recently checked rows). */
+  eligible: number;
+  /** Actually fetched (eligible minus what's left in the queue after early bailout). */
   checked: number;
   closed: number;
   open: number;
@@ -92,29 +132,55 @@ function isClosedHtml(html: string): boolean {
   return CLOSED_MARKERS.some(rx => rx.test(html));
 }
 
-export async function revalidateLinkedIn(opts: { dryRun?: boolean; concurrency?: number; timeoutMs?: number; limit?: number } = {}): Promise<LinkedInRevalResult> {
+export async function revalidateLinkedIn(opts: {
+  dryRun?: boolean;
+  concurrency?: number;
+  timeoutMs?: number;
+  /** Cap on rows to check this run (debug / one-off use). */
+  limit?: number;
+  /** Force-check every active row, ignoring CHECK_TTL_DAYS. Use for full sweeps. */
+  ignoreTtl?: boolean;
+} = {}): Promise<LinkedInRevalResult> {
   // LinkedIn rate-limits aggressively. Concurrency=1 with ~1.5s jitter
   // empirically clears their throttle on first-call. Bumping concurrency or
   // shortening jitter brought the per-request error rate from ~0% up to ~50%.
   const concurrency = Math.max(1, Math.min(opts.concurrency ?? 1, 3));
   const timeoutMs = opts.timeoutMs ?? 10000;
   const dryRun = opts.dryRun === true;
+  const ignoreTtl = opts.ignoreTtl === true;
 
-  // Pull active rows; filter to LinkedIn rows whose URL yields a job id.
-  // We only ever archive — never resurrect — so we don't need to track the
-  // archived rows here.
+  const history = loadHistory();
+  const ttlCutoff = Date.now() - CHECK_TTL_DAYS * 24 * 60 * 60 * 1000;
+
   const all = getInternships({});
-  let targets = all
+  let allActive = all
     .filter(i => i.source.toLowerCase() === 'linkedin' && !i.archived)
     .map(i => ({ id: i.id, link: i.link, jobId: extractLinkedInJobId(i.link) }))
     .filter((t): t is { id: string; link: string; jobId: string } => t.jobId !== null);
+
+  // Filter by TTL unless caller explicitly asked for a full sweep.
+  let targets = allActive;
+  if (!ignoreTtl) {
+    targets = allActive.filter(t => {
+      const last = history[t.id];
+      if (!last) return true;
+      const lastMs = new Date(last).getTime();
+      return Number.isNaN(lastMs) || lastMs < ttlCutoff;
+    });
+  }
+
   if (opts.limit && opts.limit > 0 && opts.limit < targets.length) {
     targets = targets.slice(0, opts.limit);
   }
 
-  console.log(`[linkedin-revalidate] Starting${dryRun ? ' (DRY RUN)' : ''}: ${targets.length} active LinkedIn rows, concurrency=${concurrency}`);
+  const skipped = allActive.length - targets.length;
+  console.log(
+    `[linkedin-revalidate] Starting${dryRun ? ' (DRY RUN)' : ''}: ${targets.length} eligible LinkedIn rows ` +
+      `(${skipped} skipped — checked within last ${CHECK_TTL_DAYS}d), concurrency=${concurrency}`,
+  );
 
   const closedIds: string[] = [];
+  const checkedIds: string[] = [];
   let openCount = 0;
   let errorCount = 0;
   let errorStreak = 0;
@@ -142,6 +208,7 @@ export async function revalidateLinkedIn(opts: { dryRun?: boolean; concurrency?:
         await new Promise(r => setTimeout(r, 2500 + Math.floor(Math.random() * 1000)));
       } else {
         errorStreak = 0;
+        checkedIds.push(t.id);
         if (isClosedHtml(html)) {
           closedIds.push(t.id);
         } else {
@@ -155,20 +222,32 @@ export async function revalidateLinkedIn(opts: { dryRun?: boolean; concurrency?:
   });
   await Promise.all(workers);
 
-  if (!dryRun && closedIds.length > 0) {
-    const archived = await archiveInternshipsByIds(closedIds);
-    console.log(`[linkedin-revalidate] Archived ${archived}/${closedIds.length} closed LinkedIn postings`);
+  if (!dryRun) {
+    if (closedIds.length > 0) {
+      const archived = await archiveInternshipsByIds(closedIds);
+      console.log(`[linkedin-revalidate] Archived ${archived}/${closedIds.length} closed LinkedIn postings`);
+    }
+    // Record successful checks so the TTL filter skips them next run.
+    if (checkedIds.length > 0) {
+      const now = new Date().toISOString();
+      for (const id of checkedIds) history[id] = now;
+      saveHistory(history);
+    }
   }
 
   const result: LinkedInRevalResult = {
-    checked: targets.length - queue.length,
+    eligible: targets.length,
+    checked: checkedIds.length + errorCount,
     closed: closedIds.length,
     open: openCount,
     errors: errorCount,
     bailedEarly,
     statusCounts,
   };
-  const tag = dryRun ? ' (DRY RUN — no rows archived)' : '';
-  console.log(`[linkedin-revalidate] Done${tag}: checked=${result.checked}, closed=${result.closed}, open=${result.open}, errors=${result.errors}, bailedEarly=${result.bailedEarly}`);
+  const tag = dryRun ? ' (DRY RUN — no rows archived, history not updated)' : '';
+  console.log(
+    `[linkedin-revalidate] Done${tag}: eligible=${result.eligible}, checked=${result.checked}, ` +
+      `closed=${result.closed}, open=${result.open}, errors=${result.errors}, bailedEarly=${result.bailedEarly}`,
+  );
   return result;
 }

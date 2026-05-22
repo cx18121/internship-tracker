@@ -29,6 +29,8 @@ data/poll-stats.json
 data/portal-snapshots.json
 data/seen.json
 data/workday-flags-cache.json
+data/linkedin-check-history.json
+data/source-fetch-history.json
 
 # Backups and migration cruft
 *.bak
