@@ -3,15 +3,19 @@ import { runCycle } from './agent';
 import { revalidateLinks, closeDb } from '../lib/store';
 
 // Two-tier polling:
-//   Fast tier (default 5 min)  — SimplifyJobs RSS only. Quick to fetch, high
+//   Fast tier (default 15 min) — SimplifyJobs RSS only. Quick to fetch, high
 //                                 signal, refreshed often.
-//   Slow tier (default 30 min) — Handshake, ATS sweeps, JobSpy, YC WaaS.
+//   Slow tier (default 60 min) — Handshake, ATS sweeps, JobSpy, YC WaaS.
 //                                 Minutes per run.
+// Defaults stretched from 5/30 → 15/60 min in 2026-05 to cut Railway compute
+// cost roughly in half. For a personal tracker, a 15-minute lag on new
+// postings is fine, and the slow cycle is the dominant cost driver anyway.
+// Override with POLL_INTERVAL_MS_FAST / POLL_INTERVAL_MS_SLOW env vars.
 // POLL_INTERVAL_MS stays as a backwards-compatible alias — if set, it
 // overrides the slow-tier interval (the old single-tier behaviour).
-const POLL_INTERVAL_MS_FAST = parseInt(process.env.POLL_INTERVAL_MS_FAST || '300000', 10);
+const POLL_INTERVAL_MS_FAST = parseInt(process.env.POLL_INTERVAL_MS_FAST || '900000', 10);
 const POLL_INTERVAL_MS_SLOW = parseInt(
-  process.env.POLL_INTERVAL_MS_SLOW || process.env.POLL_INTERVAL_MS || '1800000',
+  process.env.POLL_INTERVAL_MS_SLOW || process.env.POLL_INTERVAL_MS || '3600000',
   10,
 );
 const REVALIDATE_INTERVAL_MS = parseInt(process.env.REVALIDATE_INTERVAL_MS || String(24 * 60 * 60 * 1000), 10);
