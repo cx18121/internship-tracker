@@ -5,7 +5,7 @@
 // reuse the same InternshipRow for visual consistency.
 
 import { useState, useMemo } from "react";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import type { Internship, SortBy } from "../_lib/types";
 import { InternshipRow, LIST_GRID_COLS } from "./InternshipRow";
 
@@ -69,6 +69,10 @@ function ColumnHeader({ sortBy }: { sortBy: SortBy }): React.JSX.Element {
       className={`grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45 border-b border-white/[0.06]`}
     >
       {COL_HEADERS.map(({ label, mobileHidden, sortKey }, i) => {
+        // Active column gets a brighter text tone. No direction chevron —
+        // sort isn't toggleable in the header (only via the sort selector
+        // up top), and both modes always run descending, so a "descending"
+        // arrow next to the column implied a control that doesn't exist.
         const active = sortKey != null && sortKey === sortBy;
         return (
           <span
@@ -78,7 +82,6 @@ function ColumnHeader({ sortBy }: { sortBy: SortBy }): React.JSX.Element {
             } ${active ? "text-white/75" : ""}`}
           >
             {label}
-            {active && <ChevronDown className="h-2.5 w-2.5" aria-label="descending" />}
           </span>
         );
       })}
