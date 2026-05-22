@@ -864,7 +864,34 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
   });
 
   if (!opts.dryRun && updates.length > 0) {
-    saveInternships(updates);
+    // Narrow per-id UPDATE inside withLock instead of a full-row upsert.
+    // revalidateLinks holds the in-memory `active` snapshot for the entire
+    // HTTP-probe sweep (multiple minutes); a saveInternships(updates) at the
+    // end would clobber any PATCH the UI / Discord buttons / daily ATS script
+    // made during that window. We only mutate four columns here, so write
+    // exactly those — leaves user/state columns alone for concurrent writers.
+    await withLock(() => {
+      const updateRevalidation = db.prepare(`
+        UPDATE internships
+        SET archived           = @archived,
+            failed_check_count = @failedCheckCount,
+            first_failed_at    = @firstFailedAt,
+            last_checked_at    = @lastCheckedAt
+        WHERE id = @id
+      `);
+      const updateMany = db.transaction((rows: Internship[]) => {
+        for (const r of rows) {
+          updateRevalidation.run({
+            id: r.id,
+            archived: r.archived ? 1 : 0,
+            failedCheckCount: r.failedCheckCount ?? 0,
+            firstFailedAt: r.firstFailedAt ?? null,
+            lastCheckedAt: r.lastCheckedAt ?? null,
+          });
+        }
+      });
+      updateMany(updates);
+    });
   }
 
   console.log(
