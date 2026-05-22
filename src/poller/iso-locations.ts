@@ -72,6 +72,11 @@ const COUNTRY_NAME_ALIASES = new Set<string>([
   'swaziland',
   'vatican',
   'great britain', 'britain', 'england', 'scotland', 'wales', 'northern ireland',
+  // ISO alpha-2 for the UK is "GB" — "UK" is colloquial and would otherwise
+  // miss the parts-based country check (and substring fallback skips < 5 char
+  // entries, so "uk" never matches there either). Added explicitly so
+  // "Boston, UK" / "London, UK" classify as non_us.
+  'uk',
 ]);
 
 // ISO 3166-1 alpha-2 + alpha-3 codes (lowercased) excluding US. Built at
@@ -109,6 +114,39 @@ const NON_US_COUNTRY_NAMES: Set<string> = new Set([
     .map((c) => normalizeCountryName(c.country))
     .filter(Boolean),
   ...COUNTRY_NAME_ALIASES,
+]);
+
+// Known unambiguous US cities/abbreviations — symmetric to NON_US_CITY_HINTS
+// on the positive side. Without this, bare strings like "NYC" or "Working
+// in San Francisco" fall through to 'unknown' because there's no state
+// code or country indicator to latch onto. Only includes names with no
+// significant foreign collision in job-posting contexts — skipped: san
+// jose (CR), portland (multiple), washington (DC/state/many), cambridge
+// (UK), manchester (UK), birmingham (UK/AL), bay area (HK collision).
+const US_CITY_HINTS = new Set<string>([
+  // Short abbreviations — caught only by parts/tokens exact match (substring
+  // path skips length < 5 to avoid false positives inside longer words).
+  'nyc', 'dmv',
+  // Single-word cities
+  'chicago', 'boston', 'seattle', 'philadelphia', 'philly',
+  'houston', 'dallas', 'austin', 'atlanta', 'denver',
+  'minneapolis', 'pittsburgh', 'detroit', 'phoenix',
+  'nashville', 'charlotte', 'baltimore', 'orlando', 'tampa',
+  'raleigh', 'cleveland', 'cincinnati', 'indianapolis',
+  'albuquerque', 'brooklyn', 'manhattan', 'harlem', 'bronx', 'queens',
+  // Multi-word — caught via parts exact match for "City, State" form and
+  // substring fallback for embedded form ("Working in San Francisco").
+  'new york city',
+  'san francisco', 'silicon valley',
+  'los angeles',
+  'san diego',
+  'jersey city',
+  'kansas city',
+  'st louis', 'st. louis', 'saint louis',
+  'new orleans',
+  'salt lake city',
+  'las vegas',
+  'long island',
 ]);
 
 // Known non-US cities that show up unstructured (no comma, no country
@@ -202,6 +240,24 @@ export function classifyLocation(location: string): LocationClassification {
   for (const part of parts) {
     if (NON_US_COUNTRY_CODES.has(part)) return 'non_us';
     if (NON_US_COUNTRY_NAMES.has(part)) return 'non_us';
+  }
+
+  // (D2) Positive US via city hints — symmetric to (E) on the positive
+  // side. Runs after (D) so "Boston, UK" still classifies as non-US (UK
+  // wins in D), but bare "NYC" or "Working in San Francisco" no longer
+  // falls through to 'unknown'.
+  for (const part of parts) {
+    if (US_CITY_HINTS.has(part)) return 'us';
+  }
+  for (const token of tokens) {
+    if (US_CITY_HINTS.has(token)) return 'us';
+  }
+  for (const city of US_CITY_HINTS) {
+    // Skip short abbreviations (nyc, dmv) in substring path — those are
+    // already caught by parts/tokens above, and substring on 3-char strings
+    // would risk matching inside unrelated words.
+    if (city.length < 5) continue;
+    if (trimmed.includes(city)) return 'us';
   }
 
   // (E) Substring fallback for unstructured strings ("Remote in Poland",

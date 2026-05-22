@@ -134,6 +134,7 @@ export async function sendBatchAlert(
     const fields = [
       { name: 'Score', value: `${posting.scoreLabel} (${posting.score ?? 0})`, inline: true },
       { name: 'Location', value: posting.location || 'Unknown', inline: true },
+      { name: 'Source', value: posting.source || 'Unknown', inline: true },
     ];
     if (posting.salaryText) {
       fields.push({ name: 'Salary', value: posting.salaryText, inline: true });

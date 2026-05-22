@@ -76,13 +76,15 @@ function Section({
   label,
   hint,
   children,
+  className = "",
 }: {
   label: string;
   hint?: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <section className="space-y-2">
+    <section className={`space-y-2 ${className}`}>
       <div className="flex items-baseline justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/45">
           {label}
@@ -294,14 +296,14 @@ export function NotifModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5 max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl bg-[oklch(0.18_0.005_260)] border-white/15 text-white p-5 max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-white text-[15px] font-semibold">
             <Bell className="h-3.5 w-3.5 text-white/60" />
             Notifications
           </DialogTitle>
         </DialogHeader>
-        <div className="space-y-5 py-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5 py-1">
           <Section label="Min score" hint="0 = alert on everything">
             <Input
               type="number"
@@ -334,7 +336,7 @@ export function NotifModal({
             </div>
           </Section>
 
-          <Section label="Role" hint="empty = all">
+          <Section label="Role" hint="empty = all" className="sm:col-span-2">
             <div className="flex flex-wrap gap-1.5">
               {ROLE_SPECIALIZATIONS.map((r) => {
                 const active = selectedRoles.includes(r.id);
@@ -360,7 +362,7 @@ export function NotifModal({
             </div>
           </Section>
 
-          <Section label="Seasons" hint="empty = all">
+          <Section label="Seasons" hint="empty = all" className="sm:col-span-2">
             <div className="flex flex-wrap gap-1.5">
               {seasonOptions.length === 0 ? (
                 <span className="text-[11px] text-white/40">None detected yet</span>
@@ -379,7 +381,7 @@ export function NotifModal({
             </div>
           </Section>
 
-          <Section label="Skip sources" hint="silence noisy sources">
+          <Section label="Skip sources" hint="silence noisy sources" className="sm:col-span-2">
             <div className="flex flex-wrap gap-1.5">
               {!dynamicSources || dynamicSources.length === 0 ? (
                 <span className="text-[11px] text-white/40">No sources loaded yet</span>
@@ -435,7 +437,7 @@ export function NotifModal({
             </div>
           </Section>
 
-          <Section label="Alerts">
+          <Section label="Alerts" className="sm:col-span-2">
             <Toggle
               on={sourceDownAlerts}
               onChange={onSourceDownAlertsChange}
