@@ -5,6 +5,7 @@ import { checkLinkStatus } from '../lib/store';
 import { isElite, isTopOrBetter } from '../lib/tiers';
 import { parseSeason } from '../lib/seasons';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
+import { postingMatchesAnyRole } from '../lib/role-taxonomy';
 import { classifyLocation } from './iso-locations';
 
 // Live-link check for outbound notifications. SimplifyJobs's aggregated
@@ -63,6 +64,12 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   if (f.excludeKeywords.length > 0) {
     const ban = f.excludeKeywords.map(k => k.toLowerCase());
     if (ban.some(k => kws.includes(k))) return false;
+  }
+  // Role gate — OR-semantics within Role (passes if posting matches ANY
+  // selected role). Empty roles → no gate. Same matcher the app FilterRail
+  // uses, so notifications and the UI stay consistent.
+  if (f.roles && f.roles.length > 0) {
+    if (!postingMatchesAnyRole(i.matchedKeywords ?? [], f.roles)) return false;
   }
   return true;
 }

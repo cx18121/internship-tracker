@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { ELITE_COUNT, TOP_COUNT } from "@/lib/tiers";
 import { formatSeasonLabel } from "@/lib/seasons";
+import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
 
 interface SeasonOption {
@@ -47,6 +48,10 @@ interface Props {
   knownKeywords: Set<string>;
   onIncludeKeywordsChange: (fn: (prev: string[]) => string[]) => void;
   onExcludeKeywordsChange: (fn: (prev: string[]) => string[]) => void;
+  // Role specializations — OR-semantics across selected RoleIds.
+  selectedRoles: RoleId[];
+  availableRoles: Set<RoleId>;
+  onRolesToggle: (id: RoleId) => void;
   // User-state skips
   skipApplied: boolean;
   skipHidden: boolean;
@@ -254,6 +259,9 @@ export function NotifModal({
   knownKeywords,
   onIncludeKeywordsChange,
   onExcludeKeywordsChange,
+  selectedRoles,
+  availableRoles,
+  onRolesToggle,
   skipApplied,
   skipHidden,
   onSkipAppliedChange,
@@ -323,6 +331,32 @@ export function NotifModal({
                   {label}
                 </Chip>
               ))}
+            </div>
+          </Section>
+
+          <Section label="Role" hint="empty = all">
+            <div className="flex flex-wrap gap-1.5">
+              {ROLE_SPECIALIZATIONS.map((r) => {
+                const active = selectedRoles.includes(r.id);
+                const unknown = !availableRoles.has(r.id);
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => onRolesToggle(r.id)}
+                    title={unknown ? "No postings currently match this role" : undefined}
+                    className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
+                      active
+                        ? "border-white/30 bg-white/10 text-white"
+                        : unknown
+                          ? "border-white/[0.06] bg-transparent text-white/25 hover:border-white/15"
+                          : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    {r.label}
+                  </button>
+                );
+              })}
             </div>
           </Section>
 

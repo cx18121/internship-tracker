@@ -125,6 +125,7 @@ export default function InternshipsPage() {
   const [notifExcludeNonUS, setNotifExcludeNonUS] = useState(false);
   const [notifIncludeKeywords, setNotifIncludeKeywords] = useState<string[]>([]);
   const [notifExcludeKeywords, setNotifExcludeKeywords] = useState<string[]>([]);
+  const [notifRoles, setNotifRoles] = useState<RoleId[]>([]);
   const [notifSkipApplied, setNotifSkipApplied] = useState(true);
   const [notifSkipHidden, setNotifSkipHidden] = useState(true);
   const [notifSaving, setNotifSaving] = useState(false);
@@ -349,6 +350,7 @@ export default function InternshipsPage() {
           if (typeof d.excludeNonUS === "boolean") setNotifExcludeNonUS(d.excludeNonUS);
           if (Array.isArray(d.includeKeywords)) setNotifIncludeKeywords(d.includeKeywords);
           if (Array.isArray(d.excludeKeywords)) setNotifExcludeKeywords(d.excludeKeywords);
+          if (Array.isArray(d.roles)) setNotifRoles(d.roles.filter(isRoleId));
           if (typeof d.skipApplied === "boolean") setNotifSkipApplied(d.skipApplied);
           if (typeof d.skipHidden === "boolean") setNotifSkipHidden(d.skipHidden);
         }
@@ -461,6 +463,7 @@ export default function InternshipsPage() {
           excludeNonUS: notifExcludeNonUS,
           includeKeywords: notifIncludeKeywords,
           excludeKeywords: notifExcludeKeywords,
+          roles: notifRoles,
           skipApplied: notifSkipApplied,
           skipHidden: notifSkipHidden,
         }),
@@ -1111,6 +1114,9 @@ export default function InternshipsPage() {
         knownKeywords={knownKeywords}
         onIncludeKeywordsChange={setNotifIncludeKeywords}
         onExcludeKeywordsChange={setNotifExcludeKeywords}
+        selectedRoles={notifRoles}
+        availableRoles={availableRoles}
+        onRolesToggle={(id) => setNotifRoles((prev) => toggleArr(prev, id))}
         skipApplied={notifSkipApplied}
         skipHidden={notifSkipHidden}
         onSkipAppliedChange={setNotifSkipApplied}

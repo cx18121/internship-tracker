@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import type { RoleId } from './role-taxonomy';
 
 export type TierFilter = 'all' | 'top-or-better' | 'elite';
 
@@ -22,6 +23,10 @@ export interface NotifSettings {
   // (NOT free-text search), same semantics as the app's FilterRail chips.
   includeKeywords: string[];
   excludeKeywords: string[];
+  // Role specialization gate — OR-semantics across selected RoleIds, matched
+  // against the scorer's matchedKeywords via postingMatchesAnyRole. Empty
+  // array means "no role gate". See src/lib/role-taxonomy.ts.
+  roles: RoleId[];
   // Skip postings the user has already engaged with in the UI. Default true
   // for both because re-surfacing an applied/hidden role is rarely useful.
   skipApplied: boolean;
@@ -37,6 +42,7 @@ const DEFAULT: NotifSettings = {
   excludeNonUS: false,
   includeKeywords: [],
   excludeKeywords: [],
+  roles: [],
   skipApplied: true,
   skipHidden: true,
 };

@@ -1,5 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
+import { ROLE_SPECIALIZATIONS, isRoleId, type RoleId } from "@/lib/role-taxonomy";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,7 @@ interface NotifSettings {
   excludeNonUS: boolean;
   includeKeywords: string[];
   excludeKeywords: string[];
+  roles: RoleId[];
   skipApplied: boolean;
   skipHidden: boolean;
 }
@@ -29,6 +31,7 @@ const DEFAULT: NotifSettings = {
   excludeNonUS: false,
   includeKeywords: [],
   excludeKeywords: [],
+  roles: [],
   skipApplied: true,
   skipHidden: true,
 };
@@ -56,6 +59,23 @@ function sanitizeSeasons(s: unknown): string[] {
     .filter((x): x is string => typeof x === "string")
     .map(x => x.trim().toLowerCase())
     .filter(x => /^(summer|fall|winter|spring|year)-\d{4}$/.test(x));
+}
+
+// Filters to known RoleId values and dedupes. Cap at the number of roles
+// in the taxonomy (currently 9) — any input larger than that is malformed,
+// not a feature.
+function sanitizeRoles(s: unknown): RoleId[] {
+  if (!Array.isArray(s)) return [];
+  const max = ROLE_SPECIALIZATIONS.length;
+  const seen = new Set<RoleId>();
+  const out: RoleId[] = [];
+  for (const x of s) {
+    if (typeof x !== "string" || !isRoleId(x) || seen.has(x)) continue;
+    seen.add(x);
+    out.push(x);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 // Generic string-array sanitizer for the keyword/source lists. Trims,
@@ -103,6 +123,7 @@ export async function POST(request: Request) {
       "includeKeywords" in body ? sanitizeStringList(body.includeKeywords) : current.includeKeywords,
     excludeKeywords:
       "excludeKeywords" in body ? sanitizeStringList(body.excludeKeywords) : current.excludeKeywords,
+    roles: "roles" in body ? sanitizeRoles(body.roles) : current.roles,
     skipApplied:
       typeof body.skipApplied === "boolean" ? body.skipApplied : current.skipApplied,
     skipHidden:
