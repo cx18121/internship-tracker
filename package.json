@@ -4,7 +4,7 @@
   "description": "Polls internship sources, filters/scores, Discord alerts, and a Next.js UI",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p ${PORT:-3001}",
     "build": "next build",
     "start": "next start -p ${PORT:-3000} -H 0.0.0.0",
     "lint": "eslint",
