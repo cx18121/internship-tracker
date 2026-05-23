@@ -5,6 +5,8 @@ import { checkLinkStatus } from '../lib/store';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
 import { applyFilterSpec } from '../lib/filter-spec';
 import { classifyLocation } from './iso-locations';
+import { sendEmailAlert } from './channels/email';
+import { sendSmsAlert } from './channels/sms';
 
 // Live-link check for outbound notifications. SimplifyJobs's aggregated
 // data sometimes includes roles that have already been closed on the
@@ -89,10 +91,23 @@ export async function sendBatchAlert(
     return false;
   }
 
+  const channels = settings.channels ?? { discord: true, email: false, sms: false };
+
+  // Fan out to all enabled channels in parallel (email/sms don't block each other).
+  const channelResults = await Promise.all([
+    channels.discord ? sendDiscordBatch(live) : Promise.resolve(false),
+    channels.email ? sendEmailAlert(live, settings.emailRecipients ?? []) : Promise.resolve(false),
+    channels.sms ? sendSmsAlert(live, settings.phoneNumbers ?? []) : Promise.resolve(false),
+  ]);
+
+  return channelResults.some(Boolean);
+}
+
+async function sendDiscordBatch(live: Internship[]): Promise<boolean> {
   const token = process.env.DISCORD_BOT_TOKEN;
   const channelId = process.env.DISCORD_CHANNEL_INTERNSHIPS;
   if (!token || !channelId) {
-    console.error('[notifier] DISCORD_BOT_TOKEN or DISCORD_CHANNEL_INTERNSHIPS not set; skipping alert');
+    console.error('[notifier] DISCORD_BOT_TOKEN or DISCORD_CHANNEL_INTERNSHIPS not set; skipping Discord alert');
     return false;
   }
 

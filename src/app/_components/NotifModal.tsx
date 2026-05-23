@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bell, Check, X } from "lucide-react";
+import { Bell, Check, X, Mail, MessageSquare, BotMessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,6 +15,7 @@ import { ELITE_COUNT, TOP_COUNT } from "@/lib/tiers";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
+import type { NotifChannels } from "@/lib/notifSettings";
 
 interface SeasonOption {
   token: string;
@@ -57,6 +58,13 @@ interface Props {
   skipHidden: boolean;
   onSkipAppliedChange: (b: boolean) => void;
   onSkipHiddenChange: (b: boolean) => void;
+  // Delivery channels
+  channels: NotifChannels;
+  onChannelToggle: (ch: keyof NotifChannels) => void;
+  emailRecipients: string[];
+  onEmailRecipientsChange: (fn: (prev: string[]) => string[]) => void;
+  phoneNumbers: string[];
+  onPhoneNumbersChange: (fn: (prev: string[]) => string[]) => void;
   // Save action
   onSave: () => void;
   saving: boolean;
@@ -268,6 +276,12 @@ export function NotifModal({
   skipHidden,
   onSkipAppliedChange,
   onSkipHiddenChange,
+  channels,
+  onChannelToggle,
+  emailRecipients,
+  onEmailRecipientsChange,
+  phoneNumbers,
+  onPhoneNumbersChange,
   onSave,
   saving,
   saved,
@@ -275,6 +289,21 @@ export function NotifModal({
 }: Props) {
   const [includeInput, setIncludeInput] = useState("");
   const [excludeInput, setExcludeInput] = useState("");
+  const [emailInput, setEmailInput] = useState("");
+  const [phoneInput, setPhoneInput] = useState("");
+
+  function addEmail() {
+    const v = emailInput.trim().toLowerCase();
+    if (!v || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return;
+    onEmailRecipientsChange((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    setEmailInput("");
+  }
+  function addPhone() {
+    const v = phoneInput.trim();
+    if (!v || !/^\+\d{10,15}$/.test(v)) return;
+    onPhoneNumbersChange((prev) => (prev.includes(v) ? prev : [...prev, v]));
+    setPhoneInput("");
+  }
 
   function addInclude() {
     const trimmed = includeInput.trim();
@@ -434,6 +463,79 @@ export function NotifModal({
             <div className="space-y-2">
               <Toggle on={skipApplied} onChange={onSkipAppliedChange} label="Skip applied postings" />
               <Toggle on={skipHidden} onChange={onSkipHiddenChange} label="Skip hidden postings" />
+            </div>
+          </Section>
+
+          <Section label="Channels" hint="where to send alerts" className="sm:col-span-2">
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <BotMessageSquare className="h-3.5 w-3.5 text-white/40 shrink-0" />
+                <Toggle on={channels.discord} onChange={() => onChannelToggle("discord")} label="Discord" />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Mail className="h-3.5 w-3.5 text-white/40 shrink-0" />
+                  <Toggle on={channels.email} onChange={() => onChannelToggle("email")} label="Email" />
+                </div>
+                {channels.email && (
+                  <div className="ml-6 space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <Input
+                        placeholder="you@example.com"
+                        value={emailInput}
+                        onChange={(e) => setEmailInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && addEmail()}
+                        className="h-7 text-[12px] bg-white/[0.04] border-white/10"
+                      />
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]" onClick={addEmail}>Add</Button>
+                    </div>
+                    {emailRecipients.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {emailRecipients.map((e) => (
+                          <span key={e} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-white/10 text-white/70">
+                            {e}
+                            <button onClick={() => onEmailRecipientsChange((prev) => prev.filter((x) => x !== e))}><X className="h-2.5 w-2.5" /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-white/35">Requires <code className="text-white/50">RESEND_API_KEY</code> env var</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-3.5 w-3.5 text-white/40 shrink-0" />
+                  <Toggle on={channels.sms} onChange={() => onChannelToggle("sms")} label="SMS (text message)" />
+                </div>
+                {channels.sms && (
+                  <div className="ml-6 space-y-1.5">
+                    <div className="flex gap-1.5">
+                      <Input
+                        placeholder="+12125551234"
+                        value={phoneInput}
+                        onChange={(e) => setPhoneInput(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && addPhone()}
+                        className="h-7 text-[12px] bg-white/[0.04] border-white/10"
+                      />
+                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]" onClick={addPhone}>Add</Button>
+                    </div>
+                    {phoneNumbers.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {phoneNumbers.map((p) => (
+                          <span key={p} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-white/10 text-white/70">
+                            {p}
+                            <button onClick={() => onPhoneNumbersChange((prev) => prev.filter((x) => x !== p))}><X className="h-2.5 w-2.5" /></button>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    <p className="text-[10px] text-white/35">E.164 format · Requires Twilio env vars</p>
+                  </div>
+                )}
+              </div>
             </div>
           </Section>
 

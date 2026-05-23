@@ -115,6 +115,9 @@ export default function InternshipsPage() {
   const [notifRoles, setNotifRoles] = useState<RoleId[]>([]);
   const [notifSkipApplied, setNotifSkipApplied] = useState(true);
   const [notifSkipHidden, setNotifSkipHidden] = useState(true);
+  const [notifChannels, setNotifChannels] = useState({ discord: true, email: false, sms: false });
+  const [notifEmailRecipients, setNotifEmailRecipients] = useState<string[]>([]);
+  const [notifPhoneNumbers, setNotifPhoneNumbers] = useState<string[]>([]);
   const [notifSaving, setNotifSaving] = useState(false);
   const [notifSaved, setNotifSaved] = useState(false);
   // Null when no error; set to a short string when the last save attempt
@@ -340,6 +343,9 @@ export default function InternshipsPage() {
           if (Array.isArray(d.roles)) setNotifRoles(d.roles.filter(isRoleId));
           if (typeof d.skipApplied === "boolean") setNotifSkipApplied(d.skipApplied);
           if (typeof d.skipHidden === "boolean") setNotifSkipHidden(d.skipHidden);
+          if (d.channels && typeof d.channels === "object") setNotifChannels(d.channels);
+          if (Array.isArray(d.emailRecipients)) setNotifEmailRecipients(d.emailRecipients);
+          if (Array.isArray(d.phoneNumbers)) setNotifPhoneNumbers(d.phoneNumbers);
         }
       })
       .catch(() => {});
@@ -453,6 +459,9 @@ export default function InternshipsPage() {
           roles: notifRoles,
           skipApplied: notifSkipApplied,
           skipHidden: notifSkipHidden,
+          channels: notifChannels,
+          emailRecipients: notifEmailRecipients,
+          phoneNumbers: notifPhoneNumbers,
         }),
       });
       // fetch() resolves on 4xx/5xx, so we have to inspect res.ok before
@@ -1119,6 +1128,12 @@ export default function InternshipsPage() {
         skipHidden={notifSkipHidden}
         onSkipAppliedChange={setNotifSkipApplied}
         onSkipHiddenChange={setNotifSkipHidden}
+        channels={notifChannels}
+        onChannelToggle={(ch) => setNotifChannels((prev) => ({ ...prev, [ch]: !prev[ch] }))}
+        emailRecipients={notifEmailRecipients}
+        onEmailRecipientsChange={setNotifEmailRecipients}
+        phoneNumbers={notifPhoneNumbers}
+        onPhoneNumbersChange={setNotifPhoneNumbers}
         onSave={saveNotifSettings}
         saving={notifSaving}
         saved={notifSaved}
