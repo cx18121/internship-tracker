@@ -44,15 +44,14 @@ import type {
 } from "./_lib/types";
 import { PAGE_SIZE, DATE_WINDOWS } from "./_lib/constants";
 import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
-import { isElite, isTopOrBetter } from "@/lib/tiers";
 import { parseSeason, seasonSortKey } from "@/lib/seasons";
 import {
   ROLE_SPECIALIZATIONS,
   isRoleId,
-  postingMatchesAnyRole,
   postingMatchesRole,
   type RoleId,
 } from "@/lib/role-taxonomy";
+import { applyFilterSpec } from "@/lib/filter-spec";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -567,26 +566,11 @@ export default function InternshipsPage() {
   const searchLower = searchText.trim().toLowerCase();
   const filtered = internships
     .filter((i) => {
-      // Hidden — exclude unless user opted to show
-      if (i.hidden && !showHidden) return false;
-      // Free-text search: substring match on company OR title OR location
+      // App-only predicates that aren't in the shared filter spec —
+      // free-text search and substring location matching.
       if (searchLower) {
         const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
         if (!hay.includes(searchLower)) return false;
-      }
-      if (selectedSources.length > 0 && !selectedSources.includes(i.source)) return false;
-      if (minScore > 0 && (i.score ?? 0) < minScore) return false;
-      if (appliedFilter === "applied" && !i.applied) return false;
-      if (appliedFilter === "not-applied" && i.applied) return false;
-      if (tierFilter === "elite" && !isElite(i.company)) return false;
-      if (tierFilter === "top-or-better" && !isTopOrBetter(i.company)) return false;
-      if (selectedSeasons.length > 0) {
-        const tokens = i.season ?? parseSeason(i.title);
-        if (!tokens.some((t) => selectedSeasons.includes(t))) return false;
-      }
-      if (windowCutoff !== null) {
-        const posted = new Date(i.postedAt ?? 0).getTime();
-        if (!Number.isFinite(posted) || posted < windowCutoff) return false;
       }
       if (selectedLocations.length > 0 || locationText) {
         const loc = i.location.toLowerCase();
@@ -595,18 +579,21 @@ export default function InternshipsPage() {
         if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
         if (selectedLocations.length === 0 && locationText && !textMatch) return false;
       }
-      if (includeKeywords.length > 0) {
-        const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
-        if (!includeKeywords.some((k) => kws.includes(k.toLowerCase()))) return false;
-      }
-      if (excludeKeywords.length > 0) {
-        const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
-        if (excludeKeywords.some((k) => kws.includes(k.toLowerCase()))) return false;
-      }
-      if (selectedRoles.length > 0 && !postingMatchesAnyRole(i.matchedKeywords ?? [], selectedRoles)) {
-        return false;
-      }
-      return true;
+      // Everything else (tier / seasons / sources / score / date /
+      // keywords / roles / applied / hidden) routes through the spec
+      // shared with the notifier.
+      return applyFilterSpec(i, {
+        tier: tierFilter,
+        seasons: selectedSeasons,
+        appliedFilter,
+        excludeHidden: !showHidden,
+        includeSources: selectedSources,
+        minScore,
+        postedAfter: windowCutoff ?? undefined,
+        includeKeywords,
+        excludeKeywords,
+        roles: selectedRoles,
+      });
     })
     .sort((a, b) => {
       if (sortBy === "posted") {
@@ -645,23 +632,10 @@ export default function InternshipsPage() {
     let all = 0,
       applied = 0;
     for (const i of internships) {
-      // Mirror the same filters as the main list, except applied-filter.
-      if (i.hidden && !showHidden) continue;
+      // Mirror the main list's filters, except the appliedFilter tab itself.
       if (searchLower) {
         const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
         if (!hay.includes(searchLower)) continue;
-      }
-      if (selectedSources.length > 0 && !selectedSources.includes(i.source)) continue;
-      if (minScore > 0 && (i.score ?? 0) < minScore) continue;
-      if (tierFilter === "elite" && !isElite(i.company)) continue;
-      if (tierFilter === "top-or-better" && !isTopOrBetter(i.company)) continue;
-      if (selectedSeasons.length > 0) {
-        const tokens = i.season ?? parseSeason(i.title);
-        if (!tokens.some((t) => selectedSeasons.includes(t))) continue;
-      }
-      if (windowCutoff !== null) {
-        const posted = new Date(i.postedAt ?? 0).getTime();
-        if (!Number.isFinite(posted) || posted < windowCutoff) continue;
       }
       if (selectedLocations.length > 0 || locationText) {
         const loc = i.location.toLowerCase();
@@ -670,17 +644,17 @@ export default function InternshipsPage() {
         if (!locMatch && !textMatch && !(selectedLocations.length === 0)) continue;
         if (selectedLocations.length === 0 && locationText && !textMatch) continue;
       }
-      if (includeKeywords.length > 0) {
-        const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
-        if (!includeKeywords.some((k) => kws.includes(k.toLowerCase()))) continue;
-      }
-      if (excludeKeywords.length > 0) {
-        const kws = (i.matchedKeywords ?? []).map((k) => k.toLowerCase());
-        if (excludeKeywords.some((k) => kws.includes(k.toLowerCase()))) continue;
-      }
-      if (selectedRoles.length > 0 && !postingMatchesAnyRole(i.matchedKeywords ?? [], selectedRoles)) {
-        continue;
-      }
+      if (!applyFilterSpec(i, {
+        tier: tierFilter,
+        seasons: selectedSeasons,
+        excludeHidden: !showHidden,
+        includeSources: selectedSources,
+        minScore,
+        postedAfter: windowCutoff ?? undefined,
+        includeKeywords,
+        excludeKeywords,
+        roles: selectedRoles,
+      })) continue;
       all++;
       if (i.applied) applied++;
     }

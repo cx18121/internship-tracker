@@ -2,10 +2,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Internship } from '../lib/types';
 import { checkLinkStatus } from '../lib/store';
-import { isElite, isTopOrBetter } from '../lib/tiers';
-import { parseSeason } from '../lib/seasons';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
-import { postingMatchesAnyRole } from '../lib/role-taxonomy';
+import { applyFilterSpec } from '../lib/filter-spec';
 import { classifyLocation } from './iso-locations';
 
 // Live-link check for outbound notifications. SimplifyJobs's aggregated
@@ -31,47 +29,26 @@ const SOURCE_EMOJIS: Record<string, string> = {
 };
 
 function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
-  if (f.tierFilter === 'elite' && !isElite(i.company ?? '')) return false;
-  if (f.tierFilter === 'top-or-better' && !isTopOrBetter(i.company ?? '')) return false;
-  if (f.seasons.length > 0) {
-    const tokens = i.season ?? parseSeason(i.title ?? '');
-    if (!tokens.some(t => f.seasons.includes(t))) return false;
-  }
-  // User-engagement guards — defaults true. Rows in this function's input
-  // are usually brand-new (newInternships from the current cycle, so
-  // applied/hidden are false), but the guards cover edge cases where a
-  // posting gets re-emitted under a fresh id after the user has acted on
-  // a sibling row.
-  if (f.skipApplied && i.applied) return false;
-  if (f.skipHidden && i.hidden) return false;
-  // Source blocklist — match against the discovery source.
-  if (f.excludedSources.length > 0 && i.source && f.excludedSources.includes(i.source)) {
-    return false;
-  }
-  // Non-US gate — uses the structured classifier. 'unknown' (unstructured
-  // strings like "Remote" or "NYC") passes through; only definitive
-  // non-US classifications are filtered.
+  // Non-US gate is notifier-only — uses the structured location
+  // classifier from src/poller/, which doesn't belong in the
+  // browser-importable shared spec. 'unknown' classifications
+  // (unstructured strings like "Remote" or "NYC") pass through.
   if (f.excludeNonUS && classifyLocation(i.location || '') === 'non_us') {
     return false;
   }
-  // Keyword gates — match against the scorer's matchedKeywords (same
-  // semantics as the app FilterRail). Case-insensitive set membership.
-  const kws = (i.matchedKeywords ?? []).map(k => k.toLowerCase());
-  if (f.includeKeywords.length > 0) {
-    const need = f.includeKeywords.map(k => k.toLowerCase());
-    if (!need.some(k => kws.includes(k))) return false;
-  }
-  if (f.excludeKeywords.length > 0) {
-    const ban = f.excludeKeywords.map(k => k.toLowerCase());
-    if (ban.some(k => kws.includes(k))) return false;
-  }
-  // Role gate — OR-semantics within Role (passes if posting matches ANY
-  // selected role). Empty roles → no gate. Same matcher the app FilterRail
-  // uses, so notifications and the UI stay consistent.
-  if (f.roles && f.roles.length > 0) {
-    if (!postingMatchesAnyRole(i.matchedKeywords ?? [], f.roles)) return false;
-  }
-  return true;
+  // Everything else routes through the spec shared with the app
+  // table — keeps tier/seasons/source/keyword/role semantics in
+  // one place so the two surfaces don't drift.
+  return applyFilterSpec(i, {
+    tier: f.tierFilter,
+    seasons: f.seasons,
+    appliedFilter: f.skipApplied ? 'not-applied' : 'all',
+    excludeHidden: f.skipHidden,
+    excludeSources: f.excludedSources,
+    includeKeywords: f.includeKeywords,
+    excludeKeywords: f.excludeKeywords,
+    roles: f.roles,
+  });
 }
 
 export async function sendBatchAlert(
