@@ -45,6 +45,7 @@ logs/
 # Tooling caches
 .claude/
 .playwright-mcp/
+.mindtrace/
 
 # OS
 .DS_Store
