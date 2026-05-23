@@ -114,11 +114,15 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
           // collection tags (e.g. "Cornell collection") concatenate directly with city names
           // (e.g. "Aug 9New York", "collectionNew York") with no space separator, so a simple
           // \b word-boundary check on the month name will fail — drop the leading \b.
+          // Handshake's employment-type label "Internship" likewise glues directly onto
+          // the city ("InternshipSan Jose, CA"), which the case-insensitive [a-z]+ in
+          // the location regex would otherwise swallow as one proper-noun run.
           const cleanedText = fullText
             .replace(/[A-Z][a-z]{2}\s+\d{1,2}[—–\-][A-Z][a-z]{2}\s+\d{1,2}/g, ' ')
             .replace(/\$[\d,]+(?:[-–][\d,]+)?\/hr/gi, ' ')
             .replace(/\b\w+\s+collection/gi, ' ')
-            .replace(/\+\s*\d+\b/g, ' ');
+            .replace(/\+\s*\d+\b/g, ' ')
+            .replace(/Internship(?=[A-Z])/g, ' ');
           // Match city/state — multi-word cities (e.g. "New York, NY") supported via inner group
           const locationMatch = cleanedText.match(
             /\b(remote|hybrid|on.?site|new york|san francisco|los angeles|nyc|boston|seattle|austin|chicago|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\b/i
