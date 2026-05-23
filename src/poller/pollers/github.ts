@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
+import { stripHtml } from '../utils/html';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
@@ -63,27 +64,6 @@ async function resolveSimplifyApplyUrl(
 // Cell 2: Location (text)
 // Cell 3: Apply link — <a href="apply-url">...</a>
 // Cell 4: Days posted
-
-function decodeHtmlEntities(str: string): string {
-  return str
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(+code))
-    .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&apos;/g, "'");
-}
-
-function stripHtml(html: string): string {
-  // Replace <br> with newlines so multi-line content stays readable
-  const withBreaks = html.replace(/<br\s*\/?>/gi, '\n');
-  // Strip tags
-  const stripped = withBreaks.replace(/<[^>]+>/g, '');
-  // Decode HTML entities (e.g. &amp; &gt; &#x25B6; &#9654;)
-  return decodeHtmlEntities(stripped).trim();
-}
 
 /**
  * Parse a multi-location <details><summary> cell.
@@ -189,7 +169,7 @@ async function fetchDescriptionByUrl(url: string): Promise<string> {
         `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${jobId}?content=true`,
         { timeout: 8000 },
       );
-      return stripHtml(decodeHtmlEntities(data?.content ?? '')).slice(0, 4000);
+      return stripHtml(data?.content ?? '').slice(0, 4000);
     }
     // Lever: https://jobs.lever.co/{slug}/{id}
     m = url.match(/jobs\.lever\.co\/([^/?#]+)\/([a-f0-9-]+)/);

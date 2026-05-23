@@ -4,24 +4,11 @@ import * as path from 'path';
 import { Internship, ATSTarget } from '../../lib/types';
 import { loadATSTargets } from '../../lib/utils/ats-discovery';
 import { INTERN_SIGNAL_RE, isInternTitle } from '../utils/intern-signal';
+import { stripHtml } from '../utils/html';
 
 const REQUEST_TIMEOUT = 10_000;
 
 export { isInternTitle };
-
-function stripHtml(html: string): string {
-  if (!html) return '';
-  return html
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
 
 async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
   const url = `https://boards-api.greenhouse.io/v1/boards/${target.slug}/jobs?content=true`;
