@@ -6,12 +6,15 @@
 // minor variations ("j.updated_at || now", "j.createdAt ? new Date(...)
 // : now", etc.).
 //
-// Callers pass the always-required identifying fields plus an optional
-// upstream-reported publication timestamp. Source-specific extras
-// (description, atsSource, multiLocation, salary fields) are spread
-// in by the caller — they aren't part of the wiring, just the row.
+// Callers pass identifying fields, an optional upstream-reported
+// publication timestamp, and the description (either pre-stripped plain
+// text via `description` or raw HTML via `descriptionHtml` — never both).
+// Source-specific extras (atsSource, multiLocation, salary fields) are
+// spread in by the caller. The single truncation point downstream is
+// smartTrimDescription in agent.ts; this layer only does null-collapse.
 
 import type { Internship } from '../../lib/types';
+import { stripHtml } from './html';
 
 export interface RowSeed {
   title: string;
@@ -26,9 +29,21 @@ export interface RowSeed {
   /** ISO timestamp the poller is using as "now". Threaded from the
    *  caller so an entire poll batch shares one timestamp. */
   seenAt: string;
+  /** Plain-text description. Pollers that already have stripped text
+   *  (Lever via descriptionPlain, Ashby/Workday/SmartRecruiters via the
+   *  description-fetcher helpers) pass it here. */
+  description?: string | null;
+  /** Raw HTML description. Pollers that hold unstripped markup
+   *  (Greenhouse j.content, JobSpy when description_format=html) pass it
+   *  here and buildInternshipRow strips. Mutually exclusive with
+   *  `description` — if both are set, `descriptionHtml` wins. */
+  descriptionHtml?: string | null;
 }
 
 export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
+  const rawDesc = seed.descriptionHtml
+    ? stripHtml(seed.descriptionHtml)
+    : (seed.description ?? '');
   // Internship.location is typed as `string` (not nullable). Existing
   // pollers fall back to '' when no location is known; mirror that here
   // so the typed surface stays narrow.
@@ -41,5 +56,6 @@ export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
     postedAt: seed.upstreamPostedAt || seed.seenAt,
     seenAt: seed.seenAt,
     applied: false,
+    description: rawDesc.trim() || undefined,
   };
 }

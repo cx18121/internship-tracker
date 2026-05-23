@@ -68,17 +68,15 @@ export async function pollJobSpy(): Promise<Partial<Internship>[]> {
       }
 
       const now = new Date().toISOString();
-      const results: Partial<Internship>[] = parsed.map((j) => ({
-        ...buildInternshipRow({
-          title: j.title || '',
-          company: j.company || '',
-          location: j.location || '',
-          link: j.link || '',
-          source: j.source || 'JobSpy',
-          upstreamPostedAt: j.postedAt,
-          seenAt: now,
-        }),
-        description: j.description || '',
+      const results: Partial<Internship>[] = parsed.map((j) => buildInternshipRow({
+        title: j.title || '',
+        company: j.company || '',
+        location: j.location || '',
+        link: j.link || '',
+        source: j.source || 'JobSpy',
+        upstreamPostedAt: j.postedAt,
+        seenAt: now,
+        descriptionHtml: j.description,
       }));
 
       console.log(`[jobspy] Fetched ${results.length} jobs`);

@@ -49,16 +49,14 @@ function extractInterns(rawHtmlAttr: string, now: string): Partial<Internship>[]
   const jobs: RawJob[] = data?.props?.jobs || [];
   return jobs
     .filter((j) => (j.jobType || '').toLowerCase() === 'intern')
-    .map((j) => ({
-      ...buildInternshipRow({
-        title: j.title,
-        company: j.companyName,
-        location: j.location,
-        link: `https://www.workatastartup.com/jobs/${j.id}`,
-        source: 'YC WaaS',
-        upstreamPostedAt: j.companyLastActiveAt,
-        seenAt: now,
-      }),
+    .map((j) => buildInternshipRow({
+      title: j.title,
+      company: j.companyName,
+      location: j.location,
+      link: `https://www.workatastartup.com/jobs/${j.id}`,
+      source: 'YC WaaS',
+      upstreamPostedAt: j.companyLastActiveAt,
+      seenAt: now,
       description: buildSeedDescription(j),
     }));
 }
@@ -95,8 +93,9 @@ async function enrichDescription(
         .trim();
       if (!plain) continue;
       // Keep the seed (which carries the salary string) so parseSalary still works,
-      // then append the real description body.
-      j.description = [j.description, plain].filter(Boolean).join('\n\n').slice(0, 4000);
+      // then append the real description body. smartTrimDescription in agent.ts
+      // applies the storage cap; this 20000 is a memory floor.
+      j.description = [j.description, plain].filter(Boolean).join('\n\n').slice(0, 20_000);
     } catch {
       // Detail-page fetches are best-effort; failures leave the seed description alone.
     }

@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { buildInternshipRow } from '../utils/build-row';
+import { HANDSHAKE_PROMO_BANNER_SOURCE } from '../utils/description-trim';
 
 function alertAuthExpired(): void {
   console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');
@@ -219,7 +220,7 @@ async function enrichWithDetailLinks(
       // an XHR that takes ~2-3s to settle.
       await page.waitForTimeout(3000);
 
-      const detail = await page.evaluate((patterns: string[]) => {
+      const detail = await page.evaluate(({ patterns, bannerSource }: { patterns: string[]; bannerSource: string }) => {
         const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
 
         // Priority 1: any link directly matching a known ATS platform
@@ -279,10 +280,20 @@ async function enrichWithDetailLinks(
             descSelectorHit = 'job-details-page (apply-modal + similar-jobs stripped)';
           }
         }
-        description = description.replace(/\s+/g, ' ').trim().slice(0, 4000);
+        description = description.replace(/\s+/g, ' ').trim();
+        // Handshake's mobile-app promo banner sits inside the same data-hook
+        // wrapper and gets captured as a description prefix. Word-for-word
+        // stable across postings; strip it. Banner pattern is shared with
+        // the backfill script via HANDSHAKE_PROMO_BANNER_SOURCE. If nothing
+        // of substance is left after the strip, return empty rather than
+        // store the banner.
+        description = description.replace(new RegExp(bannerSource, 'gi'), '').trim();
+        if (description.length < 50) description = '';
+        // Memory floor; smartTrimDescription in agent.ts caps for storage.
+        description = description.slice(0, 20_000);
 
         return { externalLink, description, descSelectorHit };
-      }, EXTERNAL_ATS_PATTERNS);
+      }, { patterns: EXTERNAL_ATS_PATTERNS, bannerSource: HANDSHAKE_PROMO_BANNER_SOURCE });
 
       if (detail.externalLink) {
         job.link = detail.externalLink;

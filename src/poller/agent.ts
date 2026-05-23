@@ -14,6 +14,7 @@ import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { parseSalary } from '../lib/salary';
 import { normalizeKey } from '../lib/normalize-key';
 import { buildInternshipRow } from './utils/build-row';
+import { smartTrimDescription } from './utils/description-trim';
 import { sendBatchAlert, checkAndAlertSourceHealth } from './notifier';
 import { loadNotifSettings } from '../lib/notifSettings';
 
@@ -210,7 +211,10 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
         seenAt: now,
       }),
       id,
-      description: p.description,
+      // Trim AFTER scoring — scorer sees the full 4000-char poller-side
+      // text; storage gets a UI-friendly subset (benefits/EEO/legal tail
+      // dropped, capped ~2000). Keeps scoring quality, shrinks display.
+      description: smartTrimDescription(p.description) || undefined,
       // ATS provenance is set by github/portal-scanner pollers and required by
       // portal-scanner's archiveDisappeared() (closing detection). Forward it.
       atsSource: p.atsSource,

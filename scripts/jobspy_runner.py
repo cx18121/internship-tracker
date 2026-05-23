@@ -153,7 +153,12 @@ def main():
                 # so the LinkedIn portion of the cycle takes 3-5x longer. Trade-off accepted for
                 # description-aware scoring.
                 linkedin_fetch_description=True,
-                description_format="markdown",
+                # HTML, not markdown — JobSpy's markdown converter escapes
+                # punctuation (`\$4,582\.93`, `\-`) and emits literal `**bold**`
+                # / `### heading` markers that render as text in the UI's
+                # plain-text view. The TS side strips HTML via stripHtml,
+                # matching every other ATS poller's pipeline.
+                description_format="html",
             )
 
             if df is None or df.empty:
@@ -163,9 +168,13 @@ def main():
             count = 0
             for _, row in df.iterrows():
                 title = str(row.get("title") or "").strip()
-                company = str(row.get("company") or "").strip()
+                # `pd.NaN` is truthy in Python (NaN is a non-zero float), so the
+                # earlier `or ""` fallback let NaN through and `str(NaN)` leaked
+                # the literal string "nan" as the company name. Use pd.notna.
+                company_val = row.get("company")
+                company = str(company_val).strip() if pd.notna(company_val) else ""
                 link = stabilize_linkedin_link(str(row.get("job_url") or "").strip())
-                if not title or not link:
+                if not title or not link or not company:
                     continue
 
                 # Skip aggregator/redirect links — they republish listings, not host applications
@@ -198,7 +207,10 @@ def main():
                         posted_at = str(date_val)
 
                 desc_val = row.get("description")
-                description = str(desc_val)[:4000].strip() if pd.notna(desc_val) else ""
+                # Slice generously on the HTML side — tags inflate length 2-3x
+                # over plain text. The TS poller strips HTML then re-slices to
+                # 4000 chars of text, matching every other ATS description path.
+                description = str(desc_val)[:20000].strip() if pd.notna(desc_val) else ""
 
                 all_jobs.append({
                     "title": title,
