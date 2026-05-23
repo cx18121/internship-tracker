@@ -154,6 +154,10 @@ function applyColumnMigrations(db: Database.Database): void {
     }
   }
   for (const { sql } of LATER_INDEXES) db.exec(sql);
+
+  // One-time cleanup: delete rows where the Python JobSpy runner leaked the
+  // literal string "nan" as the company name (str(float('nan')) in pandas).
+  db.prepare(`DELETE FROM internships WHERE company = 'nan'`).run();
 }
 
 // ---------------------------------------------------------------------------
