@@ -13,12 +13,12 @@
 // The parts-based positive US check runs first, so "Las Cruces, New Mexico"
 // returns 'us' before substring fallback ever sees "mexico". Same for
 // "Paris, KY" (matches "ky"), "Vienna, VA, US" (matches "va" and "us"),
-// and "Cambridge, MA, US" (matches "ma" and "us"). This is the structural
-// fix for the brittle hardcoded NON_US_LOCATIONS list that lived here
-// before: country coverage now comes from country-list (ISO 3166-1 alpha-2)
-// instead of being maintained by hand.
+// and "Cambridge, MA, US" (matches "ma" and "us"). Country coverage comes
+// from world-countries (common + official + altSpellings + cca2 + cca3),
+// so colloquial forms like "United Kingdom", "Russia", and "Ivory Coast"
+// match without a hand-maintained alias table.
 
-import iso from 'iso-3166-1';
+import countries from 'world-countries';
 
 export type LocationClassification = 'us' | 'non_us' | 'unknown';
 
@@ -50,71 +50,41 @@ const US_STATE_NAMES = new Set<string>([
   'puerto rico', 'guam',
 ]);
 
-// Common short forms that aren't the ISO-official name. country-list ships
-// names like "Russian Federation (the)", "Korea (the Republic of)", and
-// "Lao People's Democratic Republic (the)" — real-world location strings
-// almost always use the colloquial short form ("Russia", "South Korea",
-// "Laos"). After parenthetical-strip the long forms still don't match
-// "russia"/"south korea"/"laos" as substrings, so they're added here.
-const COUNTRY_NAME_ALIASES = new Set<string>([
-  'russia',
-  'south korea', 'north korea',
-  'laos',
-  'syria',
-  'palestine',
-  'tanzania',
-  'czech republic',
-  'macedonia',
-  'east timor',
-  'ivory coast',
-  'cape verde',
-  'burma',
-  'swaziland',
-  'vatican',
-  'great britain', 'britain', 'england', 'scotland', 'wales', 'northern ireland',
-  // ISO alpha-2 for the UK is "GB" — "UK" is colloquial and would otherwise
-  // miss the parts-based country check (and substring fallback skips < 5 char
-  // entries, so "uk" never matches there either). Added explicitly so
-  // "Boston, UK" / "London, UK" classify as non_us.
-  'uk',
-]);
-
-// ISO 3166-1 alpha-2 + alpha-3 codes (lowercased) excluding US. Built at
-// module init so we stay current with ISO updates without hand-maintaining
-// the list. Alpha-3 codes catch prefixed formats like "MYS - PETALING JAYA"
-// (5 rows in DB), "POL - Gdansk, Poland", "CAN - Burlington, ON".
-const NON_US_COUNTRY_CODES: Set<string> = new Set(
-  iso.all().flatMap((c) =>
-    c.alpha2 === 'US' ? [] : [c.alpha2.toLowerCase(), c.alpha3.toLowerCase()],
-  ),
-);
-
-// ISO country names with "Republic of", "Islamic Republic of", etc. prefixes
-// stripped + parentheticals removed, lowercased, minus US, plus the
-// colloquial aliases above. The strip patterns let "Republic of Korea"
-// match real-world "korea" tokens; full forms still survive for substring
-// fallback.
-function normalizeCountryName(name: string): string {
-  return name
-    .replace(/\s*\([^)]*\)/g, '')
-    .replace(/^the\s+/i, '')
-    .replace(/^(islamic|democratic|federal|bolivarian|plurinational|democratic people's)\s+republic of\s+/i, '')
-    .replace(/^republic of\s+/i, '')
-    .replace(/^state of\s+/i, '')
-    .replace(/^kingdom of\s+/i, '')
-    .replace(/^united republic of\s+/i, '')
-    .replace(/^syrian arab republic.*/i, 'syria')
-    .replace(/^russian federation.*/i, 'russian federation') // keep stable for alias map
+// Country data is sourced from `world-countries`, which ships three name
+// fields per country (common / official / altSpellings) instead of the
+// single formal name `iso-3166-1` exposes. The colloquial form humans
+// type into job postings ("United Kingdom", "Russia", "South Korea",
+// "Ivory Coast") is the `common` name; alt spellings carry historical
+// and variant forms ("Burma" for Myanmar, "Holy See" for Vatican City,
+// "Great Britain" for the UK). Pulling all three eliminates the
+// hand-maintained alias list this module used to carry.
+function canonicalize(s: string): string {
+  return s
+    .replace(/\s*\([^)]*\)/g, '') // strip parentheticals like "Taiwan (Province of China)"
     .trim()
     .toLowerCase();
 }
-const NON_US_COUNTRY_NAMES: Set<string> = new Set([
-  ...iso.all()
-    .filter((c) => c.alpha2 !== 'US')
-    .map((c) => normalizeCountryName(c.country))
-    .filter(Boolean),
-  ...COUNTRY_NAME_ALIASES,
-]);
+
+const NON_US_COUNTRY_CODES = new Set<string>();
+const NON_US_COUNTRY_NAMES = new Set<string>();
+for (const c of countries) {
+  if (c.cca2 === 'US') continue;
+  NON_US_COUNTRY_CODES.add(c.cca2.toLowerCase());
+  NON_US_COUNTRY_CODES.add(c.cca3.toLowerCase());
+  NON_US_COUNTRY_NAMES.add(canonicalize(c.name.common));
+  NON_US_COUNTRY_NAMES.add(canonicalize(c.name.official));
+  for (const alt of c.altSpellings ?? []) {
+    const norm = canonicalize(alt);
+    if (norm) NON_US_COUNTRY_NAMES.add(norm);
+  }
+}
+
+// England, Scotland, Wales, and Northern Ireland are sub-national parts of
+// the UK and don't have their own ISO 3166-1 entries, but they're how
+// people commonly write UK locations ("Edinburgh, Scotland"). Add manually.
+for (const part of ['england', 'scotland', 'wales', 'northern ireland']) {
+  NON_US_COUNTRY_NAMES.add(part);
+}
 
 // Known unambiguous US cities/abbreviations — symmetric to NON_US_CITY_HINTS
 // on the positive side. Without this, bare strings like "NYC" or "Working
@@ -225,6 +195,24 @@ export function classifyLocation(location: string): LocationClassification {
   // state interpretation in step C below ("Wilmington, DE" → Delaware).
   if (parts.length >= 3 && NON_US_COUNTRY_CODES.has(lastPart)) {
     return 'non_us';
+  }
+
+  // (B') Country-first format. Same collision space as (B), but for layouts
+  // where the country code leads ("DE - Berlin", "CA-ON-MISSISSAUGA-...",
+  // "IN-Pune"). Two signals justify the country reading over the state one:
+  //   - a later part is a known foreign city ("DE - Berlin")
+  //   - parts[0] and parts[1] are both short codes, i.e. a hierarchical
+  //     country-region-city chain ("CA-ON-X", "ID-SM-Y") — US "ST - City"
+  //     forms have a long city name in parts[1] ("CO - Denver"), not a code.
+  // US-state-prefix forms ("CO - Denver", "AZ - Chandler") fall through to
+  // (C) untouched.
+  if (parts.length >= 2 && NON_US_COUNTRY_CODES.has(parts[0])) {
+    for (let i = 1; i < parts.length; i++) {
+      if (NON_US_CITY_HINTS.has(parts[i])) return 'non_us';
+    }
+    if (parts.length >= 3 && parts[0].length <= 3 && parts[1].length <= 3) {
+      return 'non_us';
+    }
   }
 
   // (C) Weak US: 2-letter state code in any delimited part. Tokens are

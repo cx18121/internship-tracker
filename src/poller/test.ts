@@ -76,6 +76,67 @@ test('SWE role (Backend Engineer Intern) → passes', () => {
   assert.strictEqual(r.passed, true);
 });
 
+// Country-name regression tests — these specific strings leaked through the
+// hand-maintained alias list and prompted the swap to world-countries data.
+test('Non-US: "Cambridge, United Kingdom" → excluded', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'Cambridge, United Kingdom' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('Non-US: "Hsinchu, Taiwan" → excluded', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'Hsinchu, Taiwan' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('Non-US: "Moscow, Russia" → excluded (common name, not "Russian Federation")', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'Moscow, Russia' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('Non-US: "Abidjan, Ivory Coast" → excluded (common, not "Côte d\'Ivoire")', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'Abidjan, Ivory Coast' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('Non-US: "Edinburgh, Scotland" → excluded (UK sub-national)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'Edinburgh, Scotland' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('US: "Las Cruces, New Mexico" → passes (state name beats "mexico" substring)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'Las Cruces, New Mexico' });
+  assert.strictEqual(r.passed, true);
+});
+
+// Position-based disambiguation for codes that collide between US states and
+// ISO country codes (DE=Delaware/Germany, IN=Indiana/India, CA=California/
+// Canada, ID=Idaho/Indonesia). US format puts the code last; foreign format
+// puts it first.
+test('Non-US: "DE - Berlin" → excluded (country-first with foreign city)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'DE - Berlin' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('Non-US: "CA-ON-MISSISSAUGA-..." → excluded (hierarchical code chain)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'CA-ON-MISSISSAUGA-P22M01' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('Non-US: "IN-Pune" → excluded (foreign city beats Indiana state code)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'IN-Pune' });
+  assert.strictEqual(r.reason, 'non_us');
+});
+
+test('US: "AZ - Chandler" → passes (state-prefix form, no foreign city)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'AZ - Chandler' });
+  assert.strictEqual(r.passed, true);
+});
+
+test('US: "CA - San Francisco" → passes (California prefix, US city)', () => {
+  const r = applyHardFilters({ title: 'SWE Intern', location: 'CA - San Francisco' });
+  assert.strictEqual(r.passed, true);
+});
+
 // ==============================================================
 // 2. Scorer tests
 // ==============================================================
