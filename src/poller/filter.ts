@@ -1,5 +1,6 @@
 import { Internship } from '../lib/types';
 import { classifyLocation } from './iso-locations';
+import { INTERN_SIGNAL_RE } from './utils/intern-signal';
 
 const PHD_MASTERS_PATTERNS = [
   '🎓', 'phd', 'ph.d', 'doctoral', 'masters required', 'ms required',
@@ -12,8 +13,6 @@ const PHD_MASTERS_PATTERNS = [
 const CLOSED_PATTERNS = [
   '🔒', 'position filled', 'no longer accepting', 'closed'
 ];
-
-const INTERN_SIGNAL_RE = /\b(intern(ship)?|co-?op)\b/i;
 
 const NON_SWE_ROLES = [
   // Engineering disciplines that are not CS/SWE
