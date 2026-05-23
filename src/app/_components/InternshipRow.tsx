@@ -8,17 +8,17 @@ import {
   SOURCE_DOT,
   SOURCE_DOT_FALLBACK,
 } from "../_lib/constants";
-import { formatDate, isStale } from "../_lib/format";
+import { formatDate, isStale, timeAgo } from "../_lib/format";
 import { formatSeasonLabel } from "@/lib/seasons";
 
 // Shared grid template — used by the row AND the header in InternshipList
 // so columns align across every row.
 //
 // Mobile (< md): 4 cols — Score · Company+title (stacked) · Posted · Apply.
-// Desktop (md+): the full 8-col operator template (Score · Company · Title
-//   · Salary · Location · Season · Posted · Actions).
+// Desktop (md+): the full 9-col operator template (Score · Company · Title
+//   · Salary · Location · Season · Posted · Refreshed · Actions).
 export const LIST_GRID_COLS =
-  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,5.5rem)_minmax(0,9rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
+  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,5.5rem)_minmax(0,9rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
 
 interface Props {
   item: Internship;
@@ -140,6 +140,20 @@ export function InternshipRow({
           </span>
         );
       })()}
+
+      {/* Refreshed — last time any of our pollers re-confirmed the role is
+          still listed. Desktop-only; mobile already shows Posted in the
+          tight 4-col layout. */}
+      <span
+        className="hidden md:flex text-[11px] tabular-nums text-white/40 truncate"
+        title={
+          item.seenAt
+            ? `Last confirmed by poller ${timeAgo(item.seenAt)}`
+            : undefined
+        }
+      >
+        {item.seenAt ? formatDate(item.seenAt) : "—"}
+      </span>
 
       {/* Actions */}
       <div className="flex items-center gap-1 justify-self-end">
