@@ -49,7 +49,7 @@ export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
   // so the typed surface stays narrow.
   return {
     title: seed.title,
-    company: seed.company,
+    company: seed.company.replace(/\p{Emoji_Presentation}\s*/gu, '').trim(),
     location: seed.location ?? '',
     link: seed.link,
     source: seed.source,

@@ -158,6 +158,17 @@ function applyColumnMigrations(db: Database.Database): void {
   // One-time cleanup: delete rows where the Python JobSpy runner leaked the
   // literal string "nan" as the company name (str(float('nan')) in pandas).
   db.prepare(`DELETE FROM internships WHERE company = 'nan'`).run();
+
+  // Strip leading emoji (e.g. "🔥 Apple") from company names scraped by
+  // upstream sources. SQLite lacks Unicode regex, so we match the specific
+  // known prefix pattern via GLOB and replace in JS then UPDATE.
+  const emojiRe = /^\p{Emoji_Presentation}\s*/u;
+  const rows = db.prepare(`SELECT id, company FROM internships WHERE company GLOB '[^A-Za-z0-9 ]*'`).all() as { id: string; company: string }[];
+  const update = db.prepare(`UPDATE internships SET company = ? WHERE id = ?`);
+  for (const row of rows) {
+    const cleaned = row.company.replace(/\p{Emoji_Presentation}\s*/gu, '').trim();
+    if (cleaned !== row.company) update.run(cleaned, row.id);
+  }
 }
 
 // ---------------------------------------------------------------------------
