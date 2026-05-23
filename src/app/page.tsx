@@ -499,19 +499,6 @@ export default function InternshipsPage() {
         .sort()
     : null;
 
-  // Dynamic season tokens. Prefer the stored `season` field; fall back to
-  // parseSeason for any pre-migration row that's still null. Chronological
-  // sort (winter → spring → summer → fall, year ASC).
-  const dynamicSeasons = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const i of internships) {
-      const tokens = i.season ?? parseSeason(i.title);
-      for (const s of tokens) counts.set(s, (counts.get(s) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort(([a], [b]) =>
-      seasonSortKey(a).localeCompare(seasonSortKey(b)),
-    );
-  }, [internships]);
 
   // Every keyword that appears on at least one internship's matchedKeywords
   // anywhere in the loaded corpus. Used by FilterRail to dim keyword chips
@@ -549,6 +536,57 @@ export default function InternshipsPage() {
     if (!cfg || cfg.days == null) return null;
     return Date.now() - cfg.days * 24 * 60 * 60 * 1000;
   }, [dateWindow]);
+
+  // Internships that pass every active filter except the season filter.
+  // Season chip counts are derived from this so they update when tier, source,
+  // role, etc. change — without counting against the season selection itself.
+  const filteredExcludingSeasons = useMemo(() => {
+    const sl = searchText.trim().toLowerCase();
+    return internships.filter((i) => {
+      if (sl) {
+        const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
+        if (!hay.includes(sl)) return false;
+      }
+      if (selectedLocations.length > 0 || locationText) {
+        const loc = i.location.toLowerCase();
+        const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
+        const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
+        if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
+        if (selectedLocations.length === 0 && locationText && !textMatch) return false;
+      }
+      return applyFilterSpec(i, {
+        tier: tierFilter,
+        appliedFilter,
+        excludeHidden: !showHidden,
+        includeSources: selectedSources,
+        minScore,
+        postedAfter: windowCutoff ?? undefined,
+        includeKeywords,
+        excludeKeywords,
+        roles: selectedRoles,
+      });
+    });
+  }, [
+    internships, searchText, showHidden, selectedSources, minScore, tierFilter,
+    appliedFilter, windowCutoff, selectedLocations, locationText,
+    includeKeywords, excludeKeywords, selectedRoles,
+  ]);
+
+  // Dynamic season tokens. Prefer the stored `season` field; fall back to
+  // parseSeason for any pre-migration row that's still null. Chronological
+  // sort (winter → spring → summer → fall, year ASC).
+  // Counts reflect the filtered corpus (all filters except season) so clicking
+  // e.g. "Top 125" immediately updates the numbers next to each season chip.
+  const dynamicSeasons = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const i of filteredExcludingSeasons) {
+      const tokens = i.season ?? parseSeason(i.title);
+      for (const s of tokens) counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort(([a], [b]) =>
+      seasonSortKey(a).localeCompare(seasonSortKey(b)),
+    );
+  }, [filteredExcludingSeasons]);
 
   // Client-side filter + sort
   const searchLower = searchText.trim().toLowerCase();

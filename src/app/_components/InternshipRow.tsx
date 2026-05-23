@@ -79,7 +79,7 @@ export function InternshipRow({
       <span className="hidden md:block text-white/60 truncate min-w-0">{item.title}</span>
 
       {/* Salary — desktop only, small inline chip */}
-      <span className="hidden md:flex justify-self-start min-w-0">
+      <span className="hidden md:flex overflow-hidden min-w-0">
         {item.salaryText ? (
           <span
             className="px-1.5 py-0.5 rounded text-[10.5px] font-medium bg-emerald-500/12 text-emerald-300 border border-emerald-500/20 truncate max-w-full tabular-nums"
