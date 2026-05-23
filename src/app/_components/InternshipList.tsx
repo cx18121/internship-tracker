@@ -21,7 +21,7 @@ const COL_HEADERS: Array<{ label: string; mobileHidden?: boolean; sortKey?: Sort
   { label: "Location", mobileHidden: true },
   { label: "Season", mobileHidden: true },
   { label: "Posted", sortKey: "posted" },
-  { label: "Refreshed", mobileHidden: true },
+  { label: "Verified", mobileHidden: true },
   { label: "" },
 ];
 

@@ -16,7 +16,7 @@ import { formatSeasonLabel } from "@/lib/seasons";
 //
 // Mobile (< md): 4 cols — Score · Company+title (stacked) · Posted · Apply.
 // Desktop (md+): the full 9-col operator template (Score · Company · Title
-//   · Salary · Location · Season · Posted · Refreshed · Actions).
+//   · Salary · Location · Season · Posted · Verified · Actions).
 export const LIST_GRID_COLS =
   "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,5.5rem)_minmax(0,9rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
 
@@ -141,7 +141,7 @@ export function InternshipRow({
         );
       })()}
 
-      {/* Refreshed — last time any of our pollers re-confirmed the role is
+      {/* Verified — last time any of our pollers re-confirmed the role is
           still listed. Desktop-only; mobile already shows Posted in the
           tight 4-col layout. */}
       <span

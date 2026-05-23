@@ -7,7 +7,7 @@ function Bar({ className = "" }: { className?: string }) {
 }
 
 // One width per column in the desktop template: Score, Company, Title,
-// Salary, Location, Season, Posted, Refreshed. (Action column has its own renderer.)
+// Salary, Location, Season, Posted, Verified. (Action column has its own renderer.)
 const ROW_WIDTHS = [
   ["w-7", "w-24", "w-3/5", "w-12", "w-20", "w-12", "w-10", "w-10"],
   ["w-7", "w-20", "w-2/3", "w-14", "w-24", "w-14", "w-10", "w-10"],
@@ -34,7 +34,7 @@ export function ListSkeleton() {
           { label: "Location", mobileHidden: true },
           { label: "Season", mobileHidden: true },
           { label: "Posted" },
-          { label: "Refreshed", mobileHidden: true },
+          { label: "Verified", mobileHidden: true },
           { label: "" },
         ].map(({ label, mobileHidden }, i, arr) => (
           <span
@@ -67,7 +67,7 @@ export function ListSkeleton() {
           <Bar className={`hidden md:inline-block ${widths[5]}`} />
           {/* Posted */}
           <Bar className={widths[6]} />
-          {/* Refreshed — desktop only */}
+          {/* Verified — desktop only */}
           <Bar className={`hidden md:inline-block ${widths[7]}`} />
           {/* Actions */}
           <span className="justify-self-end inline-flex gap-1">
