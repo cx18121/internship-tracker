@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Pre-push gate: runs the full test suite (unit + live API) against a
+# spawned dev server before allowing a push.
+#
+# Skip with `git push --no-verify` for emergencies.
+# Set SKIP_TESTS=1 to bypass for the current shell session.
+#
+# Enable: `git config core.hooksPath .githooks` (auto-set by the `prepare`
+# script on `npm install`).
+
+set -e
+
+if [ "${SKIP_TESTS:-0}" = "1" ]; then
+  echo "[pre-push] SKIP_TESTS=1 — bypassing tests."
+  exit 0
+fi
+
+echo "[pre-push] Running npm run test:full…"
+npm run test:full
