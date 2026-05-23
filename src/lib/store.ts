@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import { Internship } from './types';
 import { stripUtm } from './utils/normalize';
 import { deriveSeasonWithDefault } from './seasons';
+import { normalizeKey } from './normalize-key';
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -168,6 +169,87 @@ function applyColumnMigrations(db: Database.Database): void {
   for (const row of rows) {
     const cleaned = row.company.replace(/\p{Emoji_Presentation}\s*/gu, '').trim();
     if (cleaned !== row.company) update.run(cleaned, row.id);
+  }
+
+  // Backfill normalized_key + archive exact-title duplicates.
+  // Runs every boot but is near-instant after the first pass (0 null rows, 0 dupes).
+  deduplicateExistingRows(db);
+}
+
+/**
+ * Idempotent dedup pass run at startup:
+ * 1. Computes and writes normalized_key for every row where it's still null.
+ * 2. For each group of active rows sharing a normalized_key, archives all but
+ *    the best representative (applied > high score > newest seen_at).
+ * 3. Removes archived dupes from seen_ids so future polls don't unarchive them
+ *    via the exact-id path — they'll hit the normalized_key check instead.
+ */
+function deduplicateExistingRows(db: Database.Database): void {
+  // Step 1 — backfill
+  const nullRows = db.prepare(
+    `SELECT id, company, title FROM internships WHERE normalized_key IS NULL OR normalized_key = ''`
+  ).all() as { id: string; company: string; title: string }[];
+
+  if (nullRows.length > 0) {
+    const setKey = db.prepare(`UPDATE internships SET normalized_key = ? WHERE id = ?`);
+    const backfillTxn = db.transaction((items: typeof nullRows) => {
+      for (const r of items) setKey.run(normalizeKey(r.company, r.title), r.id);
+    });
+    backfillTxn(nullRows);
+    console.log(`[store] Backfilled normalized_key for ${nullRows.length} rows`);
+  }
+
+  // Step 2 — find duplicate groups
+  const dupGroups = db.prepare(`
+    SELECT normalized_key
+    FROM internships
+    WHERE archived = 0 AND normalized_key IS NOT NULL AND normalized_key != ''
+    GROUP BY normalized_key
+    HAVING COUNT(*) > 1
+  `).all() as { normalized_key: string }[];
+
+  if (dupGroups.length === 0) return;
+
+  const getGroup = db.prepare(`
+    SELECT id, score, applied, applied_at, seen_at
+    FROM internships
+    WHERE archived = 0 AND normalized_key = ?
+    ORDER BY applied DESC, COALESCE(score, 0) DESC, seen_at DESC
+  `);
+  const archiveRow  = db.prepare(`UPDATE internships SET archived = 1 WHERE id = ?`);
+  const promoteApplied = db.prepare(
+    `UPDATE internships SET applied = 1, applied_at = COALESCE(applied_at, ?) WHERE id = ?`
+  );
+  const removeSeen  = db.prepare(`DELETE FROM seen_ids WHERE id = ?`);
+
+  let archived = 0;
+  const dedup = db.transaction(() => {
+    for (const { normalized_key } of dupGroups) {
+      const group = getGroup.all(normalized_key) as Array<{
+        id: string; score: number | null; applied: number;
+        applied_at: string | null; seen_at: string;
+      }>;
+      if (group.length <= 1) continue;
+
+      const [keeper, ...dupes] = group;
+
+      // Merge applied state: if any dup was applied but the keeper wasn't, promote
+      if (keeper.applied === 0) {
+        const appliedDupe = dupes.find(r => r.applied === 1);
+        if (appliedDupe) promoteApplied.run(appliedDupe.applied_at, keeper.id);
+      }
+
+      for (const dupe of dupes) {
+        archiveRow.run(dupe.id);
+        removeSeen.run(dupe.id);
+        archived++;
+      }
+    }
+  });
+  dedup();
+
+  if (archived > 0) {
+    console.log(`[store] Dedup: archived ${archived} duplicate postings across ${dupGroups.length} key groups`);
   }
 }
 
@@ -530,7 +612,8 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         ats_source       = COALESCE(ats_source,  @atsSource),
         ats_target       = COALESCE(ats_target,  @atsTarget),
         ats_job_id       = COALESCE(ats_job_id,  @atsJobId),
-        multi_location   = COALESCE(multi_location, @multiLocation)
+        multi_location   = COALESCE(multi_location, @multiLocation),
+        normalized_key   = COALESCE(normalized_key, @normalizedKey)
       WHERE id = @id
     `);
     // Refresh-on-rediscovery: when the same posting (same md5 ID) comes back
@@ -560,7 +643,8 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         ats_source       = COALESCE(ats_source,  @atsSource),
         ats_target       = COALESCE(ats_target,  @atsTarget),
         ats_job_id       = COALESCE(ats_job_id,  @atsJobId),
-        multi_location   = COALESCE(multi_location, @multiLocation)
+        multi_location   = COALESCE(multi_location, @multiLocation),
+        normalized_key   = COALESCE(normalized_key, @normalizedKey)
       WHERE id = @id
     `);
     const insertInternship = db.prepare(`
