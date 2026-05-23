@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import Database from 'better-sqlite3';
 import { Internship } from './types';
-import { stripUtm } from './utils/normalize';
+import { stripUtm, stripEmojiPrefix } from './utils/normalize';
 import { deriveSeasonWithDefault } from './seasons';
 import { normalizeKey } from './normalize-key';
 
@@ -161,13 +161,15 @@ function applyColumnMigrations(db: Database.Database): void {
   db.prepare(`DELETE FROM internships WHERE company = 'nan'`).run();
 
   // Strip leading emoji (e.g. "🔥 Apple") from company names scraped by
-  // upstream sources. SQLite lacks Unicode regex, so we match the specific
-  // known prefix pattern via GLOB and replace in JS then UPDATE.
-  const emojiRe = /^\p{Emoji_Presentation}\s*/u;
-  const rows = db.prepare(`SELECT id, company FROM internships WHERE company GLOB '[^A-Za-z0-9 ]*'`).all() as { id: string; company: string }[];
+  // upstream sources. SQLite lacks Unicode regex, so GLOB narrows to rows
+  // whose company starts with a non-alphanumeric — the JS pass then does
+  // the actual emoji strip via the shared util.
+  const rows = db.prepare(
+    `SELECT id, company FROM internships WHERE company GLOB '[^A-Za-z0-9 ]*'`
+  ).all() as { id: string; company: string }[];
   const update = db.prepare(`UPDATE internships SET company = ? WHERE id = ?`);
   for (const row of rows) {
-    const cleaned = row.company.replace(/\p{Emoji_Presentation}\s*/gu, '').trim();
+    const cleaned = stripEmojiPrefix(row.company);
     if (cleaned !== row.company) update.run(cleaned, row.id);
   }
 

@@ -546,23 +546,31 @@ export default function InternshipsPage() {
     return Date.now() - cfg.days * 24 * 60 * 60 * 1000;
   }, [dateWindow]);
 
+  // Search + location are app-only predicates not in the shared filter spec.
+  // Factored out so `filtered` and `filteredExcludingSeasons` can't drift —
+  // both used to inline-duplicate this block.
+  const searchLower = searchText.trim().toLowerCase();
+  const passesLocalPredicates = useCallback((i: Internship): boolean => {
+    if (searchLower) {
+      const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
+      if (!hay.includes(searchLower)) return false;
+    }
+    if (selectedLocations.length > 0 || locationText) {
+      const loc = i.location.toLowerCase();
+      const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
+      const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
+      if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
+      if (selectedLocations.length === 0 && locationText && !textMatch) return false;
+    }
+    return true;
+  }, [searchLower, selectedLocations, locationText]);
+
   // Internships that pass every active filter except the season filter.
   // Season chip counts are derived from this so they update when tier, source,
   // role, etc. change — without counting against the season selection itself.
   const filteredExcludingSeasons = useMemo(() => {
-    const sl = searchText.trim().toLowerCase();
     return internships.filter((i) => {
-      if (sl) {
-        const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
-        if (!hay.includes(sl)) return false;
-      }
-      if (selectedLocations.length > 0 || locationText) {
-        const loc = i.location.toLowerCase();
-        const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
-        const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
-        if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
-        if (selectedLocations.length === 0 && locationText && !textMatch) return false;
-      }
+      if (!passesLocalPredicates(i)) return false;
       return applyFilterSpec(i, {
         tier: tierFilter,
         appliedFilter,
@@ -576,16 +584,15 @@ export default function InternshipsPage() {
       });
     });
   }, [
-    internships, searchText, showHidden, selectedSources, minScore, tierFilter,
-    appliedFilter, windowCutoff, selectedLocations, locationText,
-    includeKeywords, excludeKeywords, selectedRoles,
+    internships, passesLocalPredicates, showHidden, selectedSources, minScore, tierFilter,
+    appliedFilter, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
   // Dynamic season tokens. Prefer the stored `season` field; fall back to
   // parseSeason for any pre-migration row that's still null. Chronological
   // sort (winter → spring → summer → fall, year ASC).
   // Counts reflect the filtered corpus (all filters except season) so clicking
-  // e.g. "Top 125" immediately updates the numbers next to each season chip.
+  // a tier filter immediately updates the numbers next to each season chip.
   const dynamicSeasons = useMemo(() => {
     const counts = new Map<string, number>();
     for (const i of filteredExcludingSeasons) {
@@ -598,22 +605,9 @@ export default function InternshipsPage() {
   }, [filteredExcludingSeasons]);
 
   // Client-side filter + sort
-  const searchLower = searchText.trim().toLowerCase();
   const filtered = internships
     .filter((i) => {
-      // App-only predicates that aren't in the shared filter spec —
-      // free-text search and substring location matching.
-      if (searchLower) {
-        const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
-        if (!hay.includes(searchLower)) return false;
-      }
-      if (selectedLocations.length > 0 || locationText) {
-        const loc = i.location.toLowerCase();
-        const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
-        const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
-        if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
-        if (selectedLocations.length === 0 && locationText && !textMatch) return false;
-      }
+      if (!passesLocalPredicates(i)) return false;
       // Everything else (tier / seasons / sources / score / date /
       // keywords / roles / applied / hidden) routes through the spec
       // shared with the notifier.

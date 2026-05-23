@@ -500,7 +500,7 @@ export function NotifModal({
                         ))}
                       </div>
                     )}
-                    <p className="text-[10px] text-white/35">Requires <code className="text-white/50">RESEND_API_KEY</code> env var</p>
+                    <p className="text-[10px] text-white/35">Requires <code className="text-white/50">RESEND_API_KEY</code>; set <code className="text-white/50">RESEND_FROM</code> for a verified sender (defaults to Resend sandbox)</p>
                   </div>
                 )}
               </div>

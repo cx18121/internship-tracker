@@ -13,6 +13,18 @@
  * Stripping it collapsed every Indeed posting to the same `viewjob` URL and
  * destroyed dedup keys for that source.
  */
+/**
+ * Strips emoji presentation characters from a string and collapses trailing
+ * whitespace they leave behind. Used to clean up scraped company names like
+ * "🔥   Apple" that some boards prefix to highlight roles. Narrow to
+ * `Emoji_Presentation` (chars that default to emoji rendering) so we don't
+ * accidentally strip legit symbols like ™ or © from a name.
+ */
+const EMOJI_STRIP_RE = /\p{Emoji_Presentation}\s*/gu;
+export function stripEmojiPrefix(s: string): string {
+  return s.replace(EMOJI_STRIP_RE, '').trim();
+}
+
 export function stripUtm(url: string): string {
   if (!url) return url;
 

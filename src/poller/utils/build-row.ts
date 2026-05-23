@@ -14,6 +14,7 @@
 // smartTrimDescription in agent.ts; this layer only does null-collapse.
 
 import type { Internship } from '../../lib/types';
+import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import { stripHtml } from './html';
 
 export interface RowSeed {
@@ -49,7 +50,7 @@ export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
   // so the typed surface stays narrow.
   return {
     title: seed.title,
-    company: seed.company.replace(/\p{Emoji_Presentation}\s*/gu, '').trim(),
+    company: stripEmojiPrefix(seed.company),
     location: seed.location ?? '',
     link: seed.link,
     source: seed.source,
