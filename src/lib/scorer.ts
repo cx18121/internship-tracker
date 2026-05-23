@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { Internship } from "./types";
+import { tokenize, containsPhrase } from "./keyword-match";
 
 // ---------------------------------------------------------------------------
 // Config loading
@@ -41,14 +42,17 @@ export function _resetConfigCache(): void {
 // ---------------------------------------------------------------------------
 // Per-component scoring
 // ---------------------------------------------------------------------------
+// Matching uses tokenize+containsPhrase from keyword-match.ts — see there
+// for stemming rules and rationale. Sharing the matcher with tiers.ts keeps
+// the UI filter aligned with what the scorer actually counted.
 
 function scoreRole(title: string, config: ScoringConfig, matched: string[]): number {
   if (!title) return 0;
-  const lower = title.toLowerCase();
+  const tokens = tokenize(title);
   for (const tier of Object.keys(config.roleTiers)) {
     const info = config.roleTiers[tier];
     for (const kw of info.keywords) {
-      if (lower.includes(kw.toLowerCase())) {
+      if (containsPhrase(tokens, tokenize(kw))) {
         matched.push(kw);
         return info.points;
       }
@@ -59,12 +63,11 @@ function scoreRole(title: string, config: ScoringConfig, matched: string[]): num
 
 function scoreCompany(company: string, config: ScoringConfig, matched: string[]): number {
   if (!company) return 0;
-  const lower = company.toLowerCase().trim();
+  const tokens = tokenize(company);
   for (const tier of Object.keys(config.companyTiers)) {
     const info = config.companyTiers[tier];
     for (const name of info.companies) {
-      const n = name.toLowerCase();
-      if (lower === n || lower.includes(n) || n.includes(lower)) {
+      if (containsPhrase(tokens, tokenize(name))) {
         matched.push(name);
         return info.points;
       }
@@ -75,13 +78,12 @@ function scoreCompany(company: string, config: ScoringConfig, matched: string[])
 
 function scoreTech(text: string, config: ScoringConfig, matched: string[]): number {
   if (!text) return 0;
-  const lower = text.toLowerCase();
+  const tokens = tokenize(text);
   let pts = 0;
-  // Iterate high → medium → low; collect matched keywords up to the cap.
   for (const level of Object.keys(config.techStack)) {
     const info = config.techStack[level];
     for (const kw of info.keywords) {
-      if (lower.includes(kw.toLowerCase())) {
+      if (containsPhrase(tokens, tokenize(kw))) {
         matched.push(kw);
         pts += info.points;
         if (pts >= config.techStackCap) return config.techStackCap;
@@ -93,10 +95,10 @@ function scoreTech(text: string, config: ScoringConfig, matched: string[]): numb
 
 function scoreDomain(text: string, config: ScoringConfig, matched: string[]): number {
   if (!text || !config.domainSignals) return 0;
-  const lower = text.toLowerCase();
+  const tokens = tokenize(text);
   let pts = 0;
   for (const kw of config.domainSignals.keywords) {
-    if (lower.includes(kw.toLowerCase())) {
+    if (containsPhrase(tokens, tokenize(kw))) {
       matched.push(kw);
       pts += config.domainSignals.pointsEach;
       if (pts >= config.domainSignals.cap) return config.domainSignals.cap;
@@ -107,13 +109,13 @@ function scoreDomain(text: string, config: ScoringConfig, matched: string[]): nu
 
 function scoreLocation(location: string, config: ScoringConfig, matched: string[]): number {
   if (!location) return 0;
-  const lower = location.toLowerCase();
+  const tokens = tokenize(location);
   let best = 0;
   let bestKw: string | null = null;
   for (const tier of Object.keys(config.locationBonus)) {
     const info = config.locationBonus[tier];
     for (const kw of info.keywords) {
-      if (lower.includes(kw.toLowerCase())) {
+      if (containsPhrase(tokens, tokenize(kw))) {
         if (info.points > best) { best = info.points; bestKw = kw; }
         break;
       }

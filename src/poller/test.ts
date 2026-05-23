@@ -207,6 +207,47 @@ test('Zero raw score → finalScore = 0', () => {
   assert.strictEqual(r.score, 0);
 });
 
+// Morphology: keyword "engineer intern" must match titles using "engineering
+// intern" — same role, different inflection. Real-world regression: Apple's
+// "Undergrad Engineering Intern" was scoring only the company tier (55)
+// because the substring "engineer intern" doesn't appear in "engineerING
+// intern". The proper fix tokenizes + stems trailing -ing/-s so morphological
+// variants of the same word match.
+test('Morphology: "Engineering Intern" matches T3 "engineer intern"', () => {
+  const r = scoreInternship({
+    title: 'Undergrad Engineering Intern',
+    company: 'Apple',
+    location: 'United States',
+  });
+  // T3 (13) + elite Apple (55) = 68
+  assert.strictEqual(r.breakdown.role, 13, `expected role=13, got ${r.breakdown.role}`);
+  assert.strictEqual(r.score, 68, `expected 68, got ${r.score}`);
+});
+
+// Same morphology rule applied to T1: "Software Engineering Intern" should
+// pick up the T1 "software engineer" tier (40), not just fall through to T3.
+test('Morphology: "Software Engineering Intern" matches T1 "software engineer"', () => {
+  const r = scoreInternship({
+    title: 'Software Engineering Intern',
+    company: 'Corp LLC',
+    location: '',
+  });
+  assert.strictEqual(r.breakdown.role, 40, `expected T1=40, got ${r.breakdown.role}`);
+});
+
+// Negative case: stemming must not mangle short tech keywords. "redis" is
+// only 5 chars; stripping a trailing -s would yield "redi", which would no
+// longer match itself. Min stem length must guard against this.
+test('Morphology: short tech keywords like "redis" are not mangled by stemming', () => {
+  const r = scoreInternship({
+    title: 'Backend Intern',
+    company: 'Corp LLC',
+    location: '',
+    description: 'You will work with Redis and PostgreSQL.',
+  });
+  assert.ok(r.matchedKeywords.includes('redis'), `expected "redis" matched, got ${JSON.stringify(r.matchedKeywords)}`);
+});
+
 // Verify the config-injection seam: a synthetic config with a single role
 // keyword and no other tiers should drive scoring entirely off the injected
 // values, with no filesystem read.

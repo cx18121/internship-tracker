@@ -1,27 +1,34 @@
 // Reuse the canonical company-tier lists from the scorer config so the UI
 // filter and notifier never drift from the scoring system's view of
-// "elite" / "top". Matching mirrors src/lib/scorer.ts: case-insensitive,
-// bidirectional substring (covers "Apple" vs "Apple Inc.", etc.).
+// "elite" / "top". Matching uses the same tokenized+stemmed phrase match
+// as the scorer (see keyword-match.ts) — so e.g. "Apple Inc." matches
+// keyword "apple" but "Pineapple Express" does not.
 import config from "../../data/scoring-config.json";
+import { tokenize, containsPhrase } from "./keyword-match";
 
-const ELITE = (config.companyTiers?.elite?.companies ?? []).map((s: string) => s.toLowerCase());
-const TOP   = (config.companyTiers?.top?.companies ?? []).map((s: string) => s.toLowerCase());
+const ELITE = config.companyTiers?.elite?.companies ?? [];
+const TOP   = config.companyTiers?.top?.companies   ?? [];
 
-function matchesAny(company: string, list: string[]): boolean {
-  const lower = company.toLowerCase().trim();
-  if (!lower) return false;
-  for (const name of list) {
-    if (lower === name || lower.includes(name) || name.includes(lower)) return true;
+// Pre-tokenize the tier lists once at module load — these lists are static
+// and matchesAny gets called per row on every render.
+const ELITE_TOKENS = ELITE.map((s: string) => tokenize(s));
+const TOP_TOKENS   = TOP.map((s: string) => tokenize(s));
+
+function matchesAny(company: string, tokenLists: string[][]): boolean {
+  const tokens = tokenize(company);
+  if (tokens.length === 0) return false;
+  for (const needle of tokenLists) {
+    if (containsPhrase(tokens, needle)) return true;
   }
   return false;
 }
 
 export function isElite(company: string): boolean {
-  return matchesAny(company, ELITE);
+  return matchesAny(company, ELITE_TOKENS);
 }
 
 export function isTopOrBetter(company: string): boolean {
-  return matchesAny(company, ELITE) || matchesAny(company, TOP);
+  return matchesAny(company, ELITE_TOKENS) || matchesAny(company, TOP_TOKENS);
 }
 
 export const ELITE_COUNT = ELITE.length;
