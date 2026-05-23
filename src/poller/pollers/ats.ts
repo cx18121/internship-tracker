@@ -7,7 +7,7 @@ import { loadATSTargets } from '../../lib/utils/ats-discovery';
 const REQUEST_TIMEOUT = 10_000;
 
 export function isInternTitle(title: string): boolean {
-  return /\bintern(ship)?\b/i.test(title);
+  return /\b(intern(ship)?|co-?op)\b/i.test(title);
 }
 
 function stripHtml(html: string): string {
@@ -29,7 +29,7 @@ async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<I
   const { data } = await axios.get(url, { timeout: REQUEST_TIMEOUT });
   const company = target.name || target.slug;
   return (data.jobs || [])
-    .filter((j: any) => /\bintern(ship)?\b/i.test(j.title || ''))
+    .filter((j: any) => /\b(intern(ship)?|co-?op)\b/i.test(j.title || ''))
     .map((j: any) => ({
       title: j.title || '',
       company,
@@ -133,8 +133,8 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
   const company = target.name || appData?.organization?.name || target.slug;
 
   const interns = postings.filter((j) => {
-    const titleMatch = /\bintern(ship)?\b/i.test(j.title || '');
-    const typeMatch = /\bintern(ship)?\b/i.test(j.employmentType || '');
+    const titleMatch = /\b(intern(ship)?|co-?op)\b/i.test(j.title || '');
+    const typeMatch = /\b(intern(ship)?|co-?op)\b/i.test(j.employmentType || '');
     return titleMatch || typeMatch;
   });
 

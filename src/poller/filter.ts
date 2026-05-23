@@ -13,7 +13,7 @@ const CLOSED_PATTERNS = [
   '🔒', 'position filled', 'no longer accepting', 'closed'
 ];
 
-const INTERN_SIGNAL_RE = /\bintern(ship)?\b/i;
+const INTERN_SIGNAL_RE = /\b(intern(ship)?|co-?op)\b/i;
 
 const NON_SWE_ROLES = [
   // Engineering disciplines that are not CS/SWE
