@@ -12,6 +12,7 @@
     "poller:dev": "npx tsx --watch src/poller/index.ts",
     "serve": "node scripts/supervisor.cjs",
     "test": "npx tsx src/poller/test.ts",
+    "test:full": "npx tsx scripts/test-with-server.ts",
     "handshake:login": "npx tsx src/poller/handshake-login.ts",
     "discover:ats": "npx tsx scripts/exa-discover-ats.ts",
     "match:sparrow": "npx tsx scripts/match-sparrow-startups.ts"

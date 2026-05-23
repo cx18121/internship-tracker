@@ -271,13 +271,13 @@ console.log('\n── Live API tests ──────────────�
 async function runApiTests(): Promise<void> {
   const base = 'http://localhost:3001/api/internships';
 
-  await testAsync('GET /api/internships → response has data array with required fields', async () => {
+  await testAsync('GET /api/internships → response is an array with required fields', async () => {
     const res = await fetch(base);
     assert.ok(res.ok, `HTTP ${res.status}`);
-    const body = await res.json() as { data: Internship[]; count: number };
-    assert.ok(Array.isArray(body.data), 'body.data should be an array');
-    if (body.data.length > 0) {
-      const item = body.data[0];
+    const body = await res.json() as Internship[];
+    assert.ok(Array.isArray(body), 'response should be an array');
+    if (body.length > 0) {
+      const item = body[0];
       for (const field of ['id', 'title', 'company', 'score', 'scoreLabel'] as const) {
         assert.ok(field in item, `Missing required field: ${field}`);
       }
@@ -296,9 +296,9 @@ async function runApiTests(): Promise<void> {
   await testAsync('GET /api/internships?minScore=70 → all items have score >= 70', async () => {
     const res = await fetch(`${base}?minScore=70`);
     assert.ok(res.ok, `HTTP ${res.status}`);
-    const body = await res.json() as { data: Internship[] };
-    assert.ok(Array.isArray(body.data));
-    for (const item of body.data) {
+    const body = await res.json() as Internship[];
+    assert.ok(Array.isArray(body));
+    for (const item of body) {
       assert.ok((item.score ?? 0) >= 70, `Item "${item.title}" has score ${item.score} < 70`);
     }
   });
@@ -306,9 +306,9 @@ async function runApiTests(): Promise<void> {
   await testAsync('GET /api/internships?label=A → all items have scoreLabel=A', async () => {
     const res = await fetch(`${base}?label=A`);
     assert.ok(res.ok, `HTTP ${res.status}`);
-    const body = await res.json() as { data: Internship[] };
-    assert.ok(Array.isArray(body.data));
-    for (const item of body.data) {
+    const body = await res.json() as Internship[];
+    assert.ok(Array.isArray(body));
+    for (const item of body) {
       assert.strictEqual(item.scoreLabel, 'A', `Item "${item.title}" has label ${item.scoreLabel}`);
     }
   });
@@ -448,6 +448,212 @@ test('ats-discovery: deny-list shape is valid + includes the 4 audited dead slug
 test('ats-discovery: non-ATS URL returns null', () => {
   const target = discoverATSTarget('https://linkedin.com/jobs/view/123', 'Some Company');
   assert.strictEqual(target, null, 'Non-ATS URL should return null');
+});
+
+// ==============================================================
+// 6.5. smartTrimDescription tests
+// ==============================================================
+
+console.log('\n── smartTrim tests ───────────────────────────────────────');
+
+import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
+
+test('smartTrim: empty input returns empty string', () => {
+  assert.strictEqual(smartTrimDescription(''), '');
+  assert.strictEqual(smartTrimDescription(null), '');
+  assert.strictEqual(smartTrimDescription(undefined), '');
+});
+
+test('smartTrim: substantive opener passes through (no marketing-opener match)', () => {
+  // Intel-style descriptions open with "Job Details: Job Description: ..."
+  // — that's a section header, not a marketing opener. Should not be skipped.
+  const input = 'Job Details: Job Description: The Software simulation team is driving software-first strategy at Intel. We need engineers familiar with Python, C++, and Linux. The role involves debugging, automation, and data analysis.';
+  const out = smartTrimDescription(input);
+  assert.ok(out.startsWith('Job Details:'), `Expected to start with "Job Details:", got: ${out.slice(0, 60)}`);
+});
+
+test('smartTrim: marketing-opener + section heading → slices from heading', () => {
+  const preamble = 'Who We Are Applied Materials is a global leader in materials engineering solutions used to produce virtually every new chip and advanced display in the world. We design, build and service cutting-edge equipment. We are committed to innovation and excellence at every level. ';
+  const role = 'TEAM OVERVIEW: AGS Supplier Engineering Group works with suppliers to validate manufacturing capability. The intern will assist with engineering drawing requirements and NPI team coordination.';
+  const out = smartTrimDescription(preamble + role);
+  assert.ok(out.startsWith('TEAM OVERVIEW:'), `Expected to start with "TEAM OVERVIEW:", got: ${out.slice(0, 60)}`);
+  assert.ok(!out.includes('Applied Materials is a global leader'), 'Marketing preamble should be stripped');
+});
+
+test('smartTrim: marketing-opener + no section heading → kept as-is', () => {
+  // Marketing-opener detected but no role-section heading later → skip is a no-op.
+  const input = 'Who We Are Acme Corp is a global leader in widgets. We are passionate about widgets. Our widgets are the best widgets in the widget industry. We hire interns to help us widget.';
+  const out = smartTrimDescription(input);
+  assert.ok(out.startsWith('Who We Are Acme'), 'Should fall back to original when no section heading found');
+});
+
+test('smartTrim: marketing-opener with section heading at position 0 → no skip', () => {
+  // findRoleSectionStart requires position >= MIN_SECTION_POS (200) so
+  // a heading at the very start doesn't trigger a meaningless slice.
+  const input = 'About the Role: We are hiring an SWE intern. ' + 'The team builds infrastructure. '.repeat(10);
+  const out = smartTrimDescription(input);
+  assert.ok(out.startsWith('About the Role:'), 'Should preserve a section heading already at the start');
+});
+
+test('smartTrim: end-marker trim drops EEO tail', () => {
+  const role = 'About the Role: We are seeking a software engineer intern. ' + 'You will write code, review code, and deploy code. '.repeat(8);
+  const tail = ' Equal Opportunity Employer: All qualified applicants will receive consideration without regard to race, color, religion, sex, national origin, sexual orientation, gender identity, age, disability, or any other characteristic protected by law.';
+  const out = smartTrimDescription(role + tail);
+  assert.ok(!out.includes('Equal Opportunity'), `EEO tail should be trimmed, got tail: ${out.slice(-100)}`);
+  assert.ok(out.includes('software engineer intern'), 'Real role content should survive');
+});
+
+test('smartTrim: end-marker drops ALL-CAPS WHAT WE OFFER tail (but not title-case)', () => {
+  // ALL-CAPS "WHAT WE OFFER" is an unambiguous section divider. Title-case
+  // "What We Offer" fires too often mid-content (Applied Materials puts a
+  // "What We Offer Location: ..." block BEFORE the role section).
+  const role = 'Job Description: Build software. We need Python developers. '.repeat(8);
+  const allcaps = ' WHAT WE OFFER: Competitive salary, benefits, and culture.';
+  const titlecase = ' What We Offer: ' + 'fun engineering work and deep tech challenges. '.repeat(8);
+
+  const outAllcaps = smartTrimDescription(role + allcaps);
+  assert.ok(!outAllcaps.includes('WHAT WE OFFER'), 'ALL-CAPS WHAT WE OFFER should be trimmed');
+
+  const outTitle = smartTrimDescription(role + titlecase);
+  assert.ok(outTitle.includes('What We Offer'), 'Title-case "What We Offer" should NOT trigger end-trim');
+});
+
+test('smartTrim: case-insensitive section heading matches lowercase', () => {
+  // Section-heading list is canonically Title-Case, but the regex uses /i.
+  // Lowercase "about the role" after a sentence boundary should still match.
+  const preamble = 'Who We Are MyCompany is a leading provider of widgets. We are committed to excellence. '.repeat(8);
+  const role = ' about the role: We are looking for an intern who can debug Python code.';
+  const out = smartTrimDescription(preamble + role);
+  assert.ok(/about the role/i.test(out.slice(0, 50)), `Lowercase heading should match. Got head: ${out.slice(0, 100)}`);
+});
+
+test('smartTrim: cap at maxLen prefers sentence boundary', () => {
+  const sentences = 'This is sentence one. This is sentence two. This is sentence three. '.repeat(50);
+  const out = smartTrimDescription(sentences, 200);
+  assert.ok(out.length <= 200, `Should respect cap, got length ${out.length}`);
+  // Should end at a sentence boundary, not mid-word
+  assert.ok(/[.!?]$/.test(out), `Expected sentence-end punctuation, got tail: "${out.slice(-30)}"`);
+});
+
+test('smartTrim: cap hard-cuts when no sentence boundary within window', () => {
+  // No periods within the cap window → falls back to hard slice.
+  const noBoundary = 'word '.repeat(500);
+  const out = smartTrimDescription(noBoundary, 100);
+  assert.ok(out.length <= 100, `Should respect cap, got length ${out.length}`);
+});
+
+test('smartTrim: idempotent — running twice yields same output', () => {
+  const samples = [
+    '',
+    'Who We Are Acme is a leader in widgets. TEAM OVERVIEW: The team builds widgets. ' + 'You will widget. '.repeat(30),
+    'Job Description: Build software. Python required. ' + 'Day-to-day: code review. '.repeat(20),
+  ];
+  for (const s of samples) {
+    const once = smartTrimDescription(s);
+    const twice = smartTrimDescription(once);
+    assert.strictEqual(twice, once, `smartTrim should be idempotent on: "${s.slice(0, 40)}..."`);
+  }
+});
+
+test('HANDSHAKE_PROMO_BANNER_SOURCE: RegExp built from source matches exact banner', () => {
+  const re = new RegExp(HANDSHAKE_PROMO_BANNER_SOURCE, 'gi');
+  const banner = "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you. Everything the website does for on-the-go career support. Plus reminders so you never miss a thing.";
+  assert.ok(re.test(banner), 'Banner regex should match the exact stable wording');
+});
+
+test('HANDSHAKE_PROMO_BANNER_SOURCE: handles variable whitespace between sentences', () => {
+  // Real banner may have one or multiple spaces / newlines between the sentences.
+  // Build a fresh RegExp per variant — global flag's lastIndex is stateful.
+  const variants = [
+    "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you.  Everything the website does for on-the-go career support.\nPlus reminders so you never miss a thing.",
+    "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you.\n\nEverything the website does for on-the-go career support.\n\nPlus reminders so you never miss a thing",
+  ];
+  for (const v of variants) {
+    assert.ok(new RegExp(HANDSHAKE_PROMO_BANNER_SOURCE, 'gi').test(v), `Should match variant: ${v.slice(0, 40)}...`);
+  }
+});
+
+// ==============================================================
+// 6.6. buildInternshipRow tests
+// ==============================================================
+
+console.log('\n── buildInternshipRow tests ──────────────────────────────');
+
+import { buildInternshipRow } from './utils/build-row';
+
+const ROW_DEFAULTS = {
+  title: 'SWE Intern',
+  company: 'Acme',
+  link: 'https://example.com/job/1',
+  source: 'Greenhouse',
+  seenAt: '2026-05-22T10:00:00.000Z',
+} as const;
+
+test('buildInternshipRow: plain-text description set on row', () => {
+  const row = buildInternshipRow({ ...ROW_DEFAULTS, description: 'We hire Python interns.' });
+  assert.strictEqual(row.description, 'We hire Python interns.');
+});
+
+test('buildInternshipRow: descriptionHtml is stripped before storage', () => {
+  const row = buildInternshipRow({
+    ...ROW_DEFAULTS,
+    descriptionHtml: '<p>We hire <strong>Python</strong> interns.</p>',
+  });
+  assert.ok(row.description, 'Description should be set');
+  assert.ok(!row.description!.includes('<'), `Should not contain HTML tags: ${row.description}`);
+  assert.ok(row.description!.includes('Python'), 'Should preserve content text');
+});
+
+test('buildInternshipRow: descriptionHtml decodes HTML entities', () => {
+  const row = buildInternshipRow({
+    ...ROW_DEFAULTS,
+    descriptionHtml: 'XPENG&nbsp;is a leading smart tech company &amp; provider.',
+  });
+  assert.ok(!row.description!.includes('&nbsp;'), `&nbsp; should be decoded: ${row.description}`);
+  assert.ok(!row.description!.includes('&amp;'), `&amp; should be decoded: ${row.description}`);
+});
+
+test('buildInternshipRow: descriptionHtml wins over description when both set', () => {
+  const row = buildInternshipRow({
+    ...ROW_DEFAULTS,
+    description: 'plain text version',
+    descriptionHtml: '<p>html version</p>',
+  });
+  assert.ok(row.description?.includes('html'), `descriptionHtml should win: ${row.description}`);
+  assert.ok(!row.description?.includes('plain'), 'plain text should be ignored when html present');
+});
+
+test('buildInternshipRow: empty description collapses to undefined', () => {
+  assert.strictEqual(buildInternshipRow({ ...ROW_DEFAULTS, description: '' }).description, undefined);
+  assert.strictEqual(buildInternshipRow({ ...ROW_DEFAULTS, description: null }).description, undefined);
+  assert.strictEqual(buildInternshipRow({ ...ROW_DEFAULTS }).description, undefined);
+});
+
+test('buildInternshipRow: whitespace-only description collapses to undefined', () => {
+  assert.strictEqual(buildInternshipRow({ ...ROW_DEFAULTS, description: '   \n\t  ' }).description, undefined);
+});
+
+test('buildInternshipRow: empty descriptionHtml collapses to undefined', () => {
+  assert.strictEqual(buildInternshipRow({ ...ROW_DEFAULTS, descriptionHtml: '' }).description, undefined);
+  assert.strictEqual(buildInternshipRow({ ...ROW_DEFAULTS, descriptionHtml: '<br><br>' }).description, undefined);
+});
+
+test('buildInternshipRow: wiring fields unchanged by description refactor', () => {
+  // Defensive — the description refactor shouldn't have touched postedAt
+  // fallback or applied default. Smoke test those alongside.
+  const row = buildInternshipRow({
+    ...ROW_DEFAULTS,
+    upstreamPostedAt: '2026-04-01T00:00:00.000Z',
+    location: 'San Francisco, CA',
+  });
+  assert.strictEqual(row.postedAt, '2026-04-01T00:00:00.000Z');
+  assert.strictEqual(row.location, 'San Francisco, CA');
+  assert.strictEqual(row.applied, false);
+});
+
+test('buildInternshipRow: postedAt falls back to seenAt when upstream is null', () => {
+  const row = buildInternshipRow({ ...ROW_DEFAULTS, upstreamPostedAt: null });
+  assert.strictEqual(row.postedAt, ROW_DEFAULTS.seenAt);
 });
 
 // ==============================================================
@@ -593,10 +799,10 @@ async function runScoreBreakdownApiTests(): Promise<void> {
     // First, get an internship to use its ID
     const listRes = await fetch(base);
     assert.ok(listRes.ok, `HTTP ${listRes.status} fetching internships list`);
-    const listBody = await listRes.json() as { data: Internship[] };
-    assert.ok(listBody.data.length > 0, 'Need at least 1 internship for score-breakdown test');
+    const list = await listRes.json() as Internship[];
+    assert.ok(list.length > 0, 'Need at least 1 internship for score-breakdown test');
 
-    const id = listBody.data[0].id;
+    const id = list[0].id;
     const res = await fetch(`${base}/${id}/score-breakdown`);
     assert.ok(res.ok, `HTTP ${res.status}`);
     const body = await res.json() as { score: number; scoreLabel: string; matchedKeywords: string[] };
