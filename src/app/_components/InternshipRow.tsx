@@ -18,7 +18,7 @@ import { formatSeasonLabel } from "@/lib/seasons";
 // Desktop (md+): the full 9-col operator template (Score · Company · Title
 //   · Salary · Location · Season · Posted · Verified · Actions).
 export const LIST_GRID_COLS =
-  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,5.5rem)_minmax(0,9rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
+  "grid-cols-[3.5rem_minmax(0,1fr)_4.5rem_4.5rem] md:grid-cols-[4rem_minmax(0,11rem)_minmax(0,1fr)_minmax(0,8rem)_minmax(0,9rem)_minmax(0,6rem)_minmax(0,5rem)_minmax(0,5rem)_minmax(0,5.5rem)]";
 
 interface Props {
   item: Internship;
