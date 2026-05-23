@@ -9,7 +9,10 @@ import { deriveSeasonWithDefault } from './seasons';
 // Paths
 // ---------------------------------------------------------------------------
 
-const DATA_DIR = path.join(process.cwd(), 'data');
+// DATA_DIR override lets the test harness (and Railway's /app/data mount)
+// point storage at an isolated directory without touching the runtime
+// code. Falls back to ./data for normal local invocation.
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const DB_PATH = path.join(DATA_DIR, 'internships.db');
 const internshipsJsonPath = path.join(DATA_DIR, 'internships.json');
 const seenJsonPath = path.join(DATA_DIR, 'seen.json');

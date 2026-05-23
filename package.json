@@ -13,6 +13,7 @@
     "serve": "node scripts/supervisor.cjs",
     "test": "npx tsx src/poller/test.ts",
     "test:full": "npx tsx scripts/test-with-server.ts",
+    "test:ci": "DATA_DIR=./test-data npx tsx scripts/seed-test-db.ts && DATA_DIR=./test-data npx tsx scripts/test-with-server.ts",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "handshake:login": "npx tsx src/poller/handshake-login.ts",
     "discover:ats": "npx tsx scripts/exa-discover-ats.ts",

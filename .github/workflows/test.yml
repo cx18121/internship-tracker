@@ -1,0 +1,34 @@
+# Runs the full test suite on every push and PR.
+#
+# `npm run test:ci` seeds a hermetic fixture DB at ./test-data/ (DATA_DIR
+# override on src/lib/store.ts), then spawns `next dev` and runs the
+# 63-test suite — including the 6 live-API tests — against it. No
+# production data needed.
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - run: npm ci
+
+      # Builds the Next.js production bundle first so `next dev` doesn't
+      # spend the test-with-server timeout on a cold compile.
+      - run: npm run build
+
+      - run: npm run test:ci
