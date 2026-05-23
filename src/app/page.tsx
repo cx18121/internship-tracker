@@ -585,8 +585,8 @@ export default function InternshipsPage() {
         if (!tokens.some((t) => selectedSeasons.includes(t))) return false;
       }
       if (windowCutoff !== null) {
-        const seen = new Date(i.seenAt ?? 0).getTime();
-        if (!Number.isFinite(seen) || seen < windowCutoff) return false;
+        const posted = new Date(i.postedAt ?? 0).getTime();
+        if (!Number.isFinite(posted) || posted < windowCutoff) return false;
       }
       if (selectedLocations.length > 0 || locationText) {
         const loc = i.location.toLowerCase();
@@ -660,8 +660,8 @@ export default function InternshipsPage() {
         if (!tokens.some((t) => selectedSeasons.includes(t))) continue;
       }
       if (windowCutoff !== null) {
-        const seen = new Date(i.seenAt ?? 0).getTime();
-        if (!Number.isFinite(seen) || seen < windowCutoff) continue;
+        const posted = new Date(i.postedAt ?? 0).getTime();
+        if (!Number.isFinite(posted) || posted < windowCutoff) continue;
       }
       if (selectedLocations.length > 0 || locationText) {
         const loc = i.location.toLowerCase();
