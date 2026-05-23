@@ -4,6 +4,7 @@
 // YC WaaS has no bot-detection concerns; the choice is purely about image size.
 import { firefox } from 'playwright';
 import { Internship } from '../../lib/types';
+import { buildInternshipRow } from '../utils/build-row';
 
 const BASE_URL = 'https://www.workatastartup.com';
 const POLL_TIMEOUT = 60_000;
@@ -49,14 +50,15 @@ function extractInterns(rawHtmlAttr: string, now: string): Partial<Internship>[]
   return jobs
     .filter((j) => (j.jobType || '').toLowerCase() === 'intern')
     .map((j) => ({
-      title: j.title,
-      company: j.companyName,
-      location: j.location ?? null,
-      link: `https://www.workatastartup.com/jobs/${j.id}`,
-      source: 'YC WaaS',
-      postedAt: j.companyLastActiveAt || now,
-      seenAt: now,
-      applied: false,
+      ...buildInternshipRow({
+        title: j.title,
+        company: j.companyName,
+        location: j.location,
+        link: `https://www.workatastartup.com/jobs/${j.id}`,
+        source: 'YC WaaS',
+        upstreamPostedAt: j.companyLastActiveAt,
+        seenAt: now,
+      }),
       description: buildSeedDescription(j),
     }));
 }

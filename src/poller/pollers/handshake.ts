@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
+import { buildInternshipRow } from '../utils/build-row';
 
 function alertAuthExpired(): void {
   console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');
@@ -133,17 +134,16 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
         }).filter(j => j.title && j.jobId);
       });
 
+      const now = new Date().toISOString();
       for (const job of jobs) {
-        results.push({
+        results.push(buildInternshipRow({
           title: job.title,
           company: job.company,
           location: job.location,
           link: job.link,
           source: 'Handshake',
-          postedAt: new Date().toISOString(),
-          seenAt: new Date().toISOString(),
-          applied: false,
-        });
+          seenAt: now,
+        }));
       }
 
       console.log(`[handshake poller] Page ${pageNum}: ${jobs.length} jobs`);

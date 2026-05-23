@@ -10,6 +10,7 @@ import {
   fetchAshbyDescription,
   fetchSmartRecruitersDescription,
 } from '../utils/description-fetchers';
+import { buildInternshipRow } from '../utils/build-row';
 
 const REQUEST_TIMEOUT = 10_000;
 
@@ -22,15 +23,16 @@ async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<I
   return (data.jobs || [])
     .filter((j: any) => INTERN_SIGNAL_RE.test(j.title || ''))
     .map((j: any) => ({
-      title: j.title || '',
-      company,
-      location: j.location?.name || null,
+      ...buildInternshipRow({
+        title: j.title || '',
+        company,
+        location: j.location?.name,
+        link: j.absolute_url || `https://boards.greenhouse.io/${target.slug}/jobs/${j.id}`,
+        source: 'Greenhouse',
+        upstreamPostedAt: j.updated_at,
+        seenAt: now,
+      }),
       description: stripHtml(j.content || '').slice(0, 4000) || undefined,
-      link: j.absolute_url || `https://boards.greenhouse.io/${target.slug}/jobs/${j.id}`,
-      source: 'Greenhouse',
-      postedAt: j.updated_at || now,
-      seenAt: now,
-      applied: false,
     }));
 }
 
@@ -47,20 +49,18 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
       const commitmentMatch = (j.categories?.commitment || '').toLowerCase() === 'internship';
       return titleMatch || commitmentMatch;
     })
-    .map((j) => {
-      const desc = extractLeverDescription(j);
-      return {
+    .map((j) => ({
+      ...buildInternshipRow({
         title: j.text || '',
         company,
-        location: j.categories?.location || j.workplaceType || null,
-        description: desc || undefined,
+        location: j.categories?.location || j.workplaceType,
         link: j.hostedUrl || j.applyUrl || '',
         source: 'Lever',
-        postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : now,
+        upstreamPostedAt: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
         seenAt: now,
-        applied: false,
-      };
-    });
+      }),
+      description: extractLeverDescription(j) || undefined,
+    }));
 }
 
 async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
@@ -97,17 +97,18 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
   for (const j of interns) {
     const description = await fetchAshbyDescription(target.slug, j.id);
     results.push({
-      title: j.title || '',
-      company,
-      location: j.workplaceType === 'Remote'
-        ? 'Remote'
-        : (j.locationName || j.locationExternalName || null),
+      ...buildInternshipRow({
+        title: j.title || '',
+        company,
+        location: j.workplaceType === 'Remote'
+          ? 'Remote'
+          : (j.locationName || j.locationExternalName),
+        link: `https://jobs.ashbyhq.com/${target.slug}/${j.id}`,
+        source: 'Ashby',
+        upstreamPostedAt: j.publishedDate,
+        seenAt: now,
+      }),
       description: description || undefined,
-      link: `https://jobs.ashbyhq.com/${target.slug}/${j.id}`,
-      source: 'Ashby',
-      postedAt: j.publishedDate || now,
-      seenAt: now,
-      applied: false,
     });
   }
   return results;
@@ -183,17 +184,16 @@ async function pollWorkday(target: ATSTarget, now: string): Promise<Partial<Inte
     // locationsText rather than a city. If it just echoes the company name, fall back.
     const rawLoc = j.locationsText || '';
     const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
-    const description = descriptions.get(j.externalPath) || undefined;
     return {
-      title: j.title || '',
-      company,
-      location,
-      description,
-      link: `https://${baseHost}${j.externalPath}`,
-      source: 'Workday',
-      postedAt: now,
-      seenAt: now,
-      applied: false,
+      ...buildInternshipRow({
+        title: j.title || '',
+        company,
+        location,
+        link: `https://${baseHost}${j.externalPath}`,
+        source: 'Workday',
+        seenAt: now,
+      }),
+      description: descriptions.get(j.externalPath) || undefined,
     };
   });
 }
@@ -223,7 +223,7 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
     const jobId = linkMatch[2];
     const title = linkMatch[3].replace(/<[^>]+>/g, '').trim();
     if (!isInternTitle(title)) continue;
-    results.push({
+    results.push(buildInternshipRow({
       title,
       company,
       location: 'United States',
@@ -231,10 +231,8 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
         ? relLink
         : `https://careers-${tenantId}.icims.com/jobs/${jobId}/job`,
       source: 'iCIMS',
-      postedAt: now,
       seenAt: now,
-      applied: false,
-    });
+    }));
   }
   return results;
 }
@@ -257,16 +255,17 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
   for (const j of interns) {
     const description = await fetchSmartRecruitersDescription(target.slug, j.id);
     results.push({
-      title: j.name || '',
-      company,
-      location: [j.location?.city, j.location?.region, j.location?.country]
-        .filter(Boolean).join(', ') || 'United States',
+      ...buildInternshipRow({
+        title: j.name || '',
+        company,
+        location: [j.location?.city, j.location?.region, j.location?.country]
+          .filter(Boolean).join(', ') || 'United States',
+        link: `https://jobs.smartrecruiters.com/${target.slug}/${j.id}`,
+        source: 'SmartRecruiters',
+        upstreamPostedAt: j.releasedDate,
+        seenAt: now,
+      }),
       description: description || undefined,
-      link: `https://jobs.smartrecruiters.com/${target.slug}/${j.id}`,
-      source: 'SmartRecruiters',
-      postedAt: j.releasedDate || now,
-      seenAt: now,
-      applied: false,
     });
   }
   return results;
@@ -381,15 +380,15 @@ async function pollWorkdayPlaywright(
         const rawLoc = j.locationsText || '';
         const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
         return {
-          title: j.title || '',
-          company,
-          location,
+          ...buildInternshipRow({
+            title: j.title || '',
+            company,
+            location,
+            link: `https://${baseHost}${j.externalPath}`,
+            source: 'Workday',
+            seenAt: now,
+          }),
           description: descriptions.get(j.externalPath) || undefined,
-          link: `https://${baseHost}${j.externalPath}`,
-          source: 'Workday',
-          postedAt: now,
-          seenAt: now,
-          applied: false,
         };
       });
       if (tJobs.length > 0) {

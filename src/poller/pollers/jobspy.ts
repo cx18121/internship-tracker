@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { Internship } from '../../lib/types';
+import { buildInternshipRow } from '../utils/build-row';
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'jobspy-config.json');
 const SCRIPT_PATH = path.join(process.cwd(), 'scripts', 'jobspy_runner.py');
@@ -68,15 +69,16 @@ export async function pollJobSpy(): Promise<Partial<Internship>[]> {
 
       const now = new Date().toISOString();
       const results: Partial<Internship>[] = parsed.map((j) => ({
-        title: j.title || '',
-        company: j.company || '',
-        location: j.location || '',
-        link: j.link || '',
+        ...buildInternshipRow({
+          title: j.title || '',
+          company: j.company || '',
+          location: j.location || '',
+          link: j.link || '',
+          source: j.source || 'JobSpy',
+          upstreamPostedAt: j.postedAt,
+          seenAt: now,
+        }),
         description: j.description || '',
-        source: j.source || 'JobSpy',
-        postedAt: j.postedAt || now,
-        seenAt: now,
-        applied: false,
       }));
 
       console.log(`[jobspy] Fetched ${results.length} jobs`);

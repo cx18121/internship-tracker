@@ -5,6 +5,7 @@ import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { stripHtml } from '../utils/html';
 import { fetchDescriptionByUrl } from '../utils/description-fetchers';
+import { buildInternshipRow } from '../utils/build-row';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
@@ -192,18 +193,19 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
     console.log(`[github poller] Resolved ${resolved}/${simplifyRows.length} simplify.jobs links to direct apply URLs`);
   }
 
+  const now = new Date().toISOString();
   const results: Partial<Internship>[] = rows.map(row => {
     const atsTarget = discoverATSTarget(row.link, row.company);
     const entry: Partial<Internship> = {
-      title: row.title,
-      company: row.company,
-      location: row.location,
-      link: row.link,
-      source: 'SimplifyJobs',
+      ...buildInternshipRow({
+        title: row.title,
+        company: row.company,
+        location: row.location,
+        link: row.link,
+        source: 'SimplifyJobs',
+        seenAt: now,
+      }),
       atsSource: atsTarget ? atsTarget.ats : 'unknown',
-      postedAt: new Date().toISOString(),
-      seenAt: new Date().toISOString(),
-      applied: false,
     };
     if (row.multiLocation && row.multiLocation.length > 0) {
       entry.multiLocation = row.multiLocation;

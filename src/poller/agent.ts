@@ -13,6 +13,7 @@ import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { parseSalary } from '../lib/salary';
 import { normalizeKey } from '../lib/normalize-key';
+import { buildInternshipRow } from './utils/build-row';
 import { sendBatchAlert, checkAndAlertSourceHealth } from './notifier';
 import { loadNotifSettings } from '../lib/notifSettings';
 
@@ -197,27 +198,29 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
     // Parse salary from title + description (the two fields most likely to mention pay).
     const salaryInput = `${p.title || ''} ${p.description || ''}`;
     const salary = parseSalary(salaryInput);
+    const now = new Date().toISOString();
     return {
+      ...buildInternshipRow({
+        title: p.title || '',
+        company: p.company || '',
+        location: p.location || '',
+        link: p.link || '',
+        source: p.source || 'Unknown',
+        upstreamPostedAt: p.postedAt,
+        seenAt: now,
+      }),
       id,
-      title: p.title || '',
-      company: p.company || '',
-      location: p.location || '',
       description: p.description,
-      link: p.link || '',
-      source: p.source || 'Unknown',
       // ATS provenance is set by github/portal-scanner pollers and required by
       // portal-scanner's archiveDisappeared() (closing detection). Forward it.
       atsSource: p.atsSource,
       atsJobId: p.atsJobId,
       atsTarget: p.atsTarget,
       multiLocation: p.multiLocation,
-      postedAt: p.postedAt || new Date().toISOString(),
-      seenAt: new Date().toISOString(),
       score,
       scoreLabel,
       matchedKeywords,
       isNew: true,
-      applied: false,
       normalizedKey: normalizeKey(p.company || '', p.title || ''),
       ...(salary.text ? {
         salaryText: salary.text,
@@ -225,7 +228,7 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
         salaryMax: salary.max ?? undefined,
         salaryUnit: salary.unit ?? undefined,
       } : {}),
-    };
+    } as Internship;
   });
 
   // Dedup and store
