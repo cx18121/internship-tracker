@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { MapPin, ExternalLink, StickyNote, Check, Eye, EyeOff, ChevronDown } from "lucide-react";
+import { MapPin, ExternalLink, StickyNote, Check, Eye, EyeOff } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { Internship } from "../_lib/types";
 import {
@@ -32,7 +32,6 @@ export function InternshipCard({
   onHide,
 }: Props) {
   const [notesOpen, setNotesOpen] = useState(false);
-  const [descOpen, setDescOpen] = useState(false);
   const uniqueKws = Array.from(new Set(item.matchedKeywords ?? []));
 
   return (
@@ -191,27 +190,6 @@ export function InternshipCard({
         />
       )}
 
-      {/* Description expand — only shown when the posting actually carries one */}
-      {item.description && (
-        <div className="border-t border-white/[0.06] pt-2 -mx-3.5 -mb-3.5 px-3.5 pb-3">
-          <button
-            type="button"
-            onClick={() => setDescOpen((v) => !v)}
-            aria-expanded={descOpen}
-            className="inline-flex items-center gap-1 text-[11px] text-white/45 hover:text-white/80 transition-colors"
-          >
-            <ChevronDown
-              className={`h-3 w-3 transition-transform ${descOpen ? "rotate-180" : ""}`}
-            />
-            {descOpen ? "Hide description" : "Show description"}
-          </button>
-          {descOpen && (
-            <p className="mt-2 text-[12.5px] leading-relaxed text-white/70 whitespace-pre-wrap line-clamp-[14]">
-              {item.description}
-            </p>
-          )}
-        </div>
-      )}
     </article>
   );
 }

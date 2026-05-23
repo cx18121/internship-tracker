@@ -29,11 +29,9 @@ interface Props {
   items: Internship[];
   groupByCompany: boolean;
   sortBy: SortBy;
-  expandedIds: Set<string>;
   pendingIds: Set<string>;
   onToggleApplied: (id: string, current: boolean) => void;
   onHide: (id: string) => void;
-  onToggleExpand: (id: string) => void;
 }
 
 interface Group {
@@ -94,11 +92,9 @@ export function InternshipList({
   items,
   groupByCompany,
   sortBy,
-  expandedIds,
   pendingIds,
   onToggleApplied,
   onHide,
-  onToggleExpand,
 }: Props) {
   if (!groupByCompany) {
     return (
@@ -108,11 +104,9 @@ export function InternshipList({
           <InternshipRow
             key={item.id}
             item={item}
-            expanded={expandedIds.has(item.id)}
             pending={pendingIds.has(item.id)}
             onToggleApplied={() => onToggleApplied(item.id, item.applied)}
             onHide={() => onHide(item.id)}
-            onToggleExpand={() => onToggleExpand(item.id)}
           />
         ))}
       </div>
@@ -124,11 +118,9 @@ export function InternshipList({
     <GroupedList
       items={items}
       sortBy={sortBy}
-      expandedIds={expandedIds}
       pendingIds={pendingIds}
       onToggleApplied={onToggleApplied}
       onHide={onHide}
-      onToggleExpand={onToggleExpand}
     />
   );
 }
@@ -136,11 +128,9 @@ export function InternshipList({
 function GroupedList({
   items,
   sortBy,
-  expandedIds,
   pendingIds,
   onToggleApplied,
   onHide,
-  onToggleExpand,
 }: Omit<Props, "groupByCompany">): React.JSX.Element {
   const groups = useMemo(() => groupItems(items), [items]);
   // Every group renders a section header — including single-role companies —
@@ -188,11 +178,9 @@ function GroupedList({
                   <InternshipRow
                     key={item.id}
                     item={item}
-                    expanded={expandedIds.has(item.id)}
                     pending={pendingIds.has(item.id)}
                     onToggleApplied={() => onToggleApplied(item.id, item.applied)}
                     onHide={() => onHide(item.id)}
-                    onToggleExpand={() => onToggleExpand(item.id)}
                   />
                 ))}
               </div>

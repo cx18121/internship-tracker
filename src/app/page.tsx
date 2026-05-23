@@ -89,21 +89,9 @@ export default function InternshipsPage() {
   // Mobile-only filter sheet (rail is hidden below `lg`)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  // Posting ids whose description is expanded inline (list view)
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-
   // Per-row in-flight PATCH guard so a fast double-click on the applied
   // toggle can't race-fire stale requests and end in the wrong final state.
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
-
-  function toggleExpand(id: string): void {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
 
   function setPending(id: string, on: boolean): void {
     setPendingIds((prev) => {
@@ -970,7 +958,6 @@ export default function InternshipsPage() {
                     items={paginated}
                     groupByCompany={groupByCompany}
                     sortBy={sortBy}
-                    expandedIds={expandedIds}
                     pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
                     onHide={(id) => {
@@ -979,7 +966,6 @@ export default function InternshipsPage() {
                       if (item.hidden) unhidePosting(id);
                       else hidePosting(id);
                     }}
-                    onToggleExpand={toggleExpand}
                   />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">

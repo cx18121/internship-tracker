@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, MapPin, Check, Eye, EyeOff, ChevronDown } from "lucide-react";
+import { ExternalLink, MapPin, Check, Eye, EyeOff } from "lucide-react";
 import type { Internship } from "../_lib/types";
 import {
   SCORE_BADGE,
@@ -22,35 +22,18 @@ export const LIST_GRID_COLS =
 
 interface Props {
   item: Internship;
-  expanded: boolean;
   pending?: boolean;
   onToggleApplied: () => void;
   onHide: () => void;
-  onToggleExpand: () => void;
 }
 
 export function InternshipRow({
   item,
-  expanded,
   pending = false,
   onToggleApplied,
   onHide,
-  onToggleExpand,
 }: Props) {
   const primarySeason = (item.season ?? [])[0];
-
-  function handleRowClick(e: React.MouseEvent<HTMLDivElement>) {
-    // Ignore clicks on action buttons or links inside the row.
-    if ((e.target as HTMLElement).closest("a, button")) return;
-    onToggleExpand();
-  }
-
-  function handleRowKeyDown(e: React.KeyboardEvent<HTMLDivElement>) {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    if ((e.target as HTMLElement).closest("a, button, input, textarea")) return;
-    e.preventDefault();
-    onToggleExpand();
-  }
 
   return (
     <div
@@ -58,15 +41,10 @@ export function InternshipRow({
         item.applied
           ? "border-transparent bg-transparent opacity-55 hover:opacity-100"
           : "border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1]"
-      } ${expanded ? "border-white/15 bg-white/[0.03]" : ""}`}
+      }`}
     >
       <div
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={handleRowClick}
-        onKeyDown={handleRowKeyDown}
-        className={`group grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 py-2 cursor-pointer hover:bg-white/[0.025] transition-colors text-[13px] outline-none focus-visible:ring-1 focus-visible:ring-white/30 rounded`}
+        className={`group grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 py-2 hover:bg-white/[0.025] transition-colors text-[13px] rounded`}
       >
       {/* Score */}
       <span
@@ -198,23 +176,6 @@ export function InternshipRow({
         </div>
       </div>
 
-      {/* Expanded description */}
-      {expanded && (
-        <div className="px-3 md:px-4 pt-2 pb-3 border-t border-white/[0.06] text-[12.5px] leading-relaxed text-white/70 space-y-2">
-          {item.description ? (
-            <p className="whitespace-pre-wrap line-clamp-[14]">{item.description}</p>
-          ) : (
-            <p className="text-white/45 italic">No description captured for this posting.</p>
-          )}
-          <button
-            type="button"
-            onClick={onToggleExpand}
-            className="inline-flex items-center gap-1 text-[11px] text-white/50 hover:text-white/85 transition-colors"
-          >
-            <ChevronDown className="h-3 w-3 rotate-180" /> Collapse
-          </button>
-        </div>
-      )}
     </div>
   );
 }
