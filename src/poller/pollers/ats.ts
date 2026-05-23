@@ -5,6 +5,11 @@ import { Internship, ATSTarget } from '../../lib/types';
 import { loadATSTargets } from '../../lib/utils/ats-discovery';
 import { INTERN_SIGNAL_RE, isInternTitle } from '../utils/intern-signal';
 import { stripHtml } from '../utils/html';
+import {
+  extractLeverDescription,
+  fetchAshbyDescription,
+  fetchSmartRecruitersDescription,
+} from '../utils/description-fetchers';
 
 const REQUEST_TIMEOUT = 10_000;
 
@@ -43,19 +48,12 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
       return titleMatch || commitmentMatch;
     })
     .map((j) => {
-      const desc = j.descriptionPlain
-        ? j.descriptionPlain
-        : [
-            stripHtml(j.description || ''),
-            ...(j.lists ?? []).map((l: any) =>
-              `${l.text ?? ''} ${stripHtml(l.content ?? '')}`,
-            ),
-          ].join(' ').replace(/\s+/g, ' ').trim();
+      const desc = extractLeverDescription(j);
       return {
         title: j.text || '',
         company,
         location: j.categories?.location || j.workplaceType || null,
-        description: desc ? desc.slice(0, 4000) : undefined,
+        description: desc || undefined,
         link: j.hostedUrl || j.applyUrl || '',
         source: 'Lever',
         postedAt: j.createdAt ? new Date(j.createdAt).toISOString() : now,
@@ -63,35 +61,6 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
         applied: false,
       };
     });
-}
-
-async function fetchAshbyDescription(slug: string, jobId: string): Promise<string> {
-  try {
-    const { data: html } = await axios.get(`https://jobs.ashbyhq.com/${slug}/${jobId}`, {
-      timeout: REQUEST_TIMEOUT,
-      headers: { 'Accept': 'text/html', 'User-Agent': 'Mozilla/5.0' },
-      responseType: 'text',
-    });
-    // Markup is `window.__appData = {…};` followed by either a newline (legacy)
-    // or `</script>` (current). Accept both, plus end-of-string. Without the
-    // alternation, an Ashby DOM tweak that drops the trailing newline causes
-    // silent 0-description returns across every Ashby tenant.
-    const m = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
-    if (!m) {
-      console.warn(`[ats] Ashby ${slug}/${jobId}: __appData regex missed — markup may have changed`);
-      return '';
-    }
-    const data = JSON.parse(m[1]);
-    // Detail page exposes the role directly at data.posting with descriptionHtml.
-    // List page uses data.jobBoard.jobPostings[] but those entries DON'T include
-    // descriptionHtml — only metadata. Kept as fallback for board-page calls.
-    const posting = data?.posting
-      ?? data?.jobBoard?.jobPostings?.find((p: any) => p.id === jobId)
-      ?? data?.jobBoard?.jobPostings?.[0];
-    return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
-  } catch {
-    return '';
-  }
 }
 
 async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
@@ -268,26 +237,6 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
     });
   }
   return results;
-}
-
-async function fetchSmartRecruitersDescription(slug: string, jobId: string): Promise<string> {
-  try {
-    const url = `https://api.smartrecruiters.com/v1/companies/${slug}/postings/${jobId}`;
-    const { data } = await axios.get(url, {
-      timeout: REQUEST_TIMEOUT,
-      headers: { 'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-    });
-    const sections = data?.jobAd?.sections ?? {};
-    const parts = [
-      sections.companyDescription?.text,
-      sections.jobDescription?.text,
-      sections.qualifications?.text,
-      sections.additionalInformation?.text,
-    ].filter(Boolean);
-    return stripHtml(parts.join(' ')).slice(0, 4000);
-  } catch {
-    return '';
-  }
 }
 
 async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {

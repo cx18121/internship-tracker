@@ -4,6 +4,7 @@ import * as path from 'path';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { stripHtml } from '../utils/html';
+import { fetchDescriptionByUrl } from '../utils/description-fetchers';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
@@ -152,67 +153,6 @@ function parseRows(html: string): { company: string; title: string; location: st
   }
 
   return results;
-}
-
-/**
- * Best-effort description fetch by ATS type. Returns '' if the URL is from an
- * ATS we don't handle here, or on any error — descriptions are nice-to-have.
- */
-async function fetchDescriptionByUrl(url: string): Promise<string> {
-  if (!url) return '';
-  try {
-    // Greenhouse: https://(boards|job-boards).greenhouse.io/{slug}/jobs/{id}
-    let m = url.match(/greenhouse\.io\/(?:boards\/)?([^/]+)\/jobs\/(\d+)/);
-    if (m) {
-      const [, slug, jobId] = m;
-      const { data } = await axios.get(
-        `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${jobId}?content=true`,
-        { timeout: 8000 },
-      );
-      return stripHtml(data?.content ?? '').slice(0, 4000);
-    }
-    // Lever: https://jobs.lever.co/{slug}/{id}
-    m = url.match(/jobs\.lever\.co\/([^/?#]+)\/([a-f0-9-]+)/);
-    if (m) {
-      const [, slug, jobId] = m;
-      const { data } = await axios.get(
-        `https://api.lever.co/v0/postings/${slug}/${jobId}?mode=json`,
-        { timeout: 8000 },
-      );
-      if (data?.descriptionPlain) return data.descriptionPlain.slice(0, 4000);
-      const parts = [
-        stripHtml(data?.description ?? ''),
-        ...((data?.lists ?? []) as Array<{ text?: string; content?: string }>)
-          .map(l => `${l.text ?? ''} ${stripHtml(l.content ?? '')}`),
-      ];
-      return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 4000);
-    }
-    // Ashby: https://jobs.ashbyhq.com/{slug}/{id}
-    m = url.match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([^/?#]+)/);
-    if (m) {
-      const [, slug, jobId] = m;
-      const { data: html } = await axios.get(`https://jobs.ashbyhq.com/${slug}/${jobId}`, {
-        timeout: 8000,
-        headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'text/html' },
-        responseType: 'text',
-      });
-      // Accept newline OR </script> after the trailing semicolon — see
-      // matching note in pollers/ats.ts fetchAshbyDescription.
-      const am = (html as string).match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
-      if (!am) {
-        console.warn(`[github] Ashby ${slug}/${jobId}: __appData regex missed — markup may have changed`);
-        return '';
-      }
-      const appData = JSON.parse(am[1]);
-      const posting = appData?.posting
-        ?? appData?.jobBoard?.jobPostings?.find((p: { id: string }) => p.id === jobId)
-        ?? appData?.jobBoard?.jobPostings?.[0];
-      return stripHtml(posting?.descriptionHtml ?? '').slice(0, 4000);
-    }
-    return '';
-  } catch {
-    return '';
-  }
 }
 
 async function withConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
