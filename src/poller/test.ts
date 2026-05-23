@@ -209,7 +209,7 @@ test('Zero raw score → finalScore = 0', () => {
 
 // Morphology: keyword "engineer intern" must match titles using "engineering
 // intern" — same role, different inflection. Real-world regression: Apple's
-// "Undergrad Engineering Intern" was scoring only the company tier (55)
+// "Undergrad Engineering Intern" was scoring only the company tier
 // because the substring "engineer intern" doesn't appear in "engineerING
 // intern". The proper fix tokenizes + stems trailing -ing/-s so morphological
 // variants of the same word match.
@@ -219,9 +219,9 @@ test('Morphology: "Engineering Intern" matches T3 "engineer intern"', () => {
     company: 'Apple',
     location: 'United States',
   });
-  // T3 (13) + elite Apple (55) = 68
+  // T3 (13) + elite Apple (70) = 83
   assert.strictEqual(r.breakdown.role, 13, `expected role=13, got ${r.breakdown.role}`);
-  assert.strictEqual(r.score, 68, `expected 68, got ${r.score}`);
+  assert.strictEqual(r.score, 83, `expected 83, got ${r.score}`);
 });
 
 // Same morphology rule applied to T1: "Software Engineering Intern" should
@@ -235,17 +235,73 @@ test('Morphology: "Software Engineering Intern" matches T1 "software engineer"',
   assert.strictEqual(r.breakdown.role, 40, `expected T1=40, got ${r.breakdown.role}`);
 });
 
-// Negative case: stemming must not mangle short tech keywords. "redis" is
-// only 5 chars; stripping a trailing -s would yield "redi", which would no
-// longer match itself. Min stem length must guard against this.
-test('Morphology: short tech keywords like "redis" are not mangled by stemming', () => {
+// Tech and domain signals were removed: description coverage is ~38% across
+// our corpus, so 89% of rows scored 0 from those components anyway. Now they
+// shouldn't influence score at all — only role/company/location count.
+test('Tech keywords in description do NOT contribute to score', () => {
   const r = scoreInternship({
     title: 'Backend Intern',
     company: 'Corp LLC',
     location: '',
-    description: 'You will work with Redis and PostgreSQL.',
+    description: 'Python, TypeScript, React, PostgreSQL, Docker, AWS, Kubernetes.',
   });
-  assert.ok(r.matchedKeywords.includes('redis'), `expected "redis" matched, got ${JSON.stringify(r.matchedKeywords)}`);
+  // Only T3 "engineer intern"... wait, "Backend Intern" — "backend" is T1.
+  // T1 = 40, no company, no location. Tech keywords in description must add 0.
+  assert.strictEqual(r.score, 40, `expected 40 (T1 only), got ${r.score}`);
+});
+
+test('Elite company now worth 70 points', () => {
+  const r = scoreInternship({
+    title: 'Marketing Intern',  // no role match
+    company: 'Apple',
+    location: '',
+  });
+  assert.strictEqual(r.breakdown.company, 70, `expected elite=70, got ${r.breakdown.company}`);
+});
+
+test('Top company now worth 45 points', () => {
+  const r = scoreInternship({
+    title: 'Marketing Intern',  // no role match
+    company: 'Coinbase',
+    location: '',
+  });
+  assert.strictEqual(r.breakdown.company, 45, `expected top=45, got ${r.breakdown.company}`);
+});
+
+// 3rd tier ("solid") added to close the cliff between top (45) and 0.
+// Without it, a T1 SWE at a known-but-not-top fintech scored 40 (D) because
+// removing tech/domain stripped away its only padding. Solid=20 means
+// T1 + solid = 60, landing it in B where it belongs.
+test('Solid (3rd-tier) company worth 20 points', () => {
+  const r = scoreInternship({
+    title: 'Marketing Intern',  // no role match
+    company: 'Mercury',
+    location: '',
+  });
+  assert.strictEqual(r.breakdown.company, 20, `expected solid=20, got ${r.breakdown.company}`);
+});
+
+test('T1 SWE at solid company lands in B (cliff fix)', () => {
+  const r = scoreInternship({
+    title: 'Software Engineer Intern',
+    company: 'Mercury',
+    location: '',
+  });
+  // T1 (40) + solid (20) = 60 → B
+  assert.strictEqual(r.score, 60, `expected 60, got ${r.score}`);
+  assert.strictEqual(r.scoreLabel, 'B', `expected B, got ${r.scoreLabel}`);
+});
+
+// Tier resolution order: elite > top > solid. If a company hypothetically
+// appeared in both lists, elite wins by virtue of being iterated first.
+test('Elite still wins over solid when company is in both lists', () => {
+  // Apple is in elite. Even if we added it to solid too, elite should win.
+  const r = scoreInternship({
+    title: 'Marketing Intern',
+    company: 'Apple',
+    location: '',
+  });
+  assert.strictEqual(r.breakdown.company, 70, `elite should win, got ${r.breakdown.company}`);
 });
 
 // Verify the config-injection seam: a synthetic config with a single role
@@ -256,8 +312,6 @@ test('scoreInternship accepts an injected config — exercises seam without touc
     scoringCeiling: 100,
     companyTiers: {},
     roleTiers: { T1: { points: 42, keywords: ['unicorn engineer'] } },
-    techStack: {},
-    techStackCap: 0,
     locationBonus: {},
   };
   const r = scoreInternship({ title: 'Unicorn Engineer Intern', company: '', location: '' }, synthetic);
@@ -365,7 +419,7 @@ test('scoring-config.json has all required fields', () => {
   const configPath = path.join(process.cwd(), 'data', 'scoring-config.json');
   const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
 
-  for (const field of ['scoringCeiling', 'companyTiers', 'techStackCap', 'roleTiers', 'techStack', 'locationBonus']) {
+  for (const field of ['scoringCeiling', 'companyTiers', 'roleTiers', 'locationBonus']) {
     assert.ok(field in config, `Missing top-level field: ${field}`);
   }
 
@@ -378,8 +432,6 @@ test('scoring-config.json has all required fields', () => {
   assert.ok(config.companyTiers.elite.points > config.companyTiers.top.points,
     'elite should be worth more than top');
 
-  assert.strictEqual(typeof config.techStackCap, 'number', 'techStackCap must be a number');
-
   for (const tier of ['T1', 'T2', 'T3']) {
     assert.ok(tier in config.roleTiers, `Missing role tier: ${tier}`);
     assert.ok(Array.isArray(config.roleTiers[tier].keywords), `${tier}.keywords must be an array`);
@@ -388,22 +440,15 @@ test('scoring-config.json has all required fields', () => {
   assert.ok(config.roleTiers.T1.points > config.roleTiers.T2.points, 'T1 > T2');
   assert.ok(config.roleTiers.T2.points > config.roleTiers.T3.points, 'T2 > T3');
 
-  for (const level of ['high', 'medium', 'low']) {
-    assert.ok(level in config.techStack, `Missing techStack tier: ${level}`);
-    assert.ok(Array.isArray(config.techStack[level].keywords), `techStack.${level}.keywords must be an array`);
-  }
-
   assert.ok('preferred' in config.locationBonus, 'locationBonus must have preferred');
 
-  // domainSignals is optional but if present, must be well-formed
-  if (config.domainSignals) {
-    assert.ok(Array.isArray(config.domainSignals.keywords), 'domainSignals.keywords must be an array');
-    assert.strictEqual(typeof config.domainSignals.pointsEach, 'number');
-    assert.strictEqual(typeof config.domainSignals.cap, 'number');
-  }
-
-  // penalties and locationBonus.remote were removed — assert they are NOT present
-  // (hard-filter in filter.ts handles non-SWE roles; remote is no longer a quality signal).
+  // techStack, techStackCap, domainSignals were removed — description coverage
+  // was ~38% across the corpus, so 89% of rows scored 0 from those signals
+  // anyway. Their points were folded into the company tiers (elite 55→70,
+  // top 35→45). penalties and locationBonus.remote were removed earlier.
+  assert.ok(!('techStack' in config), 'techStack section should be removed');
+  assert.ok(!('techStackCap' in config), 'techStackCap should be removed');
+  assert.ok(!('domainSignals' in config), 'domainSignals section should be removed');
   assert.ok(!('penalties' in config), 'penalties section should be removed');
   assert.ok(!('remote' in config.locationBonus), 'locationBonus.remote should be removed');
 });

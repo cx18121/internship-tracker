@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ROLE_SPECIALIZATIONS, isRoleId, type RoleId } from './role-taxonomy';
 
-export type TierFilter = 'all' | 'top-or-better' | 'elite';
+export type TierFilter = 'all' | 'solid-or-better' | 'top-or-better' | 'elite';
 
 export interface NotifChannels {
   discord: boolean;
@@ -127,7 +127,7 @@ export function parseNotifSettings(
 }
 
 function sanitizeTier(t: unknown): TierFilter {
-  return t === 'elite' || t === 'top-or-better' ? t : 'all';
+  return t === 'elite' || t === 'top-or-better' || t === 'solid-or-better' ? t : 'all';
 }
 
 function sanitizeSeasons(s: unknown): string[] {

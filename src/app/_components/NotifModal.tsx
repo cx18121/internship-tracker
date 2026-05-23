@@ -11,7 +11,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ELITE_COUNT, TOP_COUNT } from "@/lib/tiers";
+import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
@@ -76,6 +76,7 @@ interface Props {
 
 const TIER_OPTIONS: { value: TierFilter; label: string }[] = [
   { value: "all", label: "All" },
+  { value: "solid-or-better", label: `Top ${ELITE_COUNT + TOP_COUNT + SOLID_COUNT}` },
   { value: "top-or-better", label: `Top ${ELITE_COUNT + TOP_COUNT}` },
   { value: "elite", label: `Top ${ELITE_COUNT}` },
 ];

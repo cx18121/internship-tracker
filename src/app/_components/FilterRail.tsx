@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { LOCATION_PRESETS } from "../_lib/constants";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { ELITE_COUNT, TOP_COUNT } from "@/lib/tiers";
+import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
 
@@ -172,13 +172,15 @@ export function FilterRail(props: Props) {
 
       <Section label="Tier">
         <div className="flex flex-wrap gap-1.5">
-          {(["all", "top-or-better", "elite"] as TierFilter[]).map((t) => (
+          {(["all", "solid-or-better", "top-or-better", "elite"] as TierFilter[]).map((t) => (
             <Chip key={t} active={tierFilter === t} onClick={() => setTierFilter(t)}>
               {t === "all"
                 ? "All"
                 : t === "elite"
                   ? `Top ${ELITE_COUNT}`
-                  : `Top ${ELITE_COUNT + TOP_COUNT}`}
+                  : t === "top-or-better"
+                    ? `Top ${ELITE_COUNT + TOP_COUNT}`
+                    : `Top ${ELITE_COUNT + TOP_COUNT + SOLID_COUNT}`}
             </Chip>
           ))}
         </div>

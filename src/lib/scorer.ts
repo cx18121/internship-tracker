@@ -14,9 +14,6 @@ export interface ScoringConfig {
   scoringCeiling: number;
   companyTiers: Record<string, CompanyTier>;
   roleTiers: Record<string, TieredKeywords>;
-  techStack: Record<string, TieredKeywords>;
-  techStackCap: number;
-  domainSignals?: { pointsEach: number; cap: number; keywords: string[] };
   locationBonus: Record<string, TieredKeywords>;
 }
 
@@ -76,37 +73,6 @@ function scoreCompany(company: string, config: ScoringConfig, matched: string[])
   return 0;
 }
 
-function scoreTech(text: string, config: ScoringConfig, matched: string[]): number {
-  if (!text) return 0;
-  const tokens = tokenize(text);
-  let pts = 0;
-  for (const level of Object.keys(config.techStack)) {
-    const info = config.techStack[level];
-    for (const kw of info.keywords) {
-      if (containsPhrase(tokens, tokenize(kw))) {
-        matched.push(kw);
-        pts += info.points;
-        if (pts >= config.techStackCap) return config.techStackCap;
-      }
-    }
-  }
-  return Math.min(pts, config.techStackCap);
-}
-
-function scoreDomain(text: string, config: ScoringConfig, matched: string[]): number {
-  if (!text || !config.domainSignals) return 0;
-  const tokens = tokenize(text);
-  let pts = 0;
-  for (const kw of config.domainSignals.keywords) {
-    if (containsPhrase(tokens, tokenize(kw))) {
-      matched.push(kw);
-      pts += config.domainSignals.pointsEach;
-      if (pts >= config.domainSignals.cap) return config.domainSignals.cap;
-    }
-  }
-  return pts;
-}
-
 function scoreLocation(location: string, config: ScoringConfig, matched: string[]): number {
   if (!location) return 0;
   const tokens = tokenize(location);
@@ -132,8 +98,6 @@ function scoreLocation(location: string, config: ScoringConfig, matched: string[
 export interface ScoreBreakdown {
   role: number;
   company: number;
-  tech: number;
-  domain: number;
   location: number;
 }
 
@@ -156,18 +120,13 @@ export function scoreInternship(entry: Partial<Internship>, config?: ScoringConf
   const cfg = config ?? loadConfig();
   const title = entry.title ?? '';
   const company = entry.company ?? '';
-  const description = entry.description ?? '';
   const matched: string[] = [];
 
   const role = scoreRole(title, cfg, matched);
   const coPts = scoreCompany(company, cfg, matched);
-  // Tech keywords can appear in either title or description.
-  const tech = scoreTech(`${title} ${description}`, cfg, matched);
-  // Domain signals are usually only in the description.
-  const domain = scoreDomain(description, cfg, matched);
   const loc = scoreLocation(entry.location ?? '', cfg, matched);
 
-  const raw = role + coPts + tech + domain + loc;
+  const raw = role + coPts + loc;
   const score = Math.max(0, Math.min(raw, cfg.scoringCeiling));
 
   let scoreLabel: ScoreResult['scoreLabel'];
@@ -180,10 +139,7 @@ export function scoreInternship(entry: Partial<Internship>, config?: ScoringConf
   return {
     score,
     scoreLabel,
-    breakdown: { role, company: coPts, tech, domain, location: loc },
-    // Dedupe — a single keyword can appear in multiple tier buckets
-    // (e.g. "llm" is in both roleTiers.T1 and techStack.high), and each
-    // scoreXxx() helper pushes independently.
+    breakdown: { role, company: coPts, location: loc },
     matchedKeywords: Array.from(new Set(matched)),
   };
 }

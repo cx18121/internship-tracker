@@ -2,7 +2,7 @@
   "scoringCeiling": 100,
   "companyTiers": {
     "elite": {
-      "points": 55,
+      "points": 70,
       "companies": [
         "akuna capital",
         "amazon",
@@ -45,7 +45,7 @@
       ]
     },
     "top": {
-      "points": 35,
+      "points": 45,
       "companies": [
         "adobe",
         "affirm",
@@ -147,6 +147,62 @@
         "zendesk",
         "zoom"
       ]
+    },
+    "solid": {
+      "points": 20,
+      "companies": [
+        "airbyte",
+        "akamai",
+        "applied materials",
+        "astranis",
+        "astronomer",
+        "atomicsemi",
+        "bambooHR",
+        "betterment",
+        "booz allen",
+        "buildkite",
+        "calendly",
+        "circleci",
+        "cisco",
+        "codecov",
+        "dbt labs",
+        "digitalocean",
+        "doximity",
+        "elevenlabs",
+        "fastly",
+        "fivetran",
+        "greenhouse software",
+        "gusto",
+        "hermeus",
+        "instacart",
+        "klarna",
+        "leidos",
+        "marqeta",
+        "neuralink",
+        "nxp",
+        "opensea",
+        "pendo",
+        "pinecone",
+        "plusai",
+        "procore",
+        "pulumi",
+        "raytheon",
+        "reflect orbital",
+        "rippling",
+        "rocket lab",
+        "rtx",
+        "sezzle",
+        "skydio",
+        "smartsheet",
+        "snyk",
+        "sofi",
+        "tailscale",
+        "tenstorrent",
+        "verkada",
+        "wealthfront",
+        "weaviate",
+        "ziprecruiter"
+      ]
     }
   },
   "roleTiers": {
@@ -228,82 +284,6 @@
         "software testing"
       ]
     }
-  },
-  "techStack": {
-    "high": {
-      "points": 7,
-      "keywords": [
-        "typescript",
-        "python",
-        "llm",
-        "rag",
-        "vector search",
-        "embeddings",
-        "fastapi",
-        "postgresql",
-        "pgvector",
-        "next.js",
-        "nextjs",
-        "react"
-      ]
-    },
-    "medium": {
-      "points": 4,
-      "keywords": [
-        "go",
-        "golang",
-        "node",
-        "node.js",
-        "docker",
-        "redis",
-        "supabase",
-        "faiss",
-        "sentence-transformers",
-        "pytorch",
-        "fine-tuning",
-        "distilbert",
-        "mediapipe",
-        "langchain",
-        "graphql"
-      ]
-    },
-    "low": {
-      "points": 2,
-      "keywords": [
-        "javascript",
-        "java",
-        "sql",
-        "bash",
-        "kubernetes",
-        "aws",
-        "gcp",
-        "azure",
-        "celery",
-        "rust",
-        "grpc",
-        "kafka",
-        "elasticsearch",
-        "linux"
-      ]
-    }
-  },
-  "techStackCap": 18,
-  "domainSignals": {
-    "pointsEach": 6,
-    "cap": 12,
-    "keywords": [
-      "developer tools",
-      "devtools",
-      "ai safety",
-      "machine learning platform",
-      "llm infrastructure",
-      "search infrastructure",
-      "fintech",
-      "open source",
-      "infrastructure-as-code",
-      "observability",
-      "security research"
-    ]
   },
   "locationBonus": {
     "preferred": {

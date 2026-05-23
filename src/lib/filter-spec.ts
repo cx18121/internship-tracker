@@ -16,7 +16,7 @@
 // longer applied — two call sites now share the maintenance burden, not
 // one.
 
-import { isElite, isTopOrBetter } from './tiers';
+import { isElite, isTopOrBetter, isSolidOrBetter } from './tiers';
 import { parseSeason } from './seasons';
 import { postingMatchesAnyRole, type RoleId } from './role-taxonomy';
 
@@ -36,7 +36,7 @@ export interface FilterablePosting {
   hidden?: boolean;
 }
 
-export type TierFilter = 'all' | 'elite' | 'top-or-better';
+export type TierFilter = 'all' | 'elite' | 'top-or-better' | 'solid-or-better';
 export type AppliedFilter = 'all' | 'applied' | 'not-applied';
 
 export interface FilterSpec {
@@ -72,6 +72,7 @@ export interface FilterSpec {
 export function applyFilterSpec(i: FilterablePosting, spec: FilterSpec): boolean {
   if (spec.tier === 'elite' && !isElite(i.company ?? '')) return false;
   if (spec.tier === 'top-or-better' && !isTopOrBetter(i.company ?? '')) return false;
+  if (spec.tier === 'solid-or-better' && !isSolidOrBetter(i.company ?? '')) return false;
 
   if (spec.seasons && spec.seasons.length > 0) {
     const tokens = i.season ?? parseSeason(i.title ?? '');
