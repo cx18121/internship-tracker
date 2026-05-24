@@ -103,12 +103,16 @@ If something's wrong post-cutover:
 3. **Postgres data stays as-is** — investigate the failure offline, retry
    the migration when ready.
 
-## Post-cutover cleanup (after 48h of stable Postgres)
+## Post-cutover cleanup
 
-- [ ] Delete the live SQLite file on Railway:
-      `railway ssh --service internship-tracker rm /app/data/internships.db /app/data/internships.db-shm /app/data/internships.db-wal`
-- [ ] Drop `better-sqlite3` and `@types/better-sqlite3` from `package.json`
-      (only the migration script needs them now, and it's been retired).
-- [ ] Delete `scripts/migrate-sqlite-to-postgres.ts` + `scripts/smoke-poll.ts`.
+Cleanup completed 2026-05-24 (same session as cutover, ~15 min after deploy):
+
+- [x] Deleted `/app/data/internships.db` on the Railway volume.
+- [x] Removed `better-sqlite3` + `@types/better-sqlite3` from `package.json`.
+- [x] Deleted `scripts/migrate-sqlite-to-postgres.ts` + `scripts/smoke-poll.ts`.
 - [ ] Optionally shrink the Railway volume from 5GB → 1GB (only JSON
       sidecar files + handshake-auth remain, total ~200MB).
+
+Rollback escape hatch is **gone** — the SQLite file no longer exists on the
+volume. Any future "go back to SQLite" would require a full restore from the
+last snapshot at `/tmp/cutover-snapshot.db` on the dev machine.
