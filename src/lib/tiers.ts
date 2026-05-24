@@ -4,7 +4,7 @@
 // as the scorer (see keyword-match.ts) — so e.g. "Apple Inc." matches
 // keyword "apple" but "Pineapple Express" does not.
 import config from "../../data/scoring-config.json";
-import { tokenize, containsPhrase } from "./keyword-match";
+import { tokenize, matchesCompanyName } from "./keyword-match";
 
 const ELITE = config.companyTiers?.elite?.companies ?? [];
 const TOP   = config.companyTiers?.top?.companies   ?? [];
@@ -20,7 +20,7 @@ function matchesAny(company: string, tokenLists: string[][]): boolean {
   const tokens = tokenize(company);
   if (tokens.length === 0) return false;
   for (const needle of tokenLists) {
-    if (containsPhrase(tokens, needle)) return true;
+    if (matchesCompanyName(tokens, needle)) return true;
   }
   return false;
 }

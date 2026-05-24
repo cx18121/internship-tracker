@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import type { Internship } from "./types";
-import { tokenize, containsPhrase } from "./keyword-match";
+import { tokenize, containsPhrase, matchesCompanyName } from "./keyword-match";
 
 // ---------------------------------------------------------------------------
 // Config loading
@@ -64,7 +64,7 @@ function scoreCompany(company: string, config: ScoringConfig, matched: string[])
   for (const tier of Object.keys(config.companyTiers)) {
     const info = config.companyTiers[tier];
     for (const name of info.companies) {
-      if (containsPhrase(tokens, tokenize(name))) {
+      if (matchesCompanyName(tokens, tokenize(name))) {
         matched.push(name);
         return info.points;
       }

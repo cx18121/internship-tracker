@@ -275,7 +275,7 @@ test('Top company now worth 45 points', () => {
 test('Solid (3rd-tier) company worth 20 points', () => {
   const r = scoreInternship({
     title: 'Marketing Intern',  // no role match
-    company: 'Mercury',
+    company: 'Snyk',
     location: '',
   });
   assert.strictEqual(r.breakdown.company, 20, `expected solid=20, got ${r.breakdown.company}`);
@@ -284,12 +284,34 @@ test('Solid (3rd-tier) company worth 20 points', () => {
 test('T1 SWE at solid company lands in B (cliff fix)', () => {
   const r = scoreInternship({
     title: 'Software Engineer Intern',
-    company: 'Mercury',
+    company: 'Snyk',
     location: '',
   });
   // T1 (40) + solid (20) = 60 → B
   assert.strictEqual(r.score, 60, `expected 60, got ${r.score}`);
   assert.strictEqual(r.scoreLabel, 'B', `expected B, got ${r.scoreLabel}`);
+});
+
+// Single-token tier entries ("apple", "box", "meta") must anchor to the
+// START of the company name. Otherwise "Black Box Corp" false-matches "box",
+// "Pineapple Express" false-matches "apple", "Mercury Insurance" false-matches
+// any "mercury" tier entry. Multi-token entries ("two sigma", "epic games")
+// keep substring-phrase semantics.
+test('Single-token tier entry anchors to start of company name', () => {
+  // "box" is in solid (Box, the file storage company).
+  const realBox = scoreInternship({ title: '', company: 'Box', location: '' });
+  const realBoxInc = scoreInternship({ title: '', company: 'Box Inc', location: '' });
+  const blackBox = scoreInternship({ title: '', company: 'Black Box Corp', location: '' });
+
+  assert.strictEqual(realBox.breakdown.company, 20, `"Box" should match solid, got ${realBox.breakdown.company}`);
+  assert.strictEqual(realBoxInc.breakdown.company, 20, `"Box Inc" should match solid, got ${realBoxInc.breakdown.company}`);
+  assert.strictEqual(blackBox.breakdown.company, 0, `"Black Box Corp" must NOT match, got ${blackBox.breakdown.company}`);
+});
+
+test('Multi-token tier entry still matches anywhere in company name', () => {
+  // "two sigma" is in elite. Company "Two Sigma Investments LLC" should match.
+  const r = scoreInternship({ title: '', company: 'Two Sigma Investments LLC', location: '' });
+  assert.strictEqual(r.breakdown.company, 70, `"Two Sigma Investments" should match elite, got ${r.breakdown.company}`);
 });
 
 // Tier resolution order: elite > top > solid. If a company hypothetically
