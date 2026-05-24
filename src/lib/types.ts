@@ -80,4 +80,10 @@ export interface ATSTarget {
   wdDomain?: string;          // Workday: 'myworkdaysite.com' for site variant, default 'myworkdayjobs.com'
   wdCsrfRequired?: boolean;   // Workday: true when direct CXS API returns 422 (needs Playwright)
   wdSkipPlaywright?: boolean; // Workday: true when Playwright fallback has confirmed-failed; short-circuits future cycles
+  // Workday: cached intern facet IDs from a discovery call, keyed by facet
+  // parameter (e.g. `{ jobFamilyGroup: ['abc'], workerSubType: ['def','ghi'] }`).
+  // Sent as `appliedFacets` to server-side filter to intern-only roles.
+  // `{}` means discovery ran but tenant has no intern facet → fall back to
+  // searchText='intern'. `undefined` means discovery hasn't run yet.
+  wdInternFacets?: { [facetParameter: string]: string[] };
 }

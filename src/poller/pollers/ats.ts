@@ -137,7 +137,44 @@ async function fetchWorkdayDescription(
   }
 }
 
-async function pollWorkday(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+/**
+ * Pure helper: given a Workday CXS /jobs response, extract the facet IDs
+ * that categorize roles as interns/co-ops. Match by descriptor regex against
+ * an allowlist of facet parameters known to carry role-type buckets
+ * (jobFamilyGroup, workerSubType). Returned shape is suitable to use
+ * directly as `appliedFacets` on a subsequent /jobs call.
+ *
+ * Empty result is meaningful — tenant has no intern facet, caller should
+ * fall back to `searchText: 'intern'` instead of false-filtering everything.
+ */
+const WD_FACET_PARAMS_WITH_INTERN_BUCKETS = ['jobFamilyGroup', 'workerSubType'];
+const INTERN_DESCRIPTOR_RE = /\bintern(s|ship|ships)?\b|\bco-?op\b/i;
+
+interface WorkdayFacetsResponse {
+  facets?: Array<{
+    facetParameter?: string;
+    values?: Array<{ id: string; descriptor: string; count?: number }>;
+  }>;
+}
+
+export function extractInternFacets(response: WorkdayFacetsResponse): { [facetParameter: string]: string[] } {
+  const result: { [k: string]: string[] } = {};
+  for (const facet of (response.facets ?? [])) {
+    if (!facet.facetParameter) continue;
+    if (!WD_FACET_PARAMS_WITH_INTERN_BUCKETS.includes(facet.facetParameter)) continue;
+    const matched = (facet.values ?? []).filter(v => INTERN_DESCRIPTOR_RE.test(v.descriptor));
+    if (matched.length > 0) {
+      result[facet.facetParameter] = matched.map(v => v.id);
+    }
+  }
+  return result;
+}
+
+async function pollWorkday(
+  target: ATSTarget,
+  now: string,
+  facetDiscoveries?: Map<string, { [k: string]: string[] }>,
+): Promise<Partial<Internship>[]> {
   const tenant = target.slug;
   const board = target.board || '';
   const wdInstance = target.wdInstance || 'wd1';
@@ -148,18 +185,39 @@ async function pollWorkday(target: ATSTarget, now: string): Promise<Partial<Inte
     ? `${wdInstance}.myworkdaysite.com`
     : `${tenant}.${wdInstance}.myworkdayjobs.com`;
   const url = `https://${baseHost}/wday/cxs/${tenant}/${board}/jobs`;
-  const { data } = await axios.post(
-    url,
-    { appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' },
-    {
-      timeout: REQUEST_TIMEOUT,
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0',
-      },
-    }
-  );
+  const wdHeaders = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    'User-Agent': 'Mozilla/5.0',
+  };
+
+  // Two query modes:
+  //   Facet-filtered: server returns ONLY intern roles. Used when wdInternFacets
+  //     has been discovered and is non-empty. Bumped limit since results are
+  //     guaranteed intern-only (rare to have >100).
+  //   SearchText:    server returns up to 20 jobs whose title/desc mentions
+  //     "intern" — mostly false positives (senior eng JDs mentioning interns).
+  //     Used as fallback for tenants whose facets don't include an intern bucket.
+  //
+  // When facets haven't been discovered yet (undefined), we kick a one-time
+  // discovery call here. Subsequent cycles read facets from the sidecar cache.
+  let facets = target.wdInternFacets;
+  if (facets === undefined) {
+    const { data: discoData } = await axios.post(
+      url,
+      { appliedFacets: {}, limit: 1, offset: 0, searchText: '' },
+      { timeout: REQUEST_TIMEOUT, headers: wdHeaders },
+    );
+    facets = extractInternFacets(discoData);
+    if (facetDiscoveries) facetDiscoveries.set(tenant, facets);
+  }
+  const hasInternFacets = facets && Object.keys(facets).length > 0;
+
+  const body = hasInternFacets
+    ? { appliedFacets: facets, limit: 100, offset: 0, searchText: '' }
+    : { appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' };
+
+  const { data } = await axios.post(url, body, { timeout: REQUEST_TIMEOUT, headers: wdHeaders });
   const postings: any[] = data.jobPostings || [];
   const company = target.name || target.slug;
   const interns = postings.filter((j) => isInternTitle(j.title || ''));
@@ -418,7 +476,11 @@ async function pollWorkdayPlaywright(
 const WD_FLAGS_CACHE_PATH = path.join(process.cwd(), 'data', 'workday-flags-cache.json');
 
 interface WorkdayFlagsCache {
-  [slug: string]: { wdCsrfRequired?: boolean; wdSkipPlaywright?: boolean };
+  [slug: string]: {
+    wdCsrfRequired?: boolean;
+    wdSkipPlaywright?: boolean;
+    wdInternFacets?: { [facetParameter: string]: string[] };
+  };
 }
 
 function loadWorkdayFlagsCache(): WorkdayFlagsCache {
@@ -430,12 +492,19 @@ function loadWorkdayFlagsCache(): WorkdayFlagsCache {
   }
 }
 
-function cacheWorkdayFlags(confirmed: string[], failed: string[]): void {
-  if (confirmed.length === 0 && failed.length === 0) return;
+function cacheWorkdayFlags(
+  confirmed: string[],
+  failed: string[],
+  facetDiscoveries?: Map<string, { [k: string]: string[] }>,
+): void {
+  const facetCount = facetDiscoveries?.size ?? 0;
+  if (confirmed.length === 0 && failed.length === 0 && facetCount === 0) return;
   try {
     const cache = loadWorkdayFlagsCache();
     let confirmedCount = 0;
     let failedCount = 0;
+    let withFacets = 0;
+    let withoutFacets = 0;
     for (const slug of confirmed) {
       if (!cache[slug]) cache[slug] = {};
       if (!cache[slug].wdCsrfRequired) { cache[slug].wdCsrfRequired = true; confirmedCount++; }
@@ -444,11 +513,21 @@ function cacheWorkdayFlags(confirmed: string[], failed: string[]): void {
       if (!cache[slug]) cache[slug] = {};
       if (!cache[slug].wdSkipPlaywright) { cache[slug].wdSkipPlaywright = true; failedCount++; }
     }
-    if (confirmedCount > 0 || failedCount > 0) {
-      fs.writeFileSync(WD_FLAGS_CACHE_PATH, JSON.stringify(cache, null, 2));
-      const parts = [];
-      if (confirmedCount > 0) parts.push(`${confirmedCount} wdCsrfRequired`);
-      if (failedCount > 0) parts.push(`${failedCount} wdSkipPlaywright`);
+    if (facetDiscoveries) {
+      for (const [slug, facets] of facetDiscoveries) {
+        if (!cache[slug]) cache[slug] = {};
+        cache[slug].wdInternFacets = facets;
+        if (Object.keys(facets).length > 0) withFacets++;
+        else withoutFacets++;
+      }
+    }
+    fs.writeFileSync(WD_FLAGS_CACHE_PATH, JSON.stringify(cache, null, 2));
+    const parts = [];
+    if (confirmedCount > 0)  parts.push(`${confirmedCount} wdCsrfRequired`);
+    if (failedCount > 0)     parts.push(`${failedCount} wdSkipPlaywright`);
+    if (withFacets > 0)      parts.push(`${withFacets} wdInternFacets`);
+    if (withoutFacets > 0)   parts.push(`${withoutFacets} wdInternFacets(empty)`);
+    if (parts.length > 0) {
       console.log(`[ats] Cached Workday flags (sidecar) for ${parts.join(', ')} tenant(s)`);
     }
   } catch (e: any) {
@@ -469,6 +548,7 @@ function overlayWorkdayFlags(targets: ATSTarget[]): ATSTarget[] {
       ...t,
       wdCsrfRequired: cached.wdCsrfRequired ?? t.wdCsrfRequired,
       wdSkipPlaywright: cached.wdSkipPlaywright ?? t.wdSkipPlaywright,
+      wdInternFacets: cached.wdInternFacets ?? t.wdInternFacets,
     };
   });
 }
@@ -496,6 +576,10 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   // Workday targets that 422 in the direct CXS call get queued here for the
   // Playwright/CSRF fallback (and cached as wdCsrfRequired after first success).
   const csrfFallback: ATSTarget[] = [];
+  // Workday targets whose intern-facet IDs were discovered this cycle.
+  // Flushed to the sidecar cache at the end of pollATS so subsequent cycles
+  // skip the discovery call and go straight to the filtered query.
+  const facetDiscoveries = new Map<string, { [k: string]: string[] }>();
 
   // Worker pool — N targets processed in parallel. Network-bound work, so
   // ramping concurrency well above CPU count is fine. Per-host load stays
@@ -509,7 +593,7 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
       if (target.ats === 'greenhouse') jobs = await pollGreenhouse(target, now);
       else if (target.ats === 'lever') jobs = await pollLever(target, now);
       else if (target.ats === 'ashby') jobs = await pollAshby(target, now);
-      else if (target.ats === 'workday') jobs = await pollWorkday(target, now);
+      else if (target.ats === 'workday') jobs = await pollWorkday(target, now, facetDiscoveries);
       else if (target.ats === 'icims') jobs = await pollICIMS(target, now);
       else if (target.ats === 'smartrecruiters') jobs = await pollSmartRecruiters(target, now);
       if (jobs.length > 0) {
@@ -552,10 +636,13 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
       const { jobs: playwrightJobs, csrfConfirmedSlugs, csrfFailedSlugs } = await pollWorkdayPlaywright(allCsrfTargets, now);
       results.push(...playwrightJobs);
       console.log(`[ats] Workday/Playwright total: ${playwrightJobs.length} from ${allCsrfTargets.length} targets`);
-      cacheWorkdayFlags(csrfConfirmedSlugs, csrfFailedSlugs);
+      cacheWorkdayFlags(csrfConfirmedSlugs, csrfFailedSlugs, facetDiscoveries);
     } catch (e: any) {
       console.warn(`[ats] Workday/Playwright batch failed: ${e.message}`);
     }
+  } else if (facetDiscoveries.size > 0) {
+    // No CSRF batch but we still discovered facets via the direct path.
+    cacheWorkdayFlags([], [], facetDiscoveries);
   }
 
   console.log(`[ats] Total: ${results.length} internships from ${targets.length} targets`);

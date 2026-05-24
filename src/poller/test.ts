@@ -476,6 +476,87 @@ test('scoring-config.json has all required fields', () => {
 });
 
 // ==============================================================
+// 5b. Workday facet extraction
+// ==============================================================
+
+console.log('\n── Workday facet extraction ──────────────────────────────');
+
+import { extractInternFacets } from '../poller/pollers/ats';
+
+test('extractInternFacets pulls "Intern Group" from jobFamilyGroup', () => {
+  const response = {
+    facets: [
+      { facetParameter: 'jobFamilyGroup', values: [
+        { id: 'a', descriptor: 'Development Group', count: 10 },
+        { id: 'x', descriptor: 'Intern Group', count: 5 },
+        { id: 'b', descriptor: 'Sales Group', count: 7 },
+      ]},
+    ],
+  };
+  const r = extractInternFacets(response);
+  assert.deepStrictEqual(r, { jobFamilyGroup: ['x'] });
+});
+
+test('extractInternFacets pulls multiple matches from workerSubType', () => {
+  const response = {
+    facets: [
+      { facetParameter: 'workerSubType', values: [
+        { id: 'reg', descriptor: 'Regular', count: 30 },
+        { id: 'int1', descriptor: 'Intern', count: 1 },
+        { id: 'int2', descriptor: 'Intern (Fixed Term)', count: 4 },
+      ]},
+    ],
+  };
+  const r = extractInternFacets(response);
+  assert.deepStrictEqual(r, { workerSubType: ['int1', 'int2'] });
+});
+
+test('extractInternFacets matches "Co-op" and "Internship" variants', () => {
+  const response = {
+    facets: [
+      { facetParameter: 'jobFamilyGroup', values: [
+        { id: '1', descriptor: 'Co-op Program', count: 3 },
+        { id: '2', descriptor: 'Internships', count: 8 },
+        { id: '3', descriptor: 'Engineering', count: 50 },
+      ]},
+    ],
+  };
+  const r = extractInternFacets(response);
+  assert.deepStrictEqual(r, { jobFamilyGroup: ['1', '2'] });
+});
+
+test('extractInternFacets ignores facet parameters outside the allowlist', () => {
+  const response = {
+    facets: [
+      { facetParameter: 'locationMainGroup', values: [
+        { id: 'loc', descriptor: 'Intern locations', count: 1 },
+      ]},
+    ],
+  };
+  const r = extractInternFacets(response);
+  assert.deepStrictEqual(r, {});
+});
+
+test('extractInternFacets returns {} when no intern facet exists', () => {
+  const response = {
+    facets: [
+      { facetParameter: 'jobFamilyGroup', values: [
+        { id: 'a', descriptor: 'Engineering', count: 5 },
+        { id: 'b', descriptor: 'Sales', count: 3 },
+      ]},
+    ],
+  };
+  const r = extractInternFacets(response);
+  assert.deepStrictEqual(r, {});
+});
+
+test('extractInternFacets handles missing/empty response gracefully', () => {
+  assert.deepStrictEqual(extractInternFacets({}), {});
+  assert.deepStrictEqual(extractInternFacets({ facets: [] }), {});
+  assert.deepStrictEqual(extractInternFacets({ facets: [{ facetParameter: 'jobFamilyGroup' }] }), {});
+});
+
+// ==============================================================
 // 6. ATS targets config integrity
 // ==============================================================
 
