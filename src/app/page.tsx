@@ -52,6 +52,8 @@ import {
   type RoleId,
 } from "@/lib/role-taxonomy";
 import { applyFilterSpec } from "@/lib/filter-spec";
+import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
+import { useNotifSettings } from "./_hooks/useNotifSettings";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -89,41 +91,13 @@ export default function InternshipsPage() {
   // Mobile-only filter sheet (rail is hidden below `lg`)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
 
-  // Per-row in-flight PATCH guard so a fast double-click on the applied
-  // toggle can't race-fire stale requests and end in the wrong final state.
-  const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
+  // Per-row in-flight PATCH guard + ok/!ok rollback. The hook owns
+  // pending-id tracking and fetch; this page just defines local apply/revert.
+  const { pendingIds, patch } = useOptimisticPatch();
 
-  function setPending(id: string, on: boolean): void {
-    setPendingIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-  }
-
-  // Notification settings
+  // Notification settings — every field + the load/save flow lives in the hook.
   const [notifModalOpen, setNotifModalOpen] = useState(false);
-  const [notifMinScore, setNotifMinScore] = useState(50);
-  const [sourceDownAlerts, setSourceDownAlerts] = useState(false);
-  const [notifTierFilter, setNotifTierFilter] = useState<TierFilter>("all");
-  const [notifSeasons, setNotifSeasons] = useState<string[]>([]);
-  const [notifExcludedSources, setNotifExcludedSources] = useState<string[]>([]);
-  const [notifExcludeNonUS, setNotifExcludeNonUS] = useState(false);
-  const [notifIncludeKeywords, setNotifIncludeKeywords] = useState<string[]>([]);
-  const [notifExcludeKeywords, setNotifExcludeKeywords] = useState<string[]>([]);
-  const [notifRoles, setNotifRoles] = useState<RoleId[]>([]);
-  const [notifSkipApplied, setNotifSkipApplied] = useState(true);
-  const [notifSkipHidden, setNotifSkipHidden] = useState(true);
-  const [notifChannels, setNotifChannels] = useState({ discord: true, email: false, sms: false });
-  const [notifEmailRecipients, setNotifEmailRecipients] = useState<string[]>([]);
-  const [notifPhoneNumbers, setNotifPhoneNumbers] = useState<string[]>([]);
-  const [notifSaving, setNotifSaving] = useState(false);
-  const [notifSaved, setNotifSaved] = useState(false);
-  // Null when no error; set to a short string when the last save attempt
-  // returned non-ok or threw. Surface in NotifModal next to the Save button
-  // so a failed POST doesn't look identical to a successful one.
-  const [notifError, setNotifError] = useState<string | null>(null);
+  const notif = useNotifSettings();
 
   // Hydration guard — URL sync waits until initial state is loaded
   const [hydrated, setHydrated] = useState(false);
@@ -324,109 +298,47 @@ export default function InternshipsPage() {
     selectedSeasons, selectedRoles, dateWindow, sortBy, searchText, showHidden,
   ]);
 
-  // Load notification settings
-  useEffect(() => {
-    fetch("/api/internships/settings")
-      .then((r) => r.ok ? r.json() : null)
-      .then((d) => {
-        if (d) {
-          setNotifMinScore(d.minScore ?? 50);
-          setSourceDownAlerts(d.sourceDownAlerts ?? false);
-          if (d.tierFilter === "elite" || d.tierFilter === "top-or-better" || d.tierFilter === "all") {
-            setNotifTierFilter(d.tierFilter);
-          }
-          if (Array.isArray(d.seasons)) setNotifSeasons(d.seasons);
-          if (Array.isArray(d.excludedSources)) setNotifExcludedSources(d.excludedSources);
-          if (typeof d.excludeNonUS === "boolean") setNotifExcludeNonUS(d.excludeNonUS);
-          if (Array.isArray(d.includeKeywords)) setNotifIncludeKeywords(d.includeKeywords);
-          if (Array.isArray(d.excludeKeywords)) setNotifExcludeKeywords(d.excludeKeywords);
-          if (Array.isArray(d.roles)) setNotifRoles(d.roles.filter(isRoleId));
-          if (typeof d.skipApplied === "boolean") setNotifSkipApplied(d.skipApplied);
-          if (typeof d.skipHidden === "boolean") setNotifSkipHidden(d.skipHidden);
-          if (d.channels && typeof d.channels === "object") setNotifChannels(d.channels);
-          if (Array.isArray(d.emailRecipients)) setNotifEmailRecipients(d.emailRecipients);
-          if (Array.isArray(d.phoneNumbers)) setNotifPhoneNumbers(d.phoneNumbers);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  async function toggleApplied(id: string, current: boolean) {
-    // Per-row pending guard. Double-clicks while a PATCH is in flight are
-    // ignored so we can't race two stale requests and end up wrong-side-up.
-    if (pendingIds.has(id)) return;
-    setPending(id, true);
-
-    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: !current } : i)));
-    // Functional update so rapid toggles on different rows compose on top
-    // of each other's writes — a captured `appliedDates` snapshot would let
-    // the second click stomp the first row's entry in state and localStorage.
+  // Functional `setAppliedDates` so rapid toggles on different rows compose
+  // on top of each other's writes — a captured snapshot would let the
+  // second click stomp the first row's entry in state and localStorage.
+  function writeAppliedDate(id: string, on: boolean): void {
     setAppliedDates((prev) => {
       const next = { ...prev };
-      if (!current) next[id] = new Date().toISOString();
+      if (on) next[id] = new Date().toISOString();
       else delete next[id];
       lsSet(LS_DATES_KEY, next);
       return next;
     });
-
-    let ok = false;
-    try {
-      const res = await fetch(`/api/internships/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applied: !current }),
-      });
-      ok = res.ok;
-    } catch {
-      ok = false;
-    }
-
-    if (!ok) {
-      // fetch() resolves with res.ok === false for 4xx/5xx, so a non-thrown
-      // failed PATCH would silently leave the UI in the optimistic state
-      // while the DB rejected the change. Roll back explicitly.
-      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, applied: current } : i)));
-      setAppliedDates((prev) => {
-        const next = { ...prev };
-        if (current) next[id] = new Date().toISOString();
-        else delete next[id];
-        lsSet(LS_DATES_KEY, next);
-        return next;
-      });
-    }
-    setPending(id, false);
   }
 
-  async function patchHidden(id: string, next: boolean): Promise<void> {
-    if (pendingIds.has(id)) return;
-    setPending(id, true);
-
-    const prevHidden = !next;
-    setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: next } : i)));
-
-    let ok = false;
-    try {
-      const res = await fetch(`/api/internships/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hidden: next }),
-      });
-      ok = res.ok;
-    } catch {
-      ok = false;
-    }
-
-    if (!ok) {
-      setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, hidden: prevHidden } : i)));
-    }
-    setPending(id, false);
+  function patchInternshipField<K extends "applied" | "hidden">(
+    id: string,
+    field: K,
+    next: boolean,
+    current: boolean,
+  ): Promise<void> {
+    return patch(
+      id,
+      { [field]: next },
+      () => {
+        setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: next } : i)));
+        if (field === "applied") writeAppliedDate(id, next);
+      },
+      () => {
+        setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: current } : i)));
+        if (field === "applied") writeAppliedDate(id, current);
+      },
+    );
   }
 
+  function toggleApplied(id: string, current: boolean): void {
+    void patchInternshipField(id, "applied", !current, current);
+  }
   function hidePosting(id: string): void {
-    void patchHidden(id, true);
+    void patchInternshipField(id, "hidden", true, false);
   }
   function unhidePosting(id: string): void {
-    void patchHidden(id, false);
+    void patchInternshipField(id, "hidden", false, true);
   }
 
   function updateNote(id: string, note: string) {
@@ -438,45 +350,6 @@ export default function InternshipsPage() {
       lsSet(LS_NOTES_KEY, next);
       return next;
     });
-  }
-
-  async function saveNotifSettings() {
-    setNotifSaving(true);
-    setNotifError(null);
-    try {
-      const res = await fetch("/api/internships/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          minScore: notifMinScore,
-          sourceDownAlerts,
-          tierFilter: notifTierFilter,
-          seasons: notifSeasons,
-          excludedSources: notifExcludedSources,
-          excludeNonUS: notifExcludeNonUS,
-          includeKeywords: notifIncludeKeywords,
-          excludeKeywords: notifExcludeKeywords,
-          roles: notifRoles,
-          skipApplied: notifSkipApplied,
-          skipHidden: notifSkipHidden,
-          channels: notifChannels,
-          emailRecipients: notifEmailRecipients,
-          phoneNumbers: notifPhoneNumbers,
-        }),
-      });
-      // fetch() resolves on 4xx/5xx, so we have to inspect res.ok before
-      // claiming success — otherwise a server-side failure looks identical
-      // to a successful save in the UI.
-      if (res.ok) {
-        setNotifSaved(true);
-        setTimeout(() => setNotifSaved(false), 2000);
-      } else {
-        setNotifError("Save failed");
-      }
-    } catch {
-      setNotifError("Save failed");
-    }
-    setNotifSaving(false);
   }
 
   function clearFilters() {
@@ -662,17 +535,7 @@ export default function InternshipsPage() {
       applied = 0;
     for (const i of internships) {
       // Mirror the main list's filters, except the appliedFilter tab itself.
-      if (searchLower) {
-        const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
-        if (!hay.includes(searchLower)) continue;
-      }
-      if (selectedLocations.length > 0 || locationText) {
-        const loc = i.location.toLowerCase();
-        const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
-        const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
-        if (!locMatch && !textMatch && !(selectedLocations.length === 0)) continue;
-        if (selectedLocations.length === 0 && locationText && !textMatch) continue;
-      }
+      if (!passesLocalPredicates(i)) continue;
       if (!applyFilterSpec(i, {
         tier: tierFilter,
         seasons: selectedSeasons,
@@ -689,9 +552,8 @@ export default function InternshipsPage() {
     }
     return { all, applied, open: all - applied };
   }, [
-    internships, showHidden, searchLower, selectedSources, minScore, tierFilter,
-    selectedSeasons, windowCutoff, selectedLocations, locationText,
-    includeKeywords, excludeKeywords, selectedRoles,
+    internships, passesLocalPredicates, showHidden, selectedSources, minScore, tierFilter,
+    selectedSeasons, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
   return (
@@ -1096,42 +958,42 @@ export default function InternshipsPage() {
       <NotifModal
         open={notifModalOpen}
         onOpenChange={setNotifModalOpen}
-        minScore={notifMinScore}
-        onMinScoreChange={setNotifMinScore}
-        sourceDownAlerts={sourceDownAlerts}
-        onSourceDownAlertsChange={setSourceDownAlerts}
-        tierFilter={notifTierFilter}
-        onTierFilterChange={setNotifTierFilter}
-        selectedSeasons={notifSeasons}
-        onSeasonsToggle={(t) => setNotifSeasons((prev) => toggleArr(prev, t))}
+        minScore={notif.minScore}
+        onMinScoreChange={notif.setMinScore}
+        sourceDownAlerts={notif.sourceDownAlerts}
+        onSourceDownAlertsChange={notif.setSourceDownAlerts}
+        tierFilter={notif.tierFilter}
+        onTierFilterChange={notif.setTierFilter}
+        selectedSeasons={notif.seasons}
+        onSeasonsToggle={(t) => notif.setSeasons((prev) => toggleArr(prev, t))}
         seasonOptions={dynamicSeasons.map(([token, count]) => ({ token, count }))}
         dynamicSources={dynamicSources}
-        excludedSources={notifExcludedSources}
-        onExcludedSourcesChange={setNotifExcludedSources}
-        excludeNonUS={notifExcludeNonUS}
-        onExcludeNonUSChange={setNotifExcludeNonUS}
-        includeKeywords={notifIncludeKeywords}
-        excludeKeywords={notifExcludeKeywords}
+        excludedSources={notif.excludedSources}
+        onExcludedSourcesChange={notif.setExcludedSources}
+        excludeNonUS={notif.excludeNonUS}
+        onExcludeNonUSChange={notif.setExcludeNonUS}
+        includeKeywords={notif.includeKeywords}
+        excludeKeywords={notif.excludeKeywords}
         knownKeywords={knownKeywords}
-        onIncludeKeywordsChange={setNotifIncludeKeywords}
-        onExcludeKeywordsChange={setNotifExcludeKeywords}
-        selectedRoles={notifRoles}
+        onIncludeKeywordsChange={notif.setIncludeKeywords}
+        onExcludeKeywordsChange={notif.setExcludeKeywords}
+        selectedRoles={notif.roles}
         availableRoles={availableRoles}
-        onRolesToggle={(id) => setNotifRoles((prev) => toggleArr(prev, id))}
-        skipApplied={notifSkipApplied}
-        skipHidden={notifSkipHidden}
-        onSkipAppliedChange={setNotifSkipApplied}
-        onSkipHiddenChange={setNotifSkipHidden}
-        channels={notifChannels}
-        onChannelToggle={(ch) => setNotifChannels((prev) => ({ ...prev, [ch]: !prev[ch] }))}
-        emailRecipients={notifEmailRecipients}
-        onEmailRecipientsChange={setNotifEmailRecipients}
-        phoneNumbers={notifPhoneNumbers}
-        onPhoneNumbersChange={setNotifPhoneNumbers}
-        onSave={saveNotifSettings}
-        saving={notifSaving}
-        saved={notifSaved}
-        error={notifError}
+        onRolesToggle={(id) => notif.setRoles((prev) => toggleArr(prev, id))}
+        skipApplied={notif.skipApplied}
+        skipHidden={notif.skipHidden}
+        onSkipAppliedChange={notif.setSkipApplied}
+        onSkipHiddenChange={notif.setSkipHidden}
+        channels={notif.channels}
+        onChannelToggle={(ch) => notif.setChannels((prev) => ({ ...prev, [ch]: !prev[ch] }))}
+        emailRecipients={notif.emailRecipients}
+        onEmailRecipientsChange={notif.setEmailRecipients}
+        phoneNumbers={notif.phoneNumbers}
+        onPhoneNumbersChange={notif.setPhoneNumbers}
+        onSave={notif.save}
+        saving={notif.saving}
+        saved={notif.saved}
+        error={notif.error}
       />
     </div>
   );

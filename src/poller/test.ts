@@ -6,6 +6,10 @@ import { applyHardFilters } from './filter';
 import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, archiveStalePostings, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store';
 import type { Internship } from '../lib/types';
+import { extractInternFacets } from '../poller/pollers/ats';
+import { discoverATSTarget } from '../lib/utils/ats-discovery';
+import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
+import { buildInternshipRow } from './utils/build-row';
 
 let passed = 0;
 let total = 0;
@@ -362,7 +366,7 @@ async function runDedupTests(): Promise<void> {
     postedAt: new Date().toISOString(),
     seenAt: new Date().toISOString(),
     score: 50,
-    scoreLabel: 'Good',
+    scoreLabel: 'C',
     matchedKeywords: [],
     isNew: false,
     applied: false,
@@ -482,8 +486,6 @@ test('scoring-config.json has all required fields', () => {
 
 console.log('\n── Workday facet extraction ──────────────────────────────');
 
-import { extractInternFacets } from '../poller/pollers/ats';
-
 test('extractInternFacets pulls "Intern Group" from jobFamilyGroup', () => {
   const response = {
     facets: [
@@ -562,8 +564,6 @@ test('extractInternFacets handles missing/empty response gracefully', () => {
 // ==============================================================
 
 console.log('\n── ATS targets config integrity ──────────────────────────');
-
-import { discoverATSTarget } from '../lib/utils/ats-discovery';
 
 test('ats-targets.json: NVIDIA has board and wdInstance configured', () => {
   const configPath = path.join(process.cwd(), 'data', 'ats-targets.json');
@@ -645,8 +645,6 @@ test('ats-discovery: non-ATS URL returns null', () => {
 // ==============================================================
 
 console.log('\n── smartTrim tests ───────────────────────────────────────');
-
-import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 
 test('smartTrim: empty input returns empty string', () => {
   assert.strictEqual(smartTrimDescription(''), '');
@@ -769,8 +767,6 @@ test('HANDSHAKE_PROMO_BANNER_SOURCE: handles variable whitespace between sentenc
 
 console.log('\n── buildInternshipRow tests ──────────────────────────────');
 
-import { buildInternshipRow } from './utils/build-row';
-
 const ROW_DEFAULTS = {
   title: 'SWE Intern',
   company: 'Acme',
@@ -876,7 +872,7 @@ async function runArchiveTests(): Promise<void> {
       postedAt: sixtyDaysAgo,
       seenAt: sixtyDaysAgo,
       score: 40,
-      scoreLabel: 'Good',
+      scoreLabel: 'C',
       matchedKeywords: [],
       isNew: false,
       applied: false,
@@ -924,7 +920,7 @@ async function runApplicationTrackingTests(): Promise<void> {
       postedAt: new Date().toISOString(),
       seenAt: new Date().toISOString(),
       score: 60,
-      scoreLabel: 'Good',
+      scoreLabel: 'C',
       matchedKeywords: [],
       isNew: false,
       applied: false,
