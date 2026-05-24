@@ -18,11 +18,20 @@ import { deduplicateAndStore } from '../src/lib/store';
 import type { Internship } from '../src/lib/types';
 
 async function main(): Promise<void> {
-  // Apply schema first — CI starts with an empty pg, so the migration must run
-  // before any inserts. Idempotent (CREATE TABLE IF NOT EXISTS), safe locally.
+  // Apply schema migrations in lexicographic order. CI starts with an empty
+  // pg, so every migration must run before any inserts. Each migration is
+  // expected to be idempotent (CREATE TABLE IF NOT EXISTS, DROP TABLE IF
+  // EXISTS, etc.) so re-running locally against an already-migrated DB is
+  // safe.
   const pool = getPool();
-  const schemaSql = fs.readFileSync(path.join(process.cwd(), 'migrations', '001_initial.sql'), 'utf-8');
-  await pool.query(schemaSql);
+  const migrationsDir = path.join(process.cwd(), 'migrations');
+  const migrations = fs.readdirSync(migrationsDir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
+  for (const file of migrations) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
+    await pool.query(sql);
+  }
 
   const now = new Date().toISOString();
   const fixtures: Internship[] = [
