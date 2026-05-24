@@ -1,22 +1,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import Database from 'better-sqlite3';
+import type { PoolClient } from 'pg';
+import { getPool, closePool } from './db';
 import { Internship } from './types';
-import { stripUtm, stripEmojiPrefix } from './utils/normalize';
+import { stripUtm } from './utils/normalize';
 import { deriveSeasonWithDefault } from './seasons';
-import { normalizeKey } from './normalize-key';
 
 // ---------------------------------------------------------------------------
-// Paths
+// Paths (only for JSON sidecar files — poll-stats.json. DB lives in Postgres.)
 // ---------------------------------------------------------------------------
 
-// DATA_DIR override lets the test harness (and Railway's /app/data mount)
-// point storage at an isolated directory without touching the runtime
-// code. Falls back to ./data for normal local invocation.
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
-const DB_PATH = path.join(DATA_DIR, 'internships.db');
-const internshipsJsonPath = path.join(DATA_DIR, 'internships.json');
-const seenJsonPath = path.join(DATA_DIR, 'seen.json');
 
 // ---------------------------------------------------------------------------
 // Aggregator domains (link-utility, doesn't touch storage)
@@ -41,8 +35,6 @@ export function isAggregatorLink(url: string): boolean {
     const { hostname } = new URL(url);
     const lower = hostname.toLowerCase().replace(/^www\./, '');
     for (const agg of AGGREGATOR_DOMAINS) {
-      // Match the hostname exactly or as a subdomain. Plain .includes()
-      // produced false positives like "my-dice.com" matching "dice.com".
       if (lower === agg || lower.endsWith('.' + agg)) return true;
     }
     return false;
@@ -78,264 +70,11 @@ export async function checkLinkStatus(url: string, timeoutMs = 3000): Promise<nu
 }
 
 // ---------------------------------------------------------------------------
-// Schema (must match scripts/migrate-to-sqlite.ts)
+// Pool lifecycle. closeDb retained as an alias for graceful-shutdown callers.
 // ---------------------------------------------------------------------------
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS internships (
-  id                   TEXT    PRIMARY KEY,
-  title                TEXT    NOT NULL,
-  company              TEXT    NOT NULL,
-  location             TEXT    NOT NULL,
-  description          TEXT,
-  link                 TEXT    NOT NULL,
-  source               TEXT    NOT NULL,
-  ats_source           TEXT,
-  ats_job_id           TEXT,
-  ats_target           TEXT,
-  posted_at            TEXT    NOT NULL,
-  seen_at              TEXT    NOT NULL,
-  score                INTEGER,
-  score_label          TEXT,
-  matched_keywords     TEXT    NOT NULL DEFAULT '[]',
-  is_new               INTEGER NOT NULL DEFAULT 1,
-  applied              INTEGER NOT NULL DEFAULT 0,
-  archived             INTEGER NOT NULL DEFAULT 0,
-  applied_at           TEXT,
-  application_url      TEXT,
-  application_status   TEXT,
-  failed_check_count   INTEGER NOT NULL DEFAULT 0,
-  first_failed_at      TEXT,
-  last_checked_at      TEXT,
-  multi_location       TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_internships_score       ON internships(score DESC);
-CREATE INDEX IF NOT EXISTS idx_internships_source      ON internships(source);
-CREATE INDEX IF NOT EXISTS idx_internships_seen_at     ON internships(seen_at DESC);
-CREATE INDEX IF NOT EXISTS idx_internships_applied     ON internships(applied);
-CREATE INDEX IF NOT EXISTS idx_internships_archived    ON internships(archived);
-CREATE INDEX IF NOT EXISTS idx_internships_score_label ON internships(score_label);
-CREATE INDEX IF NOT EXISTS idx_internships_is_new      ON internships(is_new);
-CREATE INDEX IF NOT EXISTS idx_internships_company     ON internships(company);
-CREATE TABLE IF NOT EXISTS seen_ids (
-  id TEXT PRIMARY KEY
-);
-`;
-
-// Columns added after the initial schema. Run idempotently on every boot —
-// ALTER TABLE ADD COLUMN throws if the column exists, which we swallow.
-const LATER_COLUMNS: Array<{ col: string; def: string }> = [
-  { col: 'salary_text',    def: 'TEXT' },
-  { col: 'salary_min',     def: 'REAL' },
-  { col: 'salary_max',     def: 'REAL' },
-  { col: 'salary_unit',    def: 'TEXT' },
-  { col: 'normalized_key', def: 'TEXT' },
-  // "Not interested" flag (set by the Discord ❌ button). Hidden postings
-  // stop showing in the UI and won't re-alert. Independent of `archived`,
-  // which is used for stale / dead-link postings.
-  { col: 'hidden',         def: 'INTEGER NOT NULL DEFAULT 0' },
-  // Season tokens (JSON array, e.g. '["summer-2026"]') parsed from title at
-  // write time. Lets the UI/notifier read pre-computed seasons instead of
-  // parsing on every render. Backfilled once for legacy rows via
-  // scripts/backfill-season.ts; nullable until then.
-  { col: 'season',         def: 'TEXT' },
-];
-
-const LATER_INDEXES: Array<{ name: string; sql: string }> = [
-  { name: 'idx_internships_normalized_key', sql: 'CREATE INDEX IF NOT EXISTS idx_internships_normalized_key ON internships(normalized_key)' },
-  { name: 'idx_internships_hidden',         sql: 'CREATE INDEX IF NOT EXISTS idx_internships_hidden ON internships(hidden)' },
-];
-
-function applyColumnMigrations(db: Database.Database): void {
-  const cols = db.prepare(`PRAGMA table_info(internships)`).all() as { name: string }[];
-  const existing = new Set(cols.map(c => c.name));
-  for (const { col, def } of LATER_COLUMNS) {
-    if (!existing.has(col)) {
-      db.exec(`ALTER TABLE internships ADD COLUMN ${col} ${def}`);
-    }
-  }
-  for (const { sql } of LATER_INDEXES) db.exec(sql);
-
-  // One-time cleanup: delete rows where the Python JobSpy runner leaked the
-  // literal string "nan" as the company name (str(float('nan')) in pandas).
-  db.prepare(`DELETE FROM internships WHERE company = 'nan'`).run();
-
-  // Strip leading emoji (e.g. "🔥 Apple") from company names scraped by
-  // upstream sources. SQLite lacks Unicode regex, so GLOB narrows to rows
-  // whose company starts with a non-alphanumeric — the JS pass then does
-  // the actual emoji strip via the shared util.
-  const rows = db.prepare(
-    `SELECT id, company FROM internships WHERE company GLOB '[^A-Za-z0-9 ]*'`
-  ).all() as { id: string; company: string }[];
-  const update = db.prepare(`UPDATE internships SET company = ? WHERE id = ?`);
-  for (const row of rows) {
-    const cleaned = stripEmojiPrefix(row.company);
-    if (cleaned !== row.company) update.run(cleaned, row.id);
-  }
-
-  // Backfill normalized_key + archive exact-title duplicates.
-  // Runs every boot but is near-instant after the first pass (0 null rows, 0 dupes).
-  deduplicateExistingRows(db);
-}
-
-/**
- * Idempotent dedup pass run at startup:
- * 1. Computes and writes normalized_key for every row where it's still null.
- * 2. For each group of active rows sharing a normalized_key, archives all but
- *    the best representative (applied > high score > newest seen_at).
- * 3. Removes archived dupes from seen_ids so future polls don't unarchive them
- *    via the exact-id path — they'll hit the normalized_key check instead.
- */
-function deduplicateExistingRows(db: Database.Database): void {
-  // Step 1 — backfill
-  const nullRows = db.prepare(
-    `SELECT id, company, title FROM internships WHERE normalized_key IS NULL OR normalized_key = ''`
-  ).all() as { id: string; company: string; title: string }[];
-
-  if (nullRows.length > 0) {
-    const setKey = db.prepare(`UPDATE internships SET normalized_key = ? WHERE id = ?`);
-    const backfillTxn = db.transaction((items: typeof nullRows) => {
-      for (const r of items) setKey.run(normalizeKey(r.company, r.title), r.id);
-    });
-    backfillTxn(nullRows);
-    console.log(`[store] Backfilled normalized_key for ${nullRows.length} rows`);
-  }
-
-  // Step 2 — find duplicate groups
-  const dupGroups = db.prepare(`
-    SELECT normalized_key
-    FROM internships
-    WHERE archived = 0 AND normalized_key IS NOT NULL AND normalized_key != ''
-    GROUP BY normalized_key
-    HAVING COUNT(*) > 1
-  `).all() as { normalized_key: string }[];
-
-  if (dupGroups.length === 0) return;
-
-  const getGroup = db.prepare(`
-    SELECT id, score, applied, applied_at, seen_at
-    FROM internships
-    WHERE archived = 0 AND normalized_key = ?
-    ORDER BY applied DESC, COALESCE(score, 0) DESC, seen_at DESC
-  `);
-  const archiveRow  = db.prepare(`UPDATE internships SET archived = 1 WHERE id = ?`);
-  const promoteApplied = db.prepare(
-    `UPDATE internships SET applied = 1, applied_at = COALESCE(applied_at, ?) WHERE id = ?`
-  );
-  const removeSeen  = db.prepare(`DELETE FROM seen_ids WHERE id = ?`);
-
-  let archived = 0;
-  const dedup = db.transaction(() => {
-    for (const { normalized_key } of dupGroups) {
-      const group = getGroup.all(normalized_key) as Array<{
-        id: string; score: number | null; applied: number;
-        applied_at: string | null; seen_at: string;
-      }>;
-      if (group.length <= 1) continue;
-
-      const [keeper, ...dupes] = group;
-
-      // Merge applied state: if any dup was applied but the keeper wasn't, promote
-      if (keeper.applied === 0) {
-        const appliedDupe = dupes.find(r => r.applied === 1);
-        if (appliedDupe) promoteApplied.run(appliedDupe.applied_at, keeper.id);
-      }
-
-      for (const dupe of dupes) {
-        archiveRow.run(dupe.id);
-        removeSeen.run(dupe.id);
-        archived++;
-      }
-    }
-  });
-  dedup();
-
-  if (archived > 0) {
-    console.log(`[store] Dedup: archived ${archived} duplicate postings across ${dupGroups.length} key groups`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Database singleton + auto-migration from JSON if first run
-// ---------------------------------------------------------------------------
-
-let _db: Database.Database | null = null;
-
-/** Close the active SQLite handle (if any) for graceful shutdown. Safe to call multiple times. */
-export function closeDb(): void {
-  if (_db) {
-    try { _db.close(); } catch {}
-    _db = null;
-  }
-}
-
-function getDb(): Database.Database {
-  if (_db) return _db;
-
-  const dbExists = fs.existsSync(DB_PATH);
-  const jsonExists = fs.existsSync(internshipsJsonPath);
-
-  // First-boot auto-migration: if no DB but JSON exists, run the migration once.
-  if (!dbExists && jsonExists) {
-    console.log('[store] No internships.db found but internships.json exists — auto-migrating...');
-    autoMigrateFromJson();
-  }
-
-  _db = new Database(DB_PATH);
-  _db.pragma('journal_mode = WAL');       // concurrent reads while one writer
-  _db.pragma('synchronous = NORMAL');     // fast + still durable
-  _db.pragma('foreign_keys = ON');
-  _db.exec(SCHEMA);
-  applyColumnMigrations(_db);
-  return _db;
-}
-
-function autoMigrateFromJson(): void {
-  try {
-    const internshipsRaw = fs.readFileSync(internshipsJsonPath, 'utf-8');
-    const internships: Internship[] = JSON.parse(internshipsRaw);
-    const seen: string[] = fs.existsSync(seenJsonPath)
-      ? JSON.parse(fs.readFileSync(seenJsonPath, 'utf-8'))
-      : [];
-
-    const db = new Database(DB_PATH);
-    db.pragma('journal_mode = WAL');
-    db.exec(SCHEMA);
-    applyColumnMigrations(db);
-
-    const insert = db.prepare(`
-      INSERT OR IGNORE INTO internships
-        (id, title, company, location, description, link, source, ats_source,
-         ats_job_id, ats_target, posted_at, seen_at, score, score_label,
-         matched_keywords, is_new, applied, archived, applied_at,
-         application_url, application_status, failed_check_count,
-         first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden, season)
-      VALUES (@id, @title, @company, @location, @description, @link, @source,
-        @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
-        @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
-        @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
-        @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
-    `);
-    const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
-
-    // Run both inserts in a single transaction so a failure in seen-id
-    // insertion can't leave the DB with internships committed but seen_ids
-    // empty — that state breaks dedup forever (every poll's items look
-    // "new" against an empty seen_ids index even though they're already in
-    // the internships table).
-    const insertBoth = db.transaction((args: { records: Internship[]; ids: string[] }) => {
-      for (const r of args.records) insert.run(toRow(r));
-      for (const id of args.ids) insertSeen.run(id);
-    });
-    insertBoth({ records: internships, ids: seen });
-
-    db.close();
-    console.log(`[store] Auto-migrated ${internships.length} internships + ${seen.length} seen IDs to SQLite.`);
-  } catch (err) {
-    console.error('[store] Auto-migration failed; starting with empty DB:', err);
-  }
+export async function closeDb(): Promise<void> {
+  await closePool();
 }
 
 // ---------------------------------------------------------------------------
@@ -353,37 +92,34 @@ interface Row {
   ats_source: string | null;
   ats_job_id: string | null;
   ats_target: string | null;
-  posted_at: string;
-  seen_at: string;
+  posted_at: Date;
+  seen_at: Date;
   score: number | null;
   score_label: string | null;
-  matched_keywords: string;
-  is_new: number;
-  applied: number;
-  archived: number;
-  applied_at: string | null;
+  matched_keywords: unknown;          // JSONB → parsed by pg
+  is_new: boolean;
+  applied: boolean;
+  archived: boolean;
+  applied_at: Date | null;
   application_url: string | null;
   application_status: string | null;
   failed_check_count: number;
-  first_failed_at: string | null;
-  last_checked_at: string | null;
-  multi_location: string | null;
+  first_failed_at: Date | null;
+  last_checked_at: Date | null;
+  multi_location: unknown;            // JSONB
   salary_text: string | null;
   salary_min: number | null;
   salary_max: number | null;
   salary_unit: string | null;
   normalized_key: string | null;
-  hidden: number;
-  season: string | null;
+  hidden: boolean;
+  season: unknown;                    // JSONB
 }
 
-function safeJsonParse<T>(raw: string | null | undefined, fallback: T, field: string, rowId: string): T {
-  if (!raw) return fallback;
-  try { return JSON.parse(raw); }
-  catch (e: any) {
-    console.warn(`[store] fromRow: malformed ${field} JSON on row ${rowId} (${e.message}) — using fallback`);
-    return fallback;
-  }
+// Pg returns timestamps as Date. Surface them to consumers as ISO strings to
+// match the existing Internship type contract.
+function dateToIso(d: Date | null): string | undefined {
+  return d ? d.toISOString() : undefined;
 }
 
 function fromRow(r: Row): Internship {
@@ -398,82 +134,91 @@ function fromRow(r: Row): Internship {
     atsSource: r.ats_source ?? undefined,
     atsJobId: r.ats_job_id ?? undefined,
     atsTarget: r.ats_target ?? undefined,
-    postedAt: r.posted_at,
-    seenAt: r.seen_at,
+    postedAt: r.posted_at.toISOString(),
+    seenAt: r.seen_at.toISOString(),
     score: r.score,
-    // DB column is NULL when never scored, 'A'..'F' when scored. Surface as
-    // '' to consumers (UI does `?? "—"` so either works); the type contract
-    // stays `string` for back-compat. byLabel stats can now distinguish
-    // "unscored" (NULL in DB) from a hypothetical "blank label" string.
+    // Same scoreLabel contract as before: NULL in DB surfaces as '' so the
+    // type stays `string` for legacy callers; byLabel stats still see NULL.
     scoreLabel: r.score_label ?? '',
-    matchedKeywords: safeJsonParse<string[]>(r.matched_keywords, [], 'matched_keywords', r.id),
-    isNew: r.is_new === 1,
-    applied: r.applied === 1,
-    archived: r.archived === 1,
-    appliedAt: r.applied_at ?? undefined,
+    matchedKeywords: (Array.isArray(r.matched_keywords) ? r.matched_keywords : []) as string[],
+    isNew: r.is_new,
+    applied: r.applied,
+    archived: r.archived,
+    appliedAt: dateToIso(r.applied_at),
     applicationUrl: r.application_url ?? undefined,
     applicationStatus: r.application_status ?? undefined,
     failedCheckCount: r.failed_check_count,
-    firstFailedAt: r.first_failed_at ?? undefined,
-    lastCheckedAt: r.last_checked_at ?? undefined,
-    multiLocation: safeJsonParse<string[] | undefined>(r.multi_location, undefined, 'multi_location', r.id),
+    firstFailedAt: dateToIso(r.first_failed_at),
+    lastCheckedAt: dateToIso(r.last_checked_at),
+    multiLocation: Array.isArray(r.multi_location) ? (r.multi_location as string[]) : undefined,
     salaryText: r.salary_text ?? undefined,
     salaryMin: r.salary_min ?? undefined,
     salaryMax: r.salary_max ?? undefined,
     salaryUnit: (r.salary_unit as Internship['salaryUnit']) ?? undefined,
     normalizedKey: r.normalized_key ?? undefined,
-    hidden: r.hidden === 1,
-    season: safeJsonParse<string[] | undefined>(r.season, undefined, 'season', r.id),
+    hidden: r.hidden,
+    season: Array.isArray(r.season) ? (r.season as string[]) : undefined,
   };
 }
 
-function toRow(i: Internship): Record<string, unknown> {
-  return {
-    id: i.id,
-    title: i.title,
-    company: i.company,
-    location: i.location,
-    description: i.description ?? null,
-    link: i.link,
-    source: i.source,
-    atsSource: i.atsSource ?? null,
-    atsJobId: i.atsJobId ?? null,
-    atsTarget: i.atsTarget ?? null,
-    postedAt: i.postedAt,
-    seenAt: i.seenAt,
-    score: i.score ?? null,
-    // Write NULL for missing/empty labels so the DB column reflects truth
-    // ("never scored") instead of conflating with a hypothetical empty
-    // string. Consumers still see '' via fromRow for type-contract stability.
-    scoreLabel: i.scoreLabel ? i.scoreLabel : null,
-    matchedKeywords: JSON.stringify(i.matchedKeywords ?? []),
-    isNew: i.isNew ? 1 : 0,
-    applied: i.applied ? 1 : 0,
-    archived: i.archived ? 1 : 0,
-    appliedAt: i.appliedAt ?? null,
-    applicationUrl: i.applicationUrl ?? null,
-    applicationStatus: i.applicationStatus ?? null,
-    failedCheckCount: i.failedCheckCount ?? 0,
-    firstFailedAt: i.firstFailedAt ?? null,
-    lastCheckedAt: i.lastCheckedAt ?? null,
-    multiLocation: i.multiLocation ? JSON.stringify(i.multiLocation) : null,
-    salaryText: i.salaryText ?? null,
-    salaryMin: i.salaryMin ?? null,
-    salaryMax: i.salaryMax ?? null,
-    salaryUnit: i.salaryUnit ?? null,
-    normalizedKey: i.normalizedKey ?? null,
-    hidden: i.hidden ? 1 : 0,
-    // Auto-populate from title on every write so the column stays in sync
-    // with the title. Titles without explicit season/year fall back to the
-    // current intern cycle (summer-YYYY) so they still match season chips —
-    // mirrors the one-time backfill script. Callers can override by setting
-    // i.season explicitly.
-    season: JSON.stringify(i.season ?? deriveSeasonWithDefault(i.title)),
-  };
+// Build the ordered list of values passed to INSERT/UPDATE statements. Mirrors
+// COL_NAMES below; keep them in lockstep.
+const COL_NAMES = [
+  'id', 'title', 'company', 'location', 'description', 'link', 'source',
+  'ats_source', 'ats_job_id', 'ats_target', 'posted_at', 'seen_at',
+  'score', 'score_label', 'matched_keywords', 'is_new', 'applied',
+  'archived', 'applied_at', 'application_url', 'application_status',
+  'failed_check_count', 'first_failed_at', 'last_checked_at',
+  'multi_location', 'salary_text', 'salary_min', 'salary_max', 'salary_unit',
+  'normalized_key', 'hidden', 'season',
+] as const;
+
+function toValues(i: Internship): unknown[] {
+  return [
+    i.id,
+    i.title,
+    i.company,
+    i.location,
+    i.description ?? null,
+    i.link,
+    i.source,
+    i.atsSource ?? null,
+    i.atsJobId ?? null,
+    i.atsTarget ?? null,
+    i.postedAt,
+    i.seenAt,
+    i.score ?? null,
+    // Persist NULL for empty/missing labels so the DB column reflects truth
+    // (never scored) instead of an empty string.
+    i.scoreLabel ? i.scoreLabel : null,
+    // Pass arrays/objects directly to JSONB — pg serializes via its types layer.
+    JSON.stringify(i.matchedKeywords ?? []),
+    // Boolean columns are NOT NULL — coerce undefined → false so callers that
+    // omit these flags (most don't carry `archived`) don't blow up the insert.
+    i.isNew ?? true,
+    i.applied ?? false,
+    i.archived ?? false,
+    i.appliedAt ?? null,
+    i.applicationUrl ?? null,
+    i.applicationStatus ?? null,
+    i.failedCheckCount ?? 0,
+    i.firstFailedAt ?? null,
+    i.lastCheckedAt ?? null,
+    i.multiLocation ? JSON.stringify(i.multiLocation) : null,
+    i.salaryText ?? null,
+    i.salaryMin ?? null,
+    i.salaryMax ?? null,
+    i.salaryUnit ?? null,
+    i.normalizedKey ?? null,
+    i.hidden ?? false,
+    // Auto-populate from title on every write so the column stays in sync with
+    // the title. Callers can override by setting i.season explicitly.
+    JSON.stringify(i.season ?? deriveSeasonWithDefault(i.title)),
+  ];
 }
 
 // ---------------------------------------------------------------------------
-// In-process mutex for the polling cycle (prevents concurrent dedup races)
+// In-process mutex (prevents concurrent dedup races within one process)
 // ---------------------------------------------------------------------------
 
 let storeLock: Promise<void> = Promise.resolve();
@@ -483,97 +228,77 @@ function withLock<T>(fn: () => T | Promise<T>): Promise<T> {
   return next;
 }
 
+// Acquire a pooled client, run the transactional work, COMMIT or ROLLBACK on
+// error. Used by dedup + revalidation paths that need atomic multi-statement
+// writes.
+async function withTxn<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
+  const client = await getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await fn(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch {}
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Public storage API
 // ---------------------------------------------------------------------------
 
-export function loadInternships(): Internship[] {
-  const db = getDb();
-  const rows = db.prepare('SELECT * FROM internships ORDER BY seen_at DESC').all() as Row[];
+export async function loadInternships(): Promise<Internship[]> {
+  const { rows } = await getPool().query<Row>('SELECT * FROM internships ORDER BY seen_at DESC');
   return rows.map(fromRow);
 }
+
+const UPSERT_SQL = (() => {
+  const placeholders = COL_NAMES.map((_, i) => `$${i + 1}`).join(',');
+  const updateAssignments = COL_NAMES
+    .filter((c) => c !== 'id')
+    .map((c) => `${c} = EXCLUDED.${c}`)
+    .join(', ');
+  return `
+    INSERT INTO internships (${COL_NAMES.join(',')})
+    VALUES (${placeholders})
+    ON CONFLICT (id) DO UPDATE SET ${updateAssignments}
+  `;
+})();
 
 /**
  * Full-replace write — kept for callers that still expect array semantics.
  * Slower than targeted updates; prefer `patchInternship` / `archiveStalePostings`
  * / `deduplicateAndStore` for hot paths.
  */
-export function saveInternships(internships: Internship[]): void {
-  const db = getDb();
-  const upsert = db.prepare(`
-    INSERT INTO internships
-      (id, title, company, location, description, link, source, ats_source,
-       ats_job_id, ats_target, posted_at, seen_at, score, score_label,
-       matched_keywords, is_new, applied, archived, applied_at,
-       application_url, application_status, failed_check_count,
-       first_failed_at, last_checked_at, multi_location,
-       salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden, season)
-    VALUES (@id, @title, @company, @location, @description, @link, @source,
-      @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
-      @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
-      @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
-      @lastCheckedAt, @multiLocation,
-      @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
-    ON CONFLICT(id) DO UPDATE SET
-      title              = excluded.title,
-      company            = excluded.company,
-      location           = excluded.location,
-      description        = excluded.description,
-      link               = excluded.link,
-      source             = excluded.source,
-      ats_source         = excluded.ats_source,
-      ats_job_id         = excluded.ats_job_id,
-      ats_target         = excluded.ats_target,
-      posted_at          = excluded.posted_at,
-      seen_at            = excluded.seen_at,
-      score              = excluded.score,
-      score_label        = excluded.score_label,
-      matched_keywords   = excluded.matched_keywords,
-      is_new             = excluded.is_new,
-      applied            = excluded.applied,
-      archived           = excluded.archived,
-      applied_at         = excluded.applied_at,
-      application_url    = excluded.application_url,
-      application_status = excluded.application_status,
-      failed_check_count = excluded.failed_check_count,
-      first_failed_at    = excluded.first_failed_at,
-      last_checked_at    = excluded.last_checked_at,
-      multi_location     = excluded.multi_location,
-      salary_text        = excluded.salary_text,
-      salary_min         = excluded.salary_min,
-      salary_max         = excluded.salary_max,
-      salary_unit        = excluded.salary_unit,
-      normalized_key     = excluded.normalized_key,
-      hidden             = excluded.hidden,
-      season             = excluded.season
-  `);
-  const upsertMany = db.transaction((records: Internship[]) => {
-    for (const r of records) upsert.run(toRow(r));
+export async function saveInternships(internships: Internship[]): Promise<void> {
+  if (internships.length === 0) return;
+  await withTxn(async (client) => {
+    for (const r of internships) {
+      await client.query(UPSERT_SQL, toValues(r));
+    }
   });
-  upsertMany(internships);
 }
 
 export interface StoreResult {
   newInternships: Internship[];
   totalStored: number;
-  // Per-source counts of items entering dedup (post-filter). Useful when paired
-  // with netNewBySource to see whether a source is fetching but always
-  // deduping against existing rows — i.e., contributing zero new coverage.
   incomingBySource: Record<string, number>;
-  // Per-source counts of items that actually got stored (passed all three
-  // dedup checks). The genuine "coverage contribution" of each source per cycle.
   netNewBySource: Record<string, number>;
 }
 
 export async function deduplicateAndStore(incoming: Internship[]): Promise<StoreResult> {
-  return withLock(() => {
-    const db = getDb();
-
-    // Build seenLinks + seenKeys sets from existing rows for cross-source dedup.
-    // Also index by normalized_key so the dedup loop can upgrade a stored row's
-    // link when a later source finds the same role via a direct apply URL
-    // (SimplifyJobs frequently falls back to simplify.jobs wrappers).
-    const seenLinkRows = db.prepare('SELECT id, link, normalized_key FROM internships WHERE archived = 0').all() as { id: string; link: string; normalized_key: string | null }[];
+  return withLock(async () => {
+    // Build seenLinks + seenKeys sets from existing active rows for cross-source
+    // dedup. Also index by normalized_key so the dedup loop can upgrade a
+    // stored row's link when a later source finds the same role via a direct
+    // apply URL (SimplifyJobs frequently falls back to simplify.jobs wrappers).
+    const pool = getPool();
+    const seenLinkRows = (await pool.query<{ id: string; link: string; normalized_key: string | null }>(
+      'SELECT id, link, normalized_key FROM internships WHERE archived = false'
+    )).rows;
     const seenLinks = new Set<string>();
     const seenKeys = new Set<string>();
     const rowByKey = new Map<string, { id: string; link: string }>();
@@ -585,86 +310,6 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
       }
     }
 
-    const existingIdRow = db.prepare('SELECT id FROM seen_ids WHERE id = ?');
-    const insertSeen = db.prepare('INSERT OR IGNORE INTO seen_ids (id) VALUES (?)');
-    const upgradeLink = db.prepare('UPDATE internships SET link = @link WHERE id = @id');
-    // Cross-source backfill: when a different source rediscovers the same
-    // role (matched by normalized_key), the incoming row may carry data the
-    // stored row lacks — most commonly a description (SimplifyJobs ships
-    // title-only, Workday/Greenhouse/Ashby ship the full posting). Without
-    // this path the second source's richer payload is dropped on the floor.
-    // COALESCE backfills missing fields only; score/keywords always replace
-    // because the new score was computed against richer data. seen_at bumps
-    // (positive proof of life across sources) and archived flips off unless
-    // the row was failing link checks. Source attribution and user state
-    // (applied/hidden/applied_at/application_url/application_status) and the
-    // stored link/title/company are preserved.
-    const crossSourceBackfill = db.prepare(`
-      UPDATE internships SET
-        seen_at          = @seenAt,
-        archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE 0 END,
-        score            = @score,
-        score_label      = @scoreLabel,
-        matched_keywords = @matchedKeywords,
-        description      = COALESCE(NULLIF(description, ''), @description),
-        salary_text      = COALESCE(salary_text, @salaryText),
-        salary_min       = COALESCE(salary_min,  @salaryMin),
-        salary_max       = COALESCE(salary_max,  @salaryMax),
-        salary_unit      = COALESCE(salary_unit, @salaryUnit),
-        ats_source       = COALESCE(ats_source,  @atsSource),
-        ats_target       = COALESCE(ats_target,  @atsTarget),
-        ats_job_id       = COALESCE(ats_job_id,  @atsJobId),
-        multi_location   = COALESCE(multi_location, @multiLocation),
-        normalized_key   = COALESCE(normalized_key, @normalizedKey)
-      WHERE id = @id
-    `);
-    // Refresh-on-rediscovery: when the same posting (same md5 ID) comes back
-    // from a later poll, mark it as actively listed again — bump seen_at,
-    // un-archive (rediscovery is positive proof the role is still live),
-    // re-score with current config, and backfill description/salary/ATS
-    // fields if they were null. User state (applied / hidden / applied_at /
-    // application_url / application_status) is preserved.
-    //
-    // The stored `link` is intentionally NOT overwritten: the row's id is
-    // md5(company + title + stripUtm(link)), so by construction a refresh
-    // means the *original* link was identical. Meanwhile other writers
-    // (find-ats-links-daily.ts) upgrade the stored link to a direct ATS URL;
-    // overwriting on every poll would clobber that upgrade.
-    const refreshOnRediscovery = db.prepare(`
-      UPDATE internships SET
-        seen_at          = @seenAt,
-        archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE 0 END,
-        score            = @score,
-        score_label      = @scoreLabel,
-        matched_keywords = @matchedKeywords,
-        description      = COALESCE(NULLIF(description, ''), @description),
-        salary_text      = COALESCE(salary_text, @salaryText),
-        salary_min       = COALESCE(salary_min,  @salaryMin),
-        salary_max       = COALESCE(salary_max,  @salaryMax),
-        salary_unit      = COALESCE(salary_unit, @salaryUnit),
-        ats_source       = COALESCE(ats_source,  @atsSource),
-        ats_target       = COALESCE(ats_target,  @atsTarget),
-        ats_job_id       = COALESCE(ats_job_id,  @atsJobId),
-        multi_location   = COALESCE(multi_location, @multiLocation),
-        normalized_key   = COALESCE(normalized_key, @normalizedKey)
-      WHERE id = @id
-    `);
-    const insertInternship = db.prepare(`
-      INSERT OR IGNORE INTO internships
-        (id, title, company, location, description, link, source, ats_source,
-         ats_job_id, ats_target, posted_at, seen_at, score, score_label,
-         matched_keywords, is_new, applied, archived, applied_at,
-         application_url, application_status, failed_check_count,
-         first_failed_at, last_checked_at, multi_location,
-         salary_text, salary_min, salary_max, salary_unit, normalized_key, hidden, season)
-      VALUES (@id, @title, @company, @location, @description, @link, @source,
-        @atsSource, @atsJobId, @atsTarget, @postedAt, @seenAt, @score,
-        @scoreLabel, @matchedKeywords, @isNew, @applied, @archived, @appliedAt,
-        @applicationUrl, @applicationStatus, @failedCheckCount, @firstFailedAt,
-        @lastCheckedAt, @multiLocation,
-        @salaryText, @salaryMin, @salaryMax, @salaryUnit, @normalizedKey, @hidden, @season)
-    `);
-
     const newInternships: Internship[] = [];
     const incomingBySource: Record<string, number> = {};
     const netNewBySource: Record<string, number> = {};
@@ -674,15 +319,89 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
       incomingBySource[src] = (incomingBySource[src] || 0) + 1;
     }
 
-        const txn = db.transaction((items: Internship[]) => {
-      for (const i of items) {
-        // Exact id seen? Refresh the existing row instead of silently dropping —
-        // bumps seen_at so revalidation/source-health reflects current activity,
-        // un-archives if it was archived (rediscovery = still posted), and
-        // backfills description/salary/ATS provenance that may have been null
-        // on first ingest. Preserves user state.
-        if (existingIdRow.get(i.id)) {
-          refreshOnRediscovery.run(toRow({ ...i, link: stripUtm(i.link || '') || i.link }));
+    // Use a single transaction with one held client for the full batch.
+    const totalStored = await withTxn(async (client) => {
+      const existingIdRow = 'SELECT id FROM seen_ids WHERE id = $1';
+      const insertSeen = 'INSERT INTO seen_ids (id) VALUES ($1) ON CONFLICT DO NOTHING';
+      const upgradeLink = 'UPDATE internships SET link = $2 WHERE id = $1';
+
+      // Cross-source backfill: when a different source rediscovers the same
+      // role (matched by normalized_key), the incoming row may carry data the
+      // stored row lacks — most commonly a description (SimplifyJobs ships
+      // title-only, Workday/Greenhouse/Ashby ship the full posting). Without
+      // this path the second source's richer payload is dropped on the floor.
+      // COALESCE backfills missing fields only; score/keywords always replace
+      // because the new score was computed against richer data. seen_at bumps
+      // (positive proof of life across sources) and archived flips off unless
+      // the row was failing link checks. Source attribution and user state
+      // (applied/hidden/applied_at/application_url/application_status) and the
+      // stored link/title/company are preserved.
+      const crossSourceBackfill = `
+        UPDATE internships SET
+          seen_at          = $1,
+          archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE false END,
+          score            = $2,
+          score_label      = $3,
+          matched_keywords = $4,
+          description      = COALESCE(NULLIF(description, ''), $5),
+          salary_text      = COALESCE(salary_text, $6),
+          salary_min       = COALESCE(salary_min,  $7),
+          salary_max       = COALESCE(salary_max,  $8),
+          salary_unit      = COALESCE(salary_unit, $9),
+          ats_source       = COALESCE(ats_source,  $10),
+          ats_target       = COALESCE(ats_target,  $11),
+          ats_job_id       = COALESCE(ats_job_id,  $12),
+          multi_location   = COALESCE(multi_location, $13),
+          normalized_key   = COALESCE(normalized_key, $14)
+        WHERE id = $15
+      `;
+
+      // Refresh-on-rediscovery: same posting (same md5 ID) returns from a
+      // later poll. Mark it as actively listed again — bump seen_at, un-archive
+      // (rediscovery is positive proof the role is still live), re-score with
+      // current config, and backfill description/salary/ATS fields if they
+      // were null. User state (applied / hidden / applied_at / application_url
+      // / application_status) is preserved.
+      //
+      // The stored `link` is intentionally NOT overwritten: the row's id is
+      // md5(company + title + stripUtm(link)), so by construction a refresh
+      // means the *original* link was identical. Meanwhile other writers
+      // (find-ats-links-daily.ts) upgrade the stored link to a direct ATS URL;
+      // overwriting on every poll would clobber that upgrade.
+      const refreshOnRediscovery = crossSourceBackfill; // identical column list
+
+      // Insert-if-absent for first-time discoveries.
+      const insertInternship = (() => {
+        const placeholders = COL_NAMES.map((_, i) => `$${i + 1}`).join(',');
+        return `INSERT INTO internships (${COL_NAMES.join(',')}) VALUES (${placeholders}) ON CONFLICT (id) DO NOTHING`;
+      })();
+
+      for (const i of incoming) {
+        // Exact id seen? Refresh the existing row instead of silently
+        // dropping — bumps seen_at so revalidation/source-health reflects
+        // current activity, un-archives if it was archived (rediscovery =
+        // still posted), and backfills description/salary/ATS provenance.
+        // Preserves user state.
+        const seen = await client.query(existingIdRow, [i.id]);
+        if (seen.rowCount && seen.rowCount > 0) {
+          const refreshed = { ...i, link: stripUtm(i.link || '') || i.link };
+          await client.query(refreshOnRediscovery, [
+            refreshed.seenAt,
+            refreshed.score ?? null,
+            refreshed.scoreLabel ? refreshed.scoreLabel : null,
+            JSON.stringify(refreshed.matchedKeywords ?? []),
+            refreshed.description ?? null,
+            refreshed.salaryText ?? null,
+            refreshed.salaryMin ?? null,
+            refreshed.salaryMax ?? null,
+            refreshed.salaryUnit ?? null,
+            refreshed.atsSource ?? null,
+            refreshed.atsTarget ?? null,
+            refreshed.atsJobId ?? null,
+            refreshed.multiLocation ? JSON.stringify(refreshed.multiLocation) : null,
+            refreshed.normalizedKey ?? null,
+            i.id,
+          ]);
           continue;
         }
 
@@ -694,18 +413,33 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         if (i.normalizedKey && seenKeys.has(i.normalizedKey)) {
           const existing = rowByKey.get(i.normalizedKey);
           if (existing) {
-            // Backfill description/salary/ATS fields and refresh score from
-            // the incoming row — see crossSourceBackfill comment above.
-            crossSourceBackfill.run(toRow({ ...i, id: existing.id, link: stripUtm(i.link || '') || i.link }));
+            const backfilled = { ...i, id: existing.id, link: stripUtm(i.link || '') || i.link };
+            await client.query(crossSourceBackfill, [
+              backfilled.seenAt,
+              backfilled.score ?? null,
+              backfilled.scoreLabel ? backfilled.scoreLabel : null,
+              JSON.stringify(backfilled.matchedKeywords ?? []),
+              backfilled.description ?? null,
+              backfilled.salaryText ?? null,
+              backfilled.salaryMin ?? null,
+              backfilled.salaryMax ?? null,
+              backfilled.salaryUnit ?? null,
+              backfilled.atsSource ?? null,
+              backfilled.atsTarget ?? null,
+              backfilled.atsJobId ?? null,
+              backfilled.multiLocation ? JSON.stringify(backfilled.multiLocation) : null,
+              backfilled.normalizedKey ?? null,
+              existing.id,
+            ]);
             // If the stored row's link is a simplify.jobs wrapper and the
-            // incoming row has a direct apply URL, upgrade the stored link
-            // in place. Source attribution (first-discoverer) is preserved.
+            // incoming row has a direct apply URL, upgrade the stored link in
+            // place. Source attribution (first-discoverer) is preserved.
             if (
               existing.link.includes('simplify.jobs') &&
               normalizedLink &&
               !normalizedLink.includes('simplify.jobs')
             ) {
-              upgradeLink.run({ id: existing.id, link: normalizedLink });
+              await client.query(upgradeLink, [existing.id, normalizedLink]);
               rowByKey.set(i.normalizedKey, { id: existing.id, link: normalizedLink });
               seenLinks.add(normalizedLink);
             }
@@ -717,8 +451,8 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         if (i.normalizedKey) seenKeys.add(i.normalizedKey);
 
         const stored: Internship = { ...i, link: normalizedLink || i.link, isNew: true };
-        insertInternship.run(toRow(stored));
-        insertSeen.run(stored.id);
+        await client.query(insertInternship, toValues(stored));
+        await client.query(insertSeen, [stored.id]);
         newInternships.push(stored);
         // Track this row so a later item in the same batch can upgrade its
         // link if a direct apply URL turns up after a simplify.jobs one.
@@ -728,27 +462,26 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         const src = stored.source || 'Unknown';
         netNewBySource[src] = (netNewBySource[src] || 0) + 1;
       }
-    });
-    txn(incoming);
 
-    const totalStored = (db.prepare('SELECT COUNT(*) as n FROM internships').get() as { n: number }).n;
+      const count = await client.query<{ n: string }>('SELECT COUNT(*)::text AS n FROM internships');
+      return parseInt(count.rows[0].n, 10);
+    });
+
     return { newInternships, totalStored, incomingBySource, netNewBySource };
   });
 }
 
 export async function patchInternship(id: string, patch: Partial<Internship>): Promise<Internship | null> {
   // Wrap read→merge→write in the same withLock the poll cycle uses so
-  // concurrent PATCH requests don't read-modify-write over each other.
-  // Without this, two rapid PATCHes (e.g. user clicks "applied" then "hidden"
-  // before the first request lands) both read the same baseline row, each
-  // merges its own change, and the second write loses the first's change.
-  return withLock(() => {
-    const db = getDb();
-    const existing = db.prepare('SELECT * FROM internships WHERE id = ?').get(id) as Row | undefined;
-    if (!existing) return null;
-
-    const merged: Internship = { ...fromRow(existing), ...patch };
-    saveInternships([merged]);
+  // concurrent PATCH requests don't read-modify-write over each other. Without
+  // this, two rapid PATCHes (e.g. user clicks "applied" then "hidden" before
+  // the first request lands) both read the same baseline row, each merges its
+  // own change, and the second write loses the first's change.
+  return withLock(async () => {
+    const { rows } = await getPool().query<Row>('SELECT * FROM internships WHERE id = $1', [id]);
+    if (rows.length === 0) return null;
+    const merged: Internship = { ...fromRow(rows[0]), ...patch };
+    await saveInternships([merged]);
     return merged;
   });
 }
@@ -761,26 +494,25 @@ export async function patchInternship(id: string, patch: Partial<Internship>): P
  */
 export async function archiveInternshipsByIds(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
-  return withLock(() => {
-    const db = getDb();
-    const stmt = db.prepare('UPDATE internships SET archived = 1 WHERE id = ?');
-    const tx = db.transaction((list: string[]) => {
-      let changed = 0;
-      for (const id of list) changed += stmt.run(id).changes;
-      return changed;
-    });
-    return tx(ids);
+  return withLock(async () => {
+    const result = await getPool().query(
+      'UPDATE internships SET archived = true WHERE id = ANY($1::text[])',
+      [ids],
+    );
+    return result.rowCount ?? 0;
   });
 }
 
 export async function archiveStalePostings(daysOld = 30): Promise<number> {
-  // Serialize against the poll-cycle transaction in deduplicateAndStore so
-  // two large writers don't compete on the WAL during a stale-archive sweep.
-  return withLock(() => {
-    const db = getDb();
+  // Serialize against the poll-cycle transaction in deduplicateAndStore so two
+  // large writers don't race on the same rows.
+  return withLock(async () => {
     const cutoff = new Date(Date.now() - daysOld * 24 * 60 * 60 * 1000).toISOString();
-    const result = db.prepare('UPDATE internships SET archived = 1 WHERE archived = 0 AND seen_at < ?').run(cutoff);
-    const count = result.changes;
+    const result = await getPool().query(
+      'UPDATE internships SET archived = true WHERE archived = false AND seen_at < $1',
+      [cutoff],
+    );
+    const count = result.rowCount ?? 0;
     if (count > 0) {
       console.log(`[store] Archived ${count} stale postings older than ${daysOld} days`);
     }
@@ -788,7 +520,7 @@ export async function archiveStalePostings(daysOld = 30): Promise<number> {
   });
 }
 
-export function getStats(): {
+export async function getStats(): Promise<{
   total: number;
   bySource: Record<string, number>;
   byLabel: Record<string, number>;
@@ -796,29 +528,25 @@ export function getStats(): {
   exclusionCounts: Record<string, number>;
   lastCycleSourceCounts: Record<string, number>;
   lastCycleNetNewBySource: Record<string, number>;
-} {
-  const db = getDb();
-  const total = (db.prepare('SELECT COUNT(*) as n FROM internships').get() as { n: number }).n;
-
-  const bySourceRows = db.prepare(`
-    SELECT source, COUNT(*) as n FROM internships GROUP BY source
-  `).all() as { source: string; n: number }[];
+}> {
+  const pool = getPool();
+  const [totalR, bySourceR, byLabelR, lastSeenR] = await Promise.all([
+    pool.query<{ n: string }>('SELECT COUNT(*)::text AS n FROM internships'),
+    pool.query<{ source: string; n: string }>('SELECT source, COUNT(*)::text AS n FROM internships GROUP BY source'),
+    pool.query<{ score_label: string | null; n: string }>('SELECT score_label, COUNT(*)::text AS n FROM internships GROUP BY score_label'),
+    pool.query<{ seen_at: Date }>('SELECT seen_at FROM internships ORDER BY seen_at DESC LIMIT 1'),
+  ]);
+  const total = parseInt(totalR.rows[0].n, 10);
   const bySource: Record<string, number> = {};
-  for (const r of bySourceRows) bySource[r.source] = r.n;
-
-  const byLabelRows = db.prepare(`
-    SELECT score_label, COUNT(*) as n FROM internships GROUP BY score_label
-  `).all() as { score_label: string; n: number }[];
+  for (const r of bySourceR.rows) bySource[r.source] = parseInt(r.n, 10);
   const byLabel: Record<string, number> = {};
-  // null = never scored (e.g. legacy JSON-migrated rows). Bucket separately
-  // so stats can distinguish unscored rows from any future explicit blanks.
-  for (const r of byLabelRows) {
+  // null = never scored (e.g. legacy JSON-migrated rows). Bucket separately so
+  // stats can distinguish unscored rows from any future explicit blanks.
+  for (const r of byLabelR.rows) {
     const key = r.score_label == null ? 'unscored' : r.score_label;
-    byLabel[key] = (byLabel[key] ?? 0) + r.n;
+    byLabel[key] = (byLabel[key] ?? 0) + parseInt(r.n, 10);
   }
-
-  const lastSeen = db.prepare(`SELECT seen_at FROM internships ORDER BY seen_at DESC LIMIT 1`).get() as { seen_at: string } | undefined;
-  const lastPolledAt = lastSeen?.seen_at ?? null;
+  const lastPolledAt = lastSeenR.rows[0]?.seen_at.toISOString() ?? null;
 
   let exclusionCounts: Record<string, number> = {};
   let lastCycleSourceCounts: Record<string, number> = {};
@@ -837,9 +565,6 @@ export function getStats(): {
 /**
  * Persisted per-poll exclusion counts. Stays as a flat JSON file — it's tiny
  * latest-only state, no need to occupy a DB table.
- *
- * sourceCounts = raw fetched per source (pre-filter); netNewBySource = items
- * that survived dedup and got stored (the real coverage contribution).
  */
 export function savePollStats(stats: {
   polledAt: string;
@@ -848,10 +573,10 @@ export function savePollStats(stats: {
   exclusionCounts: Record<string, number>;
 }): void {
   const statsPath = path.join(DATA_DIR, 'poll-stats.json');
-  // Merge per-source counts with the previous cycle's so a partial cycle
-  // (e.g. the fast tier polling only SimplifyJobs) doesn't wipe last-cycle
-  // stats for the sources it didn't poll. Each source keeps its most-recent
-  // figures from whichever cycle last touched it.
+  // Merge per-source counts with the previous cycle's so a partial cycle (e.g.
+  // the fast tier polling only SimplifyJobs) doesn't wipe last-cycle stats for
+  // the sources it didn't poll. Each source keeps its most-recent figures
+  // from whichever cycle last touched it.
   let prev: { sourceCounts?: Record<string, number>; netNewBySource?: Record<string, number> } = {};
   try {
     prev = JSON.parse(fs.readFileSync(statsPath, 'utf-8'));
@@ -866,7 +591,7 @@ export function savePollStats(stats: {
   }, null, 2));
 }
 
-export function getInternships(filters?: {
+export async function getInternships(filters?: {
   source?: string;
   sources?: string[];
   minScore?: number;
@@ -875,37 +600,37 @@ export function getInternships(filters?: {
   includeHidden?: boolean;
   sort?: 'newest' | 'posted' | 'score';
   search?: string;
-}): Internship[] {
-  const db = getDb();
+}): Promise<Internship[]> {
   const where: string[] = [];
-  const params: Record<string, unknown> = {};
+  const params: unknown[] = [];
+  const p = () => `$${params.length}`;
 
-  if (!filters?.includeArchived) where.push('archived = 0');
-  if (!filters?.includeHidden) where.push('hidden = 0');
+  if (!filters?.includeArchived) where.push('archived = false');
+  if (!filters?.includeHidden) where.push('hidden = false');
   // Prefer multi-source `sources` over single `source` if both are provided.
   // The list route used to flatten multi → undefined when length > 1, which
   // silently returned everything; pass the array through here instead.
   if (filters?.sources && filters.sources.length > 0) {
-    const placeholders = filters.sources.map((_, i) => `@source${i}`).join(', ');
-    where.push(`LOWER(source) IN (${placeholders})`);
-    filters.sources.forEach((s, i) => {
-      params[`source${i}`] = s.toLowerCase();
-    });
+    params.push(filters.sources.map((s) => s.toLowerCase()));
+    where.push(`LOWER(source) = ANY(${p()}::text[])`);
   } else if (filters?.source) {
-    where.push('LOWER(source) = @source');
-    params.source = filters.source.toLowerCase();
+    params.push(filters.source.toLowerCase());
+    where.push(`LOWER(source) = ${p()}`);
   }
   if (filters?.minScore !== undefined) {
-    where.push('COALESCE(score, 0) >= @minScore');
-    params.minScore = filters.minScore;
+    params.push(filters.minScore);
+    where.push(`COALESCE(score, 0) >= ${p()}`);
   }
   if (filters?.label) {
-    where.push('LOWER(score_label) = @label');
-    params.label = filters.label.toLowerCase();
+    params.push(filters.label.toLowerCase());
+    where.push(`LOWER(score_label) = ${p()}`);
   }
   if (filters?.search) {
-    where.push('(LOWER(title) LIKE @q OR LOWER(company) LIKE @q OR LOWER(location) LIKE @q)');
-    params.q = `%${filters.search.toLowerCase()}%`;
+    // Push the LIKE pattern once and reuse the same $N for all three columns —
+    // pg accepts a placeholder repeated in a single statement.
+    params.push(`%${filters.search.toLowerCase()}%`);
+    const q = p();
+    where.push(`(LOWER(title) LIKE ${q} OR LOWER(company) LIKE ${q} OR LOWER(location) LIKE ${q})`);
   }
 
   const orderBy = filters?.sort === 'newest'
@@ -915,7 +640,7 @@ export function getInternships(filters?: {
     : 'COALESCE(score, 0) DESC';
 
   const sql = `SELECT * FROM internships${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ${orderBy}`;
-  const rows = db.prepare(sql).all(params) as Row[];
+  const { rows } = await getPool().query<Row>(sql, params);
   return rows.map(fromRow);
 }
 
@@ -949,11 +674,12 @@ async function processBatch<T, R>(
 }
 
 export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<RevalidationResult> {
-  const db = getDb();
   const now = new Date().toISOString();
   const BATCH_SIZE = 20;
 
-  const activeRows = db.prepare('SELECT * FROM internships WHERE archived = 0 AND hidden = 0').all() as Row[];
+  const { rows: activeRows } = await getPool().query<Row>(
+    'SELECT * FROM internships WHERE archived = false AND hidden = false'
+  );
   const active = activeRows.map(fromRow);
   console.log(`[revalidate] Starting${opts.dryRun ? ' (DRY RUN)' : ''}: ${active.length} entries to check in batches of ${BATCH_SIZE}`);
 
@@ -977,7 +703,7 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
     }
   }
 
-  const toHttpCheck = active.filter(e => !e.archived && !isAggregatorLink(e.link));
+  const toHttpCheck = active.filter((e) => !e.archived && !isAggregatorLink(e.link));
   console.log(`[revalidate] ${toHttpCheck.length} need HTTP checks (${result.aggregatorFound} are aggregators)`);
 
   await processBatch(toHttpCheck, BATCH_SIZE, async (entry) => {
@@ -1020,27 +746,26 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
     // end would clobber any PATCH the UI / Discord buttons / daily ATS script
     // made during that window. We only mutate four columns here, so write
     // exactly those — leaves user/state columns alone for concurrent writers.
-    await withLock(() => {
-      const updateRevalidation = db.prepare(`
-        UPDATE internships
-        SET archived           = @archived,
-            failed_check_count = @failedCheckCount,
-            first_failed_at    = @firstFailedAt,
-            last_checked_at    = @lastCheckedAt
-        WHERE id = @id
-      `);
-      const updateMany = db.transaction((rows: Internship[]) => {
-        for (const r of rows) {
-          updateRevalidation.run({
-            id: r.id,
-            archived: r.archived ? 1 : 0,
-            failedCheckCount: r.failedCheckCount ?? 0,
-            firstFailedAt: r.firstFailedAt ?? null,
-            lastCheckedAt: r.lastCheckedAt ?? null,
-          });
+    await withLock(async () => {
+      await withTxn(async (client) => {
+        for (const r of updates) {
+          await client.query(
+            `UPDATE internships
+               SET archived           = $1,
+                   failed_check_count = $2,
+                   first_failed_at    = $3,
+                   last_checked_at    = $4
+             WHERE id = $5`,
+            [
+              r.archived,
+              r.failedCheckCount ?? 0,
+              r.firstFailedAt ?? null,
+              r.lastCheckedAt ?? null,
+              r.id,
+            ],
+          );
         }
       });
-      updateMany(updates);
     });
   }
 
@@ -1054,6 +779,6 @@ export async function revalidateLinks(opts: { dryRun?: boolean } = {}): Promise<
 }
 
 // Test-only helper: kept for compatibility with src/poller/test.ts
-export function _deleteInternshipForTest(id: string): void {
-  getDb().prepare('DELETE FROM internships WHERE id = ?').run(id);
+export async function _deleteInternshipForTest(id: string): Promise<void> {
+  await getPool().query('DELETE FROM internships WHERE id = $1', [id]);
 }

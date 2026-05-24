@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -375,7 +376,7 @@ async function runDedupTests(): Promise<void> {
   assert.strictEqual(r2.newInternships.length, 0, 'Second insert: expected 0 new (duplicate)');
 
   // Cleanup test entry so it doesn't pollute real data
-  _deleteInternshipForTest(testId);
+  await _deleteInternshipForTest(testId);
   });
 }
 
@@ -889,18 +890,18 @@ async function runArchiveTests(): Promise<void> {
     assert.ok(archived >= 1, `Expected at least 1 archived, got ${archived}`);
 
     // Without includeArchived: should NOT find the test internship
-    const withoutArchived = getInternships();
+    const withoutArchived = await getInternships();
     const found1 = withoutArchived.find(i => i.id === testId);
     assert.strictEqual(found1, undefined, 'Archived internship should not appear without includeArchived');
 
     // With includeArchived: SHOULD find the test internship
-    const withArchived = getInternships({ includeArchived: true });
+    const withArchived = await getInternships({ includeArchived: true });
     const found2 = withArchived.find(i => i.id === testId);
     assert.ok(found2, 'Archived internship should appear with includeArchived=true');
     assert.strictEqual(found2!.archived, true, 'archived flag should be true');
 
     // Cleanup
-    _deleteInternshipForTest(testId);
+    await _deleteInternshipForTest(testId);
   });
 }
 
@@ -948,7 +949,7 @@ async function runApplicationTrackingTests(): Promise<void> {
     assert.strictEqual(patched!.applicationStatus, 'applied', 'applicationStatus should match');
 
     // Cleanup
-    _deleteInternshipForTest(testId);
+    await _deleteInternshipForTest(testId);
   });
 }
 

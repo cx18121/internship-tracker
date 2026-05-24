@@ -6,13 +6,16 @@
  *
  * Reports the before/after grade distribution so you can sanity-check the
  * shift before deciding to keep the new scores.
+ *
+ * Targets whatever DATABASE_URL points to — local .env reads the shared
+ * Railway Postgres, so a rescore here updates production immediately. Use
+ * --dry-run first when iterating on scorer config.
  */
 
-import * as path from 'path';
-import Database from 'better-sqlite3';
+import 'dotenv/config';
+import { getPool, closePool } from '../src/lib/db';
 import { scoreInternship } from '../src/lib/scorer';
 
-const DB_PATH = path.join(process.cwd(), 'data', 'internships.db');
 const DRY_RUN = process.argv.includes('--dry-run');
 
 interface Row {
@@ -60,54 +63,33 @@ function format(h: ReturnType<typeof histogram>): string {
   return `  labels: ${labelStr}\n  bands : ${bandStr}\n  avg=${h.avg.toFixed(1)} max=${h.max}`;
 }
 
-function main(): void {
-  const db = new Database(DB_PATH);
-  db.pragma('journal_mode = WAL');
-
-  const rows = db.prepare(`
+async function main(): Promise<void> {
+  const pool = getPool();
+  const { rows } = await pool.query<Row>(`
     SELECT id, title, company, location, description, score, score_label
     FROM internships
-  `).all() as Row[];
+  `);
 
   console.log(`[rescore] Loaded ${rows.length} rows from DB`);
 
   const before = histogram(rows.map(r => ({ score: r.score, label: r.score_label })));
   console.log(`\n=== Before ===\n${format(before)}`);
 
-  const update = db.prepare(`
-    UPDATE internships
-       SET score = @score,
-           score_label = @scoreLabel,
-           matched_keywords = @matchedKeywords
-     WHERE id = @id
-  `);
-
   const changedRows: Array<{ id: string; oldScore: number | null; newScore: number; oldLabel: string | null; newLabel: string }> = [];
   let unchanged = 0;
 
-  const tx = db.transaction((rows: Row[]) => {
-    for (const r of rows) {
-      const result = scoreInternship({
-        title: r.title ?? '',
-        company: r.company ?? '',
-        location: r.location ?? '',
-        description: r.description ?? undefined,
-      });
-      const before = r.score ?? -1;
-      // Always re-write matched_keywords (even when score is unchanged) so a
-      // re-run after a code change populates them correctly.
-      if (result.score === before && result.scoreLabel === r.score_label) {
-        unchanged++;
-        if (!DRY_RUN) {
-          update.run({
-            id: r.id,
-            score: result.score,
-            scoreLabel: result.scoreLabel,
-            matchedKeywords: JSON.stringify(result.matchedKeywords),
-          });
-        }
-        continue;
-      }
+  // Collect new scores first; write inside a single transaction if not --dry-run.
+  const scored = rows.map(r => {
+    const result = scoreInternship({
+      title: r.title ?? '',
+      company: r.company ?? '',
+      location: r.location ?? '',
+      description: r.description ?? undefined,
+    });
+    const before = r.score ?? -1;
+    if (result.score === before && result.scoreLabel === r.score_label) {
+      unchanged++;
+    } else {
       changedRows.push({
         id: r.id,
         oldScore: r.score,
@@ -115,17 +97,32 @@ function main(): void {
         oldLabel: r.score_label,
         newLabel: result.scoreLabel,
       });
-      if (!DRY_RUN) {
-        update.run({
-          id: r.id,
-          score: result.score,
-          scoreLabel: result.scoreLabel,
-          matchedKeywords: JSON.stringify(result.matchedKeywords),
-        });
-      }
     }
+    return { id: r.id, score: result.score, scoreLabel: result.scoreLabel, matchedKeywords: result.matchedKeywords };
   });
-  tx(rows);
+
+  if (!DRY_RUN) {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const s of scored) {
+        await client.query(
+          `UPDATE internships
+             SET score = $1,
+                 score_label = $2,
+                 matched_keywords = $3
+           WHERE id = $4`,
+          [s.score, s.scoreLabel, JSON.stringify(s.matchedKeywords), s.id],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
 
   const after = histogram(
     changedRows.length === 0
@@ -168,8 +165,8 @@ function main(): void {
       console.log(`  [${c.newScore}] ${row.company} — ${row.title?.slice(0, 60)}`);
     }
   }
-
-  db.close();
 }
 
-main();
+main()
+  .catch(err => { console.error('[rescore] failed:', err); process.exitCode = 1; })
+  .finally(async () => { await closePool(); });

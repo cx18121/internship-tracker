@@ -8,7 +8,7 @@ export async function GET(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  const all = getInternships({ includeArchived: true });
+  const all = await getInternships({ includeArchived: true });
   const internship = all.find(i => i.id === id);
   if (!internship) return Response.json({ error: "Not found" }, { status: 404 });
   const breakdown = scoreInternship({

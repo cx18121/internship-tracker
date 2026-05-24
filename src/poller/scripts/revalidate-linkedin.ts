@@ -25,6 +25,6 @@ main()
     console.error('[revalidate-linkedin] Failed:', err);
     process.exitCode = 1;
   })
-  .finally(() => {
-    try { closeDb(); } catch {}
+  .finally(async () => {
+    try { await closeDb(); } catch {}
   });

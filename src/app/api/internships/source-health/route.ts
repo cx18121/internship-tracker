@@ -3,8 +3,11 @@ import { getInternships, getStats } from "@/lib/store";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const internships = getInternships({ includeArchived: true });
-  const { lastCycleSourceCounts, lastCycleNetNewBySource } = getStats();
+  const [internships, stats] = await Promise.all([
+    getInternships({ includeArchived: true }),
+    getStats(),
+  ]);
+  const { lastCycleSourceCounts, lastCycleNetNewBySource } = stats;
 
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
