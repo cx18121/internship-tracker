@@ -35,9 +35,20 @@ export function jsonStore<T extends object>(
       }
     },
     save(data: T): void {
-      const dir = path.dirname(filePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      // Best-effort: a write failure logs but doesn't throw. The pre-refactor
+      // helpers (saveSimplifyCache, saveHistory in linkedin-revalidate) wrapped
+      // writeFileSync in try/catch so a transient FS hiccup couldn't break the
+      // calling cycle after the real work (DB archive, list fetch) had already
+      // succeeded. Preserve that contract here so every consumer gets the
+      // same recoverable semantics.
+      try {
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(`[sidecar] Failed to write ${filePath}: ${msg}`);
+      }
     },
   };
 }
