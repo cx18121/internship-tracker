@@ -158,7 +158,7 @@ export async function revalidateLinkedIn(opts: {
   const history = loadHistory();
   const ttlCutoff = Date.now() - CHECK_TTL_DAYS * 24 * 60 * 60 * 1000;
 
-  const all = getInternships({});
+  const all = await getInternships({});
   let allActive = all
     .filter(i => i.source.toLowerCase() === 'linkedin' && !i.archived)
     .map(i => ({ id: i.id, link: i.link, jobId: extractLinkedInJobId(i.link) }))

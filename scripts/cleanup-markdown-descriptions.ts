@@ -13,12 +13,11 @@
 // Run dry:    APPLY=0 npx tsx scripts/cleanup-markdown-descriptions.ts
 // Run apply:  APPLY=1 npx tsx scripts/cleanup-markdown-descriptions.ts
 
-import Database from 'better-sqlite3';
-import * as path from 'path';
+import 'dotenv/config';
+import { getPool, closePool } from '../src/lib/db';
 import { decodeHtmlEntities } from '../src/poller/utils/html';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from '../src/poller/utils/description-trim';
 
-const DB_PATH = path.join(process.cwd(), 'data', 'internships.db');
 const APPLY = process.env.APPLY === '1';
 
 // Standard CommonMark escapable punctuation set.
@@ -59,88 +58,95 @@ function cleanDescription(s: string): string {
   return out;
 }
 
-const db = new Database(DB_PATH);
+async function main(): Promise<void> {
+  const pool = getPool();
+  const { rows } = await pool.query<{
+    id: string; source: string; company: string; title: string; description: string | null;
+  }>(`SELECT id, source, company, title, description FROM internships`);
 
-const rows = db.prepare<
-  [],
-  { id: string; source: string; company: string; title: string; description: string | null }
->(
-  `SELECT id, source, company, title, description FROM internships`,
-).all();
+  const toUpdate: { id: string; before: string; after: string; source: string }[] = [];
+  const toClear: { id: string; source: string; reason: string }[] = [];
+  const toDelete: { id: string; source: string; title: string; reason: string }[] = [];
 
-const toUpdate: { id: string; before: string; after: string; source: string }[] = [];
-const toClear: { id: string; source: string; reason: string }[] = [];
-const toDelete: { id: string; source: string; title: string; reason: string }[] = [];
+  for (const r of rows) {
+    if (r.source === 'TEST' || /^XSTestCo[_-]/.test(r.company) || /^XSTest/.test(r.title)) {
+      toDelete.push({ id: r.id, source: r.source, title: r.title, reason: 'test row' });
+      continue;
+    }
 
-for (const r of rows) {
-  // Synthetic test rows — TEST source or XSTestCo_* test companies leaked
-  // from earlier load tests.
-  if (r.source === 'TEST' || /^XSTestCo[_-]/.test(r.company) || /^XSTest/.test(r.title)) {
-    toDelete.push({ id: r.id, source: r.source, title: r.title, reason: 'test row' });
-    continue;
-  }
+    if (r.company === 'nan' || r.company === 'NaN' || r.company === 'None') {
+      toDelete.push({ id: r.id, source: r.source, title: r.title, reason: 'nan company' });
+      continue;
+    }
 
-  // pd.NaN-as-company rows — no recoverable company, drop entirely.
-  if (r.company === 'nan' || r.company === 'NaN' || r.company === 'None') {
-    toDelete.push({ id: r.id, source: r.source, title: r.title, reason: 'nan company' });
-    continue;
-  }
+    if (!r.description) continue;
 
-  if (!r.description) continue;
-
-  const cleaned = cleanDescription(r.description);
-  if (cleaned !== r.description.trim()) {
-    if (cleaned.length < 50) {
-      // After cleanup, nothing of substance remains (banner-only or near-empty).
-      toClear.push({ id: r.id, source: r.source, reason: 'banner/empty after clean' });
-    } else {
-      toUpdate.push({ id: r.id, before: r.description, after: cleaned, source: r.source });
+    const cleaned = cleanDescription(r.description);
+    if (cleaned !== r.description.trim()) {
+      if (cleaned.length < 50) {
+        toClear.push({ id: r.id, source: r.source, reason: 'banner/empty after clean' });
+      } else {
+        toUpdate.push({ id: r.id, before: r.description, after: cleaned, source: r.source });
+      }
     }
   }
-}
 
-console.log(`Rows to delete: ${toDelete.length}`);
-const delBy = new Map<string, number>();
-for (const d of toDelete) delBy.set(d.reason, (delBy.get(d.reason) ?? 0) + 1);
-for (const [reason, n] of delBy) console.log(`  ${reason.padEnd(20)} ${n}`);
+  console.log(`Rows to delete: ${toDelete.length}`);
+  const delBy = new Map<string, number>();
+  for (const d of toDelete) delBy.set(d.reason, (delBy.get(d.reason) ?? 0) + 1);
+  for (const [reason, n] of delBy) console.log(`  ${reason.padEnd(20)} ${n}`);
 
-console.log(`\nDescriptions to clear (banner-only / empty after clean): ${toClear.length}`);
-const clearBy = new Map<string, number>();
-for (const c of toClear) clearBy.set(c.source, (clearBy.get(c.source) ?? 0) + 1);
-for (const [src, n] of clearBy) console.log(`  ${src.padEnd(20)} ${n}`);
+  console.log(`\nDescriptions to clear (banner-only / empty after clean): ${toClear.length}`);
+  const clearBy = new Map<string, number>();
+  for (const c of toClear) clearBy.set(c.source, (clearBy.get(c.source) ?? 0) + 1);
+  for (const [src, n] of clearBy) console.log(`  ${src.padEnd(20)} ${n}`);
 
-console.log(`\nDescriptions to clean (entities/markdown stripped): ${toUpdate.length}`);
-const updBy = new Map<string, number>();
-for (const u of toUpdate) updBy.set(u.source, (updBy.get(u.source) ?? 0) + 1);
-for (const [src, n] of [...updBy.entries()].sort((a, b) => b[1] - a[1])) {
-  console.log(`  ${src.padEnd(20)} ${n}`);
-}
-
-if (toUpdate.length > 0) {
-  console.log(`\nSample (first 3 cleanings — diff visible chars):`);
-  for (const u of toUpdate.slice(0, 3)) {
-    console.log(`  --- [${u.source}] ${u.id} ---`);
-    console.log(`  BEFORE: ${u.before.slice(0, 220).replace(/\n/g, ' ')}`);
-    console.log(`  AFTER:  ${u.after.slice(0, 220).replace(/\n/g, ' ')}`);
+  console.log(`\nDescriptions to clean (entities/markdown stripped): ${toUpdate.length}`);
+  const updBy = new Map<string, number>();
+  for (const u of toUpdate) updBy.set(u.source, (updBy.get(u.source) ?? 0) + 1);
+  for (const [src, n] of [...updBy.entries()].sort((a, b) => b[1] - a[1])) {
+    console.log(`  ${src.padEnd(20)} ${n}`);
   }
+
+  if (toUpdate.length > 0) {
+    console.log(`\nSample (first 3 cleanings — diff visible chars):`);
+    for (const u of toUpdate.slice(0, 3)) {
+      console.log(`  --- [${u.source}] ${u.id} ---`);
+      console.log(`  BEFORE: ${u.before.slice(0, 220).replace(/\n/g, ' ')}`);
+      console.log(`  AFTER:  ${u.after.slice(0, 220).replace(/\n/g, ' ')}`);
+    }
+  }
+
+  if (!APPLY) {
+    console.log(`\n[DRY RUN] No changes made. Re-run with APPLY=1 to commit.`);
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const u of toUpdate) {
+      await client.query('UPDATE internships SET description = $1 WHERE id = $2', [u.after, u.id]);
+    }
+    for (const c of toClear) {
+      await client.query('UPDATE internships SET description = NULL WHERE id = $1', [c.id]);
+    }
+    for (const d of toDelete) {
+      await client.query('DELETE FROM internships WHERE id = $1', [d.id]);
+    }
+    await client.query('COMMIT');
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+
+  console.log(
+    `\n[APPLIED] Cleaned ${toUpdate.length}, cleared ${toClear.length}, deleted ${toDelete.length}.`,
+  );
 }
 
-if (!APPLY) {
-  console.log(`\n[DRY RUN] No changes made. Re-run with APPLY=1 to commit.`);
-  process.exit(0);
-}
-
-const updateStmt = db.prepare(`UPDATE internships SET description = ? WHERE id = ?`);
-const clearStmt = db.prepare(`UPDATE internships SET description = NULL WHERE id = ?`);
-const deleteStmt = db.prepare(`DELETE FROM internships WHERE id = ?`);
-
-const tx = db.transaction(() => {
-  for (const u of toUpdate) updateStmt.run(u.after, u.id);
-  for (const c of toClear) clearStmt.run(c.id);
-  for (const d of toDelete) deleteStmt.run(d.id);
-});
-tx();
-
-console.log(
-  `\n[APPLIED] Cleaned ${toUpdate.length}, cleared ${toClear.length}, deleted ${toDelete.length}.`,
-);
+main()
+  .catch(err => { console.error('[cleanup-markdown] failed:', err); process.exitCode = 1; })
+  .finally(async () => { await closePool(); });

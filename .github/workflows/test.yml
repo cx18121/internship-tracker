@@ -1,9 +1,8 @@
 # Runs the full test suite on every push and PR.
 #
-# `npm run test:ci` seeds a hermetic fixture DB at ./test-data/ (DATA_DIR
-# override on src/lib/store.ts), then spawns `next dev` and runs the
-# 63-test suite — including the 6 live-API tests — against it. No
-# production data needed.
+# Spins up an ephemeral Postgres 18 service container, points DATABASE_URL at
+# it, then runs `npm run test:ci`. seed-test-db.ts applies the schema
+# migration on a fresh DB before inserting fixtures, so CI is self-contained.
 
 name: test
 
@@ -16,6 +15,23 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tracker_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/tracker_test
 
     steps:
       - uses: actions/checkout@v4

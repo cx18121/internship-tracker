@@ -117,22 +117,21 @@ async function main(): Promise<void> {
 // ---------------------------------------------------------------------------
 // Railway sends SIGTERM during deploys and gives ~10s before SIGKILL. We don't
 // try to wait for an in-flight cycle to finish (slow cycles take minutes) —
-// SQLite writes are synchronous, so anything mid-cycle has either committed or
-// will be re-fetched next cycle. We just close the DB cleanly so WAL gets
-// checkpointed, then exit 0 to keep the supervisor quiet.
+// anything mid-transaction either COMMITted or will be re-fetched next cycle.
+// We just drain the pg pool so open connections close cleanly, then exit 0.
 let shuttingDown = false;
-function shutdown(signal: NodeJS.Signals): void {
+async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[internship-tracker] Received ${signal} — closing DB and exiting cleanly`);
-  try { closeDb(); } catch {}
+  console.log(`[internship-tracker] Received ${signal} — closing pool and exiting cleanly`);
+  try { await closeDb(); } catch {}
   process.exit(0);
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-main().catch(err => {
+main().catch(async err => {
   console.error('[internship-tracker] Fatal error:', err);
-  closeDb();
+  try { await closeDb(); } catch {}
   process.exit(1);
 });

@@ -259,7 +259,7 @@ export async function scanPortals(): Promise<PortalScanOutput> {
 
   // Update snapshots and archive disappeared listings
   const archivedByTarget: Record<string, number> = {};
-  const internships = loadInternships();
+  const internships = await loadInternships();
   const allArchivedIds: string[] = [];
 
   // Must match the source labels ats.ts writes when storing internships,

@@ -31,7 +31,7 @@ export async function GET(request: Request) {
   const q = sp.get("q")?.trim() || undefined;
   const includeHidden = sp.get("includeHidden") === "1" || sp.get("hidden") === "1";
 
-  const all = getInternships({ source, sources, minScore, label, sort, search: q, includeHidden });
+  const all = await getInternships({ source, sources, minScore, label, sort, search: q, includeHidden });
   const sliced = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
   return Response.json(sliced);
 }
