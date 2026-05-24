@@ -14,7 +14,9 @@ export interface Internship {
   postedAt: string;
   seenAt: string;
   score: number | null;
-  scoreLabel: string;   // Excellent | Strong | Good | Low
+  /** Letter grade derived from `score`. NULL means "never scored" (e.g.
+   *  legacy JSON-migrated rows, or the test-fixture seed). */
+  scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F' | null;
   matchedKeywords: string[];
   isNew: boolean;
   applied: boolean;

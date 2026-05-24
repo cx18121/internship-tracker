@@ -5,6 +5,7 @@ import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { buildInternshipRow } from '../utils/build-row';
 import { HANDSHAKE_PROMO_BANNER_SOURCE } from '../utils/description-trim';
+import { pool } from '../../lib/concurrency';
 
 function alertAuthExpired(): void {
   console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');
@@ -174,18 +175,6 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
   return results;
 }
 
-// Simple concurrency pool: runs fn(item) for each item with at most `concurrency` concurrent calls.
-async function withConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
-  const queue = [...items];
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (queue.length > 0) {
-      const item = queue.shift()!;
-      await fn(item);
-    }
-  });
-  await Promise.all(workers);
-}
-
 const EXTERNAL_ATS_PATTERNS = [
   'greenhouse.io', 'lever.co', 'ashbyhq.com', 'myworkdayjobs.com', 'icims.com',
   'smartrecruiters.com', 'workday.com', 'taleo.net', 'successfactors',
@@ -206,7 +195,7 @@ async function enrichWithDetailLinks(
   let descFound = 0;
   let descMissed = 0;
 
-  await withConcurrency(batch, concurrency, async (job) => {
+  await pool(batch, concurrency, async (job) => {
     if (!job.link) return;
     const page = await context.newPage();
     try {

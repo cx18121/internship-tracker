@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { formatSeasonLabel } from "@/lib/seasons";
+import { KeywordChips } from "./KeywordChips";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
 import type { NotifChannels } from "@/lib/notifSettings";
@@ -169,84 +170,7 @@ function Toggle({
   );
 }
 
-// Add-a-keyword input + chip display. Mirrors FilterRail's chip pattern,
-// including the amber-dim treatment for keywords absent from the corpus
-// (knownKeywords) so the user can tell when a typed keyword will silently
-// match nothing.
-function KeywordRow({
-  placeholder,
-  inputValue,
-  onInputChange,
-  onAdd,
-  values,
-  onRemove,
-  knownKeywords,
-  tone,
-}: {
-  placeholder: string;
-  inputValue: string;
-  onInputChange: (s: string) => void;
-  onAdd: () => void;
-  values: string[];
-  onRemove: (k: string) => void;
-  knownKeywords: Set<string>;
-  tone: "include" | "exclude";
-}) {
-  const activeChipStyles =
-    tone === "include"
-      ? "bg-white/10 text-white/70"
-      : "bg-red-500/10 text-red-400";
-  const dimChipStyles =
-    tone === "include"
-      ? "bg-amber-500/10 text-amber-400/80 line-through decoration-amber-400/50"
-      : "bg-white/[0.04] text-white/30 line-through decoration-white/20";
-  return (
-    <>
-      <div className="flex gap-1.5">
-        <Input
-          placeholder={placeholder}
-          value={inputValue}
-          onChange={(e) => onInputChange(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onAdd()}
-          className="h-7 text-[12px] bg-white/[0.04] border-white/10"
-        />
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]"
-          onClick={onAdd}
-        >
-          Add
-        </Button>
-      </div>
-      {values.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {values.map((k) => {
-            const unknown = !knownKeywords.has(k.toLowerCase());
-            const tooltip =
-              tone === "include"
-                ? "Not in any posting's tags — gate will block every notification"
-                : "Not in any posting's tags — has no effect on notifications";
-            return (
-              <span
-                key={k}
-                title={unknown ? tooltip : undefined}
-                className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
-                  unknown ? dimChipStyles : activeChipStyles
-                }`}
-              >
-                {k}
-                <button onClick={() => onRemove(k)}>
-                  <X className="h-2.5 w-2.5" />
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-    </>
-  );
-}
+// KeywordChips (shared with FilterRail) handles the keyword-input control.
 
 export function NotifModal({
   open,
@@ -288,8 +212,6 @@ export function NotifModal({
   saved,
   error,
 }: Props) {
-  const [includeInput, setIncludeInput] = useState("");
-  const [excludeInput, setExcludeInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
   const [phoneInput, setPhoneInput] = useState("");
 
@@ -304,19 +226,6 @@ export function NotifModal({
     if (!v || !/^\+\d{10,15}$/.test(v)) return;
     onPhoneNumbersChange((prev) => (prev.includes(v) ? prev : [...prev, v]));
     setPhoneInput("");
-  }
-
-  function addInclude() {
-    const trimmed = includeInput.trim();
-    if (!trimmed) return;
-    onIncludeKeywordsChange((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-    setIncludeInput("");
-  }
-  function addExclude() {
-    const trimmed = excludeInput.trim();
-    if (!trimmed) return;
-    onExcludeKeywordsChange((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-    setExcludeInput("");
   }
   function toggleSource(s: string) {
     onExcludedSourcesChange((prev) =>
@@ -435,26 +344,20 @@ export function NotifModal({
           </Section>
 
           <Section label="Include keywords" hint="match scorer tags">
-            <KeywordRow
-              placeholder="e.g. React"
-              inputValue={includeInput}
-              onInputChange={setIncludeInput}
-              onAdd={addInclude}
+            <KeywordChips
               values={includeKeywords}
-              onRemove={(k) => onIncludeKeywordsChange((prev) => prev.filter((x) => x !== k))}
+              onValuesChange={(next) => onIncludeKeywordsChange(() => next)}
+              placeholder="e.g. React"
               knownKeywords={knownKeywords}
               tone="include"
             />
           </Section>
 
           <Section label="Exclude keywords">
-            <KeywordRow
-              placeholder="e.g. PhD"
-              inputValue={excludeInput}
-              onInputChange={setExcludeInput}
-              onAdd={addExclude}
+            <KeywordChips
               values={excludeKeywords}
-              onRemove={(k) => onExcludeKeywordsChange((prev) => prev.filter((x) => x !== k))}
+              onValuesChange={(next) => onExcludeKeywordsChange(() => next)}
+              placeholder="e.g. PhD"
               knownKeywords={knownKeywords}
               tone="exclude"
             />

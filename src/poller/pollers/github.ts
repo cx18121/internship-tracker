@@ -1,34 +1,18 @@
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { stripHtml } from '../utils/html';
 import { fetchDescriptionByUrl } from '../utils/description-fetchers';
 import { buildInternshipRow } from '../utils/build-row';
+import { pool } from '../../lib/concurrency';
+import { jsonStore } from '../../lib/sidecar';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
 
 // Persistent cache of resolved simplify.jobs apply URLs so we don't re-hit
 // the click endpoint for the same posting every cycle. Keyed by posting uuid.
-const SIMPLIFY_CACHE_PATH = path.join(process.cwd(), 'data', 'simplify-resolved.json');
-
-function loadSimplifyCache(): Record<string, string> {
-  try {
-    return JSON.parse(fs.readFileSync(SIMPLIFY_CACHE_PATH, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveSimplifyCache(cache: Record<string, string>): void {
-  try {
-    fs.writeFileSync(SIMPLIFY_CACHE_PATH, JSON.stringify(cache, null, 2));
-  } catch {
-    // Best-effort — cache miss is recoverable.
-  }
-}
+const simplifyCacheStore = jsonStore<Record<string, string>>('simplify-resolved.json', {});
 
 /**
  * Resolves https://simplify.jobs/p/{uuid} to the underlying ATS apply URL
@@ -156,17 +140,6 @@ function parseRows(html: string): { company: string; title: string; location: st
   return results;
 }
 
-async function withConcurrency<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
-  const queue = [...items];
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (queue.length > 0) {
-      const item = queue.shift()!;
-      await fn(item);
-    }
-  });
-  await Promise.all(workers);
-}
-
 export async function pollGitHub(): Promise<Partial<Internship>[]> {
   const response = await axios.get<string>(README_URL, { responseType: 'text', timeout: 15000 });
   const readme = response.data;
@@ -177,19 +150,19 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
   // README only has a simplify.jobs link when no direct ATS link was
   // available, so we ask simplify's own click endpoint for the redirect
   // target. Cached per uuid to avoid hitting the endpoint every cycle.
-  const simplifyCache = loadSimplifyCache();
+  const simplifyCache = simplifyCacheStore.load();
   const simplifyRows = rows.filter((r) => r.link.includes('simplify.jobs/p/'));
   if (simplifyRows.length > 0) {
     let resolved = 0;
     const before = Object.keys(simplifyCache).length;
-    await withConcurrency(simplifyRows, 10, async (row) => {
+    await pool(simplifyRows, 10, async (row) => {
       const real = await resolveSimplifyApplyUrl(row.link, simplifyCache);
       if (real) {
         row.link = real;
         resolved++;
       }
     });
-    if (Object.keys(simplifyCache).length > before) saveSimplifyCache(simplifyCache);
+    if (Object.keys(simplifyCache).length > before) simplifyCacheStore.save(simplifyCache);
     console.log(`[github poller] Resolved ${resolved}/${simplifyRows.length} simplify.jobs links to direct apply URLs`);
   }
 
@@ -216,7 +189,7 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
   // Best-effort description backfill via the linked ATS — Greenhouse/Lever/Ashby covered.
   // Concurrency-limited so we don't hammer any one host. Failures silently leave description empty.
   let enriched = 0;
-  await withConcurrency(results, 5, async (entry) => {
+  await pool(results, 5, async (entry) => {
     if (!entry.link) return;
     const desc = await fetchDescriptionByUrl(entry.link);
     if (desc) { entry.description = desc; enriched++; }

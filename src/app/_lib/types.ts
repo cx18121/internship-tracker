@@ -8,7 +8,7 @@ export interface Internship {
   postedAt: string;
   seenAt: string;
   score: number | null;
-  scoreLabel: string;
+  scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F' | null;
   matchedKeywords?: string[];
   isNew: boolean;
   applied: boolean;

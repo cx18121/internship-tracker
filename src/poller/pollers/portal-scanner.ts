@@ -12,12 +12,12 @@
  * }
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
 import { Internship, ATSTarget } from '../../lib/types';
 import { pollATS } from './ats';
 import { loadATSTargets } from '../../lib/utils/ats-discovery';
 import { loadInternships, archiveInternshipsByIds } from '../../lib/store';
+import { jsonStore } from '../../lib/sidecar';
+import { extractJobIdFromLink } from '../../lib/ats-registry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,87 +32,20 @@ interface PortalSnapshot {
 type Snapshots = Record<string, PortalSnapshot>;
 
 // ---------------------------------------------------------------------------
-// Paths
-// ---------------------------------------------------------------------------
-
-const SNAPSHOT_PATH = path.join(process.cwd(), 'data', 'portal-snapshots.json');
-
-// ---------------------------------------------------------------------------
 // Snapshot persistence
 // ---------------------------------------------------------------------------
 
-function loadSnapshots(): Snapshots {
-  try {
-    return JSON.parse(fs.readFileSync(SNAPSHOT_PATH, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveSnapshots(snapshots: Snapshots): void {
-  const dir = path.dirname(SNAPSHOT_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(SNAPSHOT_PATH, JSON.stringify(snapshots, null, 2));
-}
+const snapshotStore = jsonStore<Snapshots>('portal-snapshots.json', {});
 
 // ---------------------------------------------------------------------------
 // Job ID extraction from a listing's link
 // ---------------------------------------------------------------------------
 
-/**
- * Extracts the portal's canonical job ID from a listing's `link` URL.
- * Each ATS uses a different URL pattern — this handles them all.
- *
- * Returns the raw job ID string (e.g. "4829100123" for Greenhouse),
- * or null if the URL pattern is not recognised.
- */
-export function extractPortalJobId(link: string, atsSource: string): string | null {
-  try {
-    const url = new URL(link);
-    const pathname = url.pathname;
-
-    if (atsSource === 'Greenhouse') {
-      // https://boards.greenhouse.io/{board}/jobs/{id} or /jobs/{id}
-      const m = pathname.match(/\/jobs\/(\d+)/);
-      return m ? m[1] : null;
-    }
-    if (atsSource === 'Lever') {
-      // https://jobs.lever.co/{company}/{uuid} — last segment is the job id.
-      // pollLever() falls back to j.applyUrl when hostedUrl is missing, which
-      // ends in /apply. Drop that suffix so all Lever rows from the same
-      // tenant don't collide on the literal job id "apply".
-      const parts = pathname.split('/').filter(Boolean);
-      const trimmed = parts[parts.length - 1] === 'apply' ? parts.slice(0, -1) : parts;
-      return trimmed.length >= 2 ? trimmed[trimmed.length - 1] : null;
-    }
-    if (atsSource === 'Ashby') {
-      // https://jobs.ashbyhq.com/{board}/{id}
-      const parts = pathname.split('/').filter(Boolean);
-      // Last segment is the numeric/alphanumeric job id
-      return parts.length >= 2 ? parts[parts.length - 1] : null;
-    }
-    if (atsSource === 'Workday') {
-      // https://{tenant}.{wdInstance}.myworkdayjobs.com/job/{location}/{title}_{reqId}
-      // The last segment encodes the req id; it's stable per posting.
-      const parts = pathname.split('/').filter(Boolean);
-      return parts.length >= 2 ? parts[parts.length - 1] : null;
-    }
-    if (atsSource === 'iCIMS') {
-      // https://careers-{tenant}.icims.com/jobs/{id}/job
-      const m = pathname.match(/\/jobs\/(\d+)/);
-      return m ? m[1] : null;
-    }
-    if (atsSource === 'SmartRecruiters') {
-      // https://jobs.smartrecruiters.com/{company}/{id}
-      const parts = pathname.split('/').filter(Boolean);
-      return parts.length >= 2 ? parts[parts.length - 1] : null;
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
+// Job-id extraction by ATS URL shape lives in src/lib/ats-registry.ts —
+// the same table that drives discovery. Re-export under the historical
+// name so callers that import this don't need to change.
+export const extractPortalJobId = (link: string, _atsSource?: string): string | null =>
+  extractJobIdFromLink(link);
 
 // ---------------------------------------------------------------------------
 // Archive disappeared listings
@@ -239,7 +172,7 @@ export interface PortalScanOutput {
  */
 export async function scanPortals(): Promise<PortalScanOutput> {
   const rawListings = await pollATS();
-  const snapshots = loadSnapshots();
+  const snapshots = snapshotStore.load();
 
   // Load ats-targets.json to match listings to target slugs. Empty array
   // (missing/malformed file) means enrichment is a no-op.
@@ -302,7 +235,7 @@ export async function scanPortals(): Promise<PortalScanOutput> {
   if (allArchivedIds.length > 0) {
     await archiveInternshipsByIds(allArchivedIds);
   }
-  saveSnapshots(snapshots);
+  snapshotStore.save(snapshots);
 
   return { listings: enriched, archivedByTarget };
 }

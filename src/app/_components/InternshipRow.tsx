@@ -49,7 +49,7 @@ export function InternshipRow({
       {/* Score */}
       <span
         className={`justify-self-start text-[10.5px] font-semibold tabular-nums px-1.5 py-0.5 rounded ${
-          SCORE_BADGE[item.scoreLabel] ?? SCORE_BADGE_FALLBACK
+          (item.scoreLabel ? SCORE_BADGE[item.scoreLabel] : undefined) ?? SCORE_BADGE_FALLBACK
         }`}
       >
         {item.scoreLabel ?? "—"}

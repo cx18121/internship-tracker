@@ -1,9 +1,8 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { Internship } from '../lib/types';
 import { checkLinkStatus } from '../lib/store';
 import { loadNotifSettings, NotifSettings } from '../lib/notifSettings';
 import { applyFilterSpec } from '../lib/filter-spec';
+import { jsonStore } from '../lib/sidecar';
 import { classifyLocation } from './iso-locations';
 import { sendEmailAlert } from './channels/email';
 import { sendSmsAlert } from './channels/sms';
@@ -103,103 +102,97 @@ export async function sendBatchAlert(
   return channelResults.some(Boolean);
 }
 
-async function sendDiscordBatch(live: Internship[]): Promise<boolean> {
+/**
+ * POST a message to the configured Discord channel. Handles env-var lookup,
+ * 429 retry (one attempt, honouring retry_after), and error logging in one
+ * place — both the per-posting embed batch and the source-down content
+ * messages route through this.
+ *
+ * Returns true iff Discord acknowledged the POST. Returns false (without
+ * throwing) when the bot is unconfigured, the request errored, or the
+ * server returned non-2xx after retry.
+ */
+async function discordPost(body: object): Promise<boolean> {
   const token = process.env.DISCORD_BOT_TOKEN;
   const channelId = process.env.DISCORD_CHANNEL_INTERNSHIPS;
-  if (!token || !channelId) {
+  if (!token || !channelId) return false;
+
+  const url = `https://discord.com/api/v10/channels/${channelId}/messages`;
+  const init: RequestInit = {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
+    body: JSON.stringify(body),
+  };
+
+  try {
+    let res = await fetch(url, init);
+    if (res.status === 429) {
+      const errBody = await res.clone().json().catch(() => ({ retry_after: 1 })) as { retry_after?: number };
+      const waitMs = Math.ceil((errBody.retry_after ?? 1) * 1000) + 100;
+      console.warn(`[notifier] 429 from Discord, waiting ${waitMs}ms then retrying once`);
+      await new Promise(r => setTimeout(r, waitMs));
+      res = await fetch(url, init);
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      console.error(`[notifier] Discord post failed ${res.status}: ${text}`);
+    }
+    return res.ok;
+  } catch (err) {
+    console.error('[notifier] Discord post failed:', err);
+    return false;
+  }
+}
+
+function buildPostingEmbed(posting: Internship): object {
+  const color = posting.scoreLabel === 'A' ? 0x00ff88 : 0x5865f2;
+  const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
+  const fields = [
+    { name: 'Score', value: `${posting.scoreLabel ?? '—'} (${posting.score ?? 0})`, inline: true },
+    { name: 'Location', value: posting.location || 'Unknown', inline: true },
+    { name: 'Source', value: posting.source || 'Unknown', inline: true },
+  ];
+  if (posting.salaryText) {
+    fields.push({ name: 'Salary', value: posting.salaryText, inline: true });
+  }
+  // Discord message-component fields:
+  //   - LINK buttons (style 5) need `url`, no custom_id, no callback.
+  //   - PRIMARY/SECONDARY/DANGER buttons (1/2/4) need a custom_id; clicking
+  //     them POSTs to our /api/discord/interactions endpoint.
+  // Emoji-only buttons keep the action row narrow enough to fit on one
+  // mobile row.
+  return {
+    embeds: [{
+      title: `${sourceEmoji ? sourceEmoji + ' ' : ''}${posting.company} — ${posting.title}`.trim(),
+      url: posting.link || undefined,
+      color,
+      fields,
+      footer: { text: posting.id },
+    }],
+    components: [{
+      type: 1, // ACTION_ROW
+      components: [
+        ...(posting.link ? [{ type: 2, style: 5, label: 'Apply', url: posting.link }] : []),
+        { type: 2, style: 3, emoji: { name: '✅' }, custom_id: `applied:${posting.id}` },
+        { type: 2, style: 4, emoji: { name: '❌' }, custom_id: `hidden:${posting.id}` },
+      ],
+    }],
+  };
+}
+
+async function sendDiscordBatch(live: Internship[]): Promise<boolean> {
+  if (!process.env.DISCORD_BOT_TOKEN || !process.env.DISCORD_CHANNEL_INTERNSHIPS) {
     console.error('[notifier] DISCORD_BOT_TOKEN or DISCORD_CHANNEL_INTERNSHIPS not set; skipping Discord alert');
     return false;
   }
 
   // Send sequentially with a small delay to stay under Discord's per-channel
-  // rate limit (~5 messages / 5s). Honor 429 retry_after on overshoot.
+  // rate limit (~5 messages / 5s).
   const DELAY_MS = 1100;
   let sentAny = false;
 
   for (const posting of live) {
-    const color = posting.scoreLabel === 'A' ? 0x00ff88 : 0x5865f2;
-    const sourceEmoji = SOURCE_EMOJIS[posting.source] ?? '';
-    // Discord message-component fields:
-    //   - LINK buttons (style 5) need `url`, no custom_id, no callback.
-    //   - PRIMARY/SECONDARY/DANGER buttons (1/2/4) need a custom_id; clicking
-    //     them POSTs to our /api/discord/interactions endpoint.
-    const fields = [
-      { name: 'Score', value: `${posting.scoreLabel} (${posting.score ?? 0})`, inline: true },
-      { name: 'Location', value: posting.location || 'Unknown', inline: true },
-      { name: 'Source', value: posting.source || 'Unknown', inline: true },
-    ];
-    if (posting.salaryText) {
-      fields.push({ name: 'Salary', value: posting.salaryText, inline: true });
-    }
-    const body = {
-      embeds: [
-        {
-          title: `${sourceEmoji ? sourceEmoji + ' ' : ''}${posting.company} — ${posting.title}`.trim(),
-          url: posting.link || undefined,
-          color,
-          fields,
-          footer: { text: posting.id },
-        },
-      ],
-      components: [
-        {
-          type: 1, // ACTION_ROW
-          components: [
-            ...(posting.link ? [{
-              type: 2, // BUTTON
-              style: 5, // LINK
-              label: 'Apply',
-              url: posting.link,
-            }] : []),
-            // Emoji-only buttons keep the action row narrow enough to fit on
-            // one mobile row. Discord renders `emoji` without `label` as a
-            // compact square button.
-            {
-              type: 2,
-              style: 3, // SUCCESS (green)
-              emoji: { name: '✅' },
-              custom_id: `applied:${posting.id}`,
-            },
-            {
-              type: 2,
-              style: 4, // DANGER (red)
-              emoji: { name: '❌' },
-              custom_id: `hidden:${posting.id}`,
-            },
-          ],
-        },
-      ],
-    };
-
-    // Try once, retry once on 429 honoring retry_after.
-    let res: Response;
-    try {
-      res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
-        body: JSON.stringify(body),
-      });
-      if (res.status === 429) {
-        const errBody = await res.clone().json().catch(() => ({ retry_after: 1 })) as { retry_after?: number };
-        const waitMs = Math.ceil((errBody.retry_after ?? 1) * 1000) + 100;
-        console.warn(`[notifier] 429 from Discord, waiting ${waitMs}ms then retrying once`);
-        await new Promise(r => setTimeout(r, waitMs));
-        res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
-          body: JSON.stringify(body),
-        });
-      }
-      if (res.ok) {
-        sentAny = true;
-      } else {
-        const text = await res.text().catch(() => '');
-        console.error(`[notifier] Discord post failed ${res.status}: ${text}`);
-      }
-    } catch (err) {
-      console.error('[notifier] Discord post failed:', err);
-    }
-
+    if (await discordPost(buildPostingEmbed(posting))) sentAny = true;
     await new Promise(r => setTimeout(r, DELAY_MS));
   }
 
@@ -210,52 +203,21 @@ async function sendDiscordBatch(live: Internship[]): Promise<boolean> {
 // Source-down detection + alerts
 // ---------------------------------------------------------------------------
 
-const ALERT_STATE_PATH = path.join(process.cwd(), 'data', 'source-alerts.json');
-const SOURCE_FETCH_HISTORY_PATH = path.join(process.cwd(), 'data', 'source-fetch-history.json');
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEK_MS = 7 * DAY_MS;
-
-function loadSourceFetchHistory(): Record<string, string> {
-  try {
-    return JSON.parse(fs.readFileSync(SOURCE_FETCH_HISTORY_PATH, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
 
 interface AlertState {
   // Map of source name → ISO timestamp when we alerted for this outage.
   alertedSources: Record<string, string>;
 }
 
-function loadAlertState(): AlertState {
-  try {
-    return { alertedSources: {}, ...JSON.parse(fs.readFileSync(ALERT_STATE_PATH, 'utf-8')) };
-  } catch {
-    return { alertedSources: {} };
-  }
-}
-
-function saveAlertState(state: AlertState): void {
-  fs.writeFileSync(ALERT_STATE_PATH, JSON.stringify(state, null, 2));
-}
-
-async function postDiscordMessage(content: string): Promise<boolean> {
-  const token = process.env.DISCORD_BOT_TOKEN;
-  const channelId = process.env.DISCORD_CHANNEL_INTERNSHIPS;
-  if (!token || !channelId) return false;
-  try {
-    const res = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bot ${token}` },
-      body: JSON.stringify({ content }),
-    });
-    return res.ok;
-  } catch (err) {
-    console.error('[notifier] source-alert post failed:', err);
-    return false;
-  }
-}
+// Shared sidecar — agent.ts writes the per-source fetch timestamps that the
+// source-down detector reads here.
+const sourceFetchHistoryStore = jsonStore<Record<string, string>>(
+  'source-fetch-history.json',
+  {},
+);
+const alertStateStore = jsonStore<AlertState>('source-alerts.json', { alertedSources: {} });
 
 /**
  * Compares per-source fetch activity against the persisted alert state, fires
@@ -275,9 +237,9 @@ export async function checkAndAlertSourceHealth(): Promise<void> {
   if (!loadNotifSettings().sourceDownAlerts) return;
 
   const now = Date.now();
-  const history = loadSourceFetchHistory();
+  const history = sourceFetchHistoryStore.load();
 
-  const state = loadAlertState();
+  const state = alertStateStore.load();
   const downNow: string[] = [];
   const recoveredNow: string[] = [];
 
@@ -302,13 +264,13 @@ export async function checkAndAlertSourceHealth(): Promise<void> {
 
   if (downNow.length > 0) {
     const msg = `⚠️ **Source(s) quiet for 24h+**: ${downNow.join(', ')}\nNo new records since the last cycle — check the poller logs.`;
-    await postDiscordMessage(msg);
+    await discordPost({ content: msg });
   }
   if (recoveredNow.length > 0) {
     const msg = `✅ **Source(s) back online**: ${recoveredNow.join(', ')}`;
-    await postDiscordMessage(msg);
+    await discordPost({ content: msg });
   }
 
-  saveAlertState(state);
+  alertStateStore.save(state);
 }
 

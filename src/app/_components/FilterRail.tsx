@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, X } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { KeywordChips } from "./KeywordChips";
 import { LOCATION_PRESETS } from "../_lib/constants";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
@@ -40,8 +40,8 @@ interface Props {
   setMinScore: (n: number) => void;
   setSelectedLocations: (fn: (prev: string[]) => string[]) => void;
   setLocationText: (s: string) => void;
-  setIncludeKeywords: (fn: (prev: string[]) => string[]) => void;
-  setExcludeKeywords: (fn: (prev: string[]) => string[]) => void;
+  setIncludeKeywords: React.Dispatch<React.SetStateAction<string[]>>;
+  setExcludeKeywords: React.Dispatch<React.SetStateAction<string[]>>;
   // misc
   activeFilterCount: number;
   onClearAll: () => void;
@@ -134,20 +134,6 @@ export function FilterRail(props: Props) {
   } = props;
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [kwIncludeInput, setKwIncludeInput] = useState("");
-  const [kwExcludeInput, setKwExcludeInput] = useState("");
-
-  function addKw(type: "include" | "exclude", val: string): void {
-    const trimmed = val.trim();
-    if (!trimmed) return;
-    if (type === "include") {
-      setIncludeKeywords((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-      setKwIncludeInput("");
-    } else {
-      setExcludeKeywords((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
-      setKwExcludeInput("");
-    }
-  }
 
   return (
     <aside className="space-y-6 text-[13px]">
@@ -300,89 +286,23 @@ export function FilterRail(props: Props) {
         {advancedOpen && (
           <div className="space-y-5 mt-4">
             <Section label="Include keywords">
-              <div className="flex gap-1.5">
-                <Input
-                  placeholder="e.g. React"
-                  value={kwIncludeInput}
-                  onChange={(e) => setKwIncludeInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addKw("include", kwIncludeInput)}
-                  className="h-7 text-[12px] bg-white/[0.04] border-white/10"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]"
-                  onClick={() => addKw("include", kwIncludeInput)}
-                >
-                  Add
-                </Button>
-              </div>
-              {includeKeywords.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {includeKeywords.map((k) => {
-                    const unknown = !knownKeywords.has(k.toLowerCase());
-                    return (
-                      <span
-                        key={k}
-                        title={unknown ? "Not in any posting's tags — filter will return 0 results" : undefined}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
-                          unknown
-                            ? "bg-amber-500/10 text-amber-400/80 line-through decoration-amber-400/50"
-                            : "bg-white/10 text-white/70"
-                        }`}
-                      >
-                        {k}
-                        <button onClick={() => setIncludeKeywords((p) => p.filter((x) => x !== k))}>
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
+              <KeywordChips
+                values={includeKeywords}
+                onValuesChange={setIncludeKeywords}
+                placeholder="e.g. React"
+                knownKeywords={knownKeywords}
+                tone="include"
+              />
             </Section>
 
             <Section label="Exclude keywords">
-              <div className="flex gap-1.5">
-                <Input
-                  placeholder="e.g. PhD"
-                  value={kwExcludeInput}
-                  onChange={(e) => setKwExcludeInput(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addKw("exclude", kwExcludeInput)}
-                  className="h-7 text-[12px] bg-white/[0.04] border-white/10"
-                />
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]"
-                  onClick={() => addKw("exclude", kwExcludeInput)}
-                >
-                  Add
-                </Button>
-              </div>
-              {excludeKeywords.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {excludeKeywords.map((k) => {
-                    const unknown = !knownKeywords.has(k.toLowerCase());
-                    return (
-                      <span
-                        key={k}
-                        title={unknown ? "Not in any posting's tags — has no effect on results" : undefined}
-                        className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] ${
-                          unknown
-                            ? "bg-white/[0.04] text-white/30 line-through decoration-white/20"
-                            : "bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        {k}
-                        <button onClick={() => setExcludeKeywords((p) => p.filter((x) => x !== k))}>
-                          <X className="h-2.5 w-2.5" />
-                        </button>
-                      </span>
-                    );
-                  })}
-                </div>
-              )}
+              <KeywordChips
+                values={excludeKeywords}
+                onValuesChange={setExcludeKeywords}
+                placeholder="e.g. PhD"
+                knownKeywords={knownKeywords}
+                tone="exclude"
+              />
             </Section>
           </div>
         )}

@@ -1,16 +1,28 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import type { PoolClient } from 'pg';
 import { getPool, closePool } from './db';
 import { Internship } from './types';
 import { stripUtm } from './utils/normalize';
 import { deriveSeasonWithDefault } from './seasons';
+import { jsonStore } from './sidecar';
 
 // ---------------------------------------------------------------------------
-// Paths (only for JSON sidecar files — poll-stats.json. DB lives in Postgres.)
+// poll-stats.json — small per-cycle counters surfaced by GET /stats. Tiny,
+// latest-only state; not worth a DB table.
 // ---------------------------------------------------------------------------
 
-const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
+interface PollStats {
+  polledAt: string;
+  sourceCounts: Record<string, number>;
+  netNewBySource: Record<string, number>;
+  exclusionCounts: Record<string, number>;
+}
+
+const pollStatsStore = jsonStore<PollStats>('poll-stats.json', {
+  polledAt: '',
+  sourceCounts: {},
+  netNewBySource: {},
+  exclusionCounts: {},
+});
 
 // ---------------------------------------------------------------------------
 // Aggregator domains (link-utility, doesn't touch storage)
@@ -137,9 +149,9 @@ function fromRow(r: Row): Internship {
     postedAt: r.posted_at.toISOString(),
     seenAt: r.seen_at.toISOString(),
     score: r.score,
-    // Same scoreLabel contract as before: NULL in DB surfaces as '' so the
-    // type stays `string` for legacy callers; byLabel stats still see NULL.
-    scoreLabel: r.score_label ?? '',
+    // NULL in DB = "never scored" (e.g. legacy rows). Pass through as-is —
+    // type is `'A'|'B'|'C'|'D'|'F'|null`, so callers handle the null branch.
+    scoreLabel: (r.score_label as Internship['scoreLabel']) ?? null,
     matchedKeywords: (Array.isArray(r.matched_keywords) ? r.matched_keywords : []) as string[],
     isNew: r.is_new,
     applied: r.applied,
@@ -321,22 +333,29 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
 
     // Use a single transaction with one held client for the full batch.
     const totalStored = await withTxn(async (client) => {
-      const existingIdRow = 'SELECT id FROM seen_ids WHERE id = $1';
-      const insertSeen = 'INSERT INTO seen_ids (id) VALUES ($1) ON CONFLICT DO NOTHING';
+      // The id IS the dedup key: internships.id = md5(company+title+stripUtm(link)).
+      // We check the canonical table directly (no separate seen_ids index) —
+      // any id we'd want to "remember as seen" is by definition a row in
+      // internships, archived=true or otherwise.
+      const existingIdRow = 'SELECT 1 FROM internships WHERE id = $1';
       const upgradeLink = 'UPDATE internships SET link = $2 WHERE id = $1';
 
-      // Cross-source backfill: when a different source rediscovers the same
-      // role (matched by normalized_key), the incoming row may carry data the
-      // stored row lacks — most commonly a description (SimplifyJobs ships
-      // title-only, Workday/Greenhouse/Ashby ship the full posting). Without
-      // this path the second source's richer payload is dropped on the floor.
-      // COALESCE backfills missing fields only; score/keywords always replace
-      // because the new score was computed against richer data. seen_at bumps
-      // (positive proof of life across sources) and archived flips off unless
-      // the row was failing link checks. Source attribution and user state
-      // (applied/hidden/applied_at/application_url/application_status) and the
-      // stored link/title/company are preserved.
-      const crossSourceBackfill = `
+      // Two callers share this UPDATE:
+      //   1. Refresh-on-rediscovery — same posting (same md5 id) seen again.
+      //      Bumps seen_at, un-archives (positive proof the role is still
+      //      live), re-scores with current config, and backfills description/
+      //      salary/ATS fields if they were null. Stored link is NOT touched:
+      //      the id IS md5(company+title+stripUtm(link)), so by construction
+      //      the *original* link matches; other writers may have upgraded the
+      //      stored link to a direct ATS URL and we must not clobber that.
+      //   2. Cross-source rediscovery — different source finds the same role
+      //      (matched by normalized_key). Same backfill semantics on the
+      //      stored row; the link-upgrade is applied separately below when
+      //      the new source has a direct apply URL.
+      // In both cases user state (applied/hidden/applied_at/application_url/
+      // application_status) is preserved, score/keywords always replace
+      // (new score was computed against richer data).
+      const backfillSql = `
         UPDATE internships SET
           seen_at          = $1,
           archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE false END,
@@ -355,20 +374,23 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
           normalized_key   = COALESCE(normalized_key, $14)
         WHERE id = $15
       `;
-
-      // Refresh-on-rediscovery: same posting (same md5 ID) returns from a
-      // later poll. Mark it as actively listed again — bump seen_at, un-archive
-      // (rediscovery is positive proof the role is still live), re-score with
-      // current config, and backfill description/salary/ATS fields if they
-      // were null. User state (applied / hidden / applied_at / application_url
-      // / application_status) is preserved.
-      //
-      // The stored `link` is intentionally NOT overwritten: the row's id is
-      // md5(company + title + stripUtm(link)), so by construction a refresh
-      // means the *original* link was identical. Meanwhile other writers
-      // (find-ats-links-daily.ts) upgrade the stored link to a direct ATS URL;
-      // overwriting on every poll would clobber that upgrade.
-      const refreshOnRediscovery = crossSourceBackfill; // identical column list
+      const backfillArgs = (i: Internship, targetId: string): unknown[] => [
+        i.seenAt,
+        i.score ?? null,
+        i.scoreLabel ?? null,
+        JSON.stringify(i.matchedKeywords ?? []),
+        i.description ?? null,
+        i.salaryText ?? null,
+        i.salaryMin ?? null,
+        i.salaryMax ?? null,
+        i.salaryUnit ?? null,
+        i.atsSource ?? null,
+        i.atsTarget ?? null,
+        i.atsJobId ?? null,
+        i.multiLocation ? JSON.stringify(i.multiLocation) : null,
+        i.normalizedKey ?? null,
+        targetId,
+      ];
 
       // Insert-if-absent for first-time discoveries.
       const insertInternship = (() => {
@@ -384,24 +406,8 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         // Preserves user state.
         const seen = await client.query(existingIdRow, [i.id]);
         if (seen.rowCount && seen.rowCount > 0) {
-          const refreshed = { ...i, link: stripUtm(i.link || '') || i.link };
-          await client.query(refreshOnRediscovery, [
-            refreshed.seenAt,
-            refreshed.score ?? null,
-            refreshed.scoreLabel ? refreshed.scoreLabel : null,
-            JSON.stringify(refreshed.matchedKeywords ?? []),
-            refreshed.description ?? null,
-            refreshed.salaryText ?? null,
-            refreshed.salaryMin ?? null,
-            refreshed.salaryMax ?? null,
-            refreshed.salaryUnit ?? null,
-            refreshed.atsSource ?? null,
-            refreshed.atsTarget ?? null,
-            refreshed.atsJobId ?? null,
-            refreshed.multiLocation ? JSON.stringify(refreshed.multiLocation) : null,
-            refreshed.normalizedKey ?? null,
-            i.id,
-          ]);
+          const refreshed: Internship = { ...i, link: stripUtm(i.link || '') || i.link };
+          await client.query(backfillSql, backfillArgs(refreshed, i.id));
           continue;
         }
 
@@ -413,24 +419,8 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
         if (i.normalizedKey && seenKeys.has(i.normalizedKey)) {
           const existing = rowByKey.get(i.normalizedKey);
           if (existing) {
-            const backfilled = { ...i, id: existing.id, link: stripUtm(i.link || '') || i.link };
-            await client.query(crossSourceBackfill, [
-              backfilled.seenAt,
-              backfilled.score ?? null,
-              backfilled.scoreLabel ? backfilled.scoreLabel : null,
-              JSON.stringify(backfilled.matchedKeywords ?? []),
-              backfilled.description ?? null,
-              backfilled.salaryText ?? null,
-              backfilled.salaryMin ?? null,
-              backfilled.salaryMax ?? null,
-              backfilled.salaryUnit ?? null,
-              backfilled.atsSource ?? null,
-              backfilled.atsTarget ?? null,
-              backfilled.atsJobId ?? null,
-              backfilled.multiLocation ? JSON.stringify(backfilled.multiLocation) : null,
-              backfilled.normalizedKey ?? null,
-              existing.id,
-            ]);
+            const backfilled: Internship = { ...i, id: existing.id, link: stripUtm(i.link || '') || i.link };
+            await client.query(backfillSql, backfillArgs(backfilled, existing.id));
             // If the stored row's link is a simplify.jobs wrapper and the
             // incoming row has a direct apply URL, upgrade the stored link in
             // place. Source attribution (first-discoverer) is preserved.
@@ -452,7 +442,6 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
 
         const stored: Internship = { ...i, link: normalizedLink || i.link, isNew: true };
         await client.query(insertInternship, toValues(stored));
-        await client.query(insertSeen, [stored.id]);
         newInternships.push(stored);
         // Track this row so a later item in the same batch can upgrade its
         // link if a direct apply URL turns up after a simplify.jobs one.
@@ -548,47 +537,32 @@ export async function getStats(): Promise<{
   }
   const lastPolledAt = lastSeenR.rows[0]?.seen_at.toISOString() ?? null;
 
-  let exclusionCounts: Record<string, number> = {};
-  let lastCycleSourceCounts: Record<string, number> = {};
-  let lastCycleNetNewBySource: Record<string, number> = {};
-  try {
-    const raw = fs.readFileSync(path.join(DATA_DIR, 'poll-stats.json'), 'utf-8');
-    const parsed = JSON.parse(raw);
-    exclusionCounts = parsed.exclusionCounts ?? {};
-    lastCycleSourceCounts = parsed.sourceCounts ?? {};
-    lastCycleNetNewBySource = parsed.netNewBySource ?? {};
-  } catch {}
-
-  return { total, bySource, byLabel, lastPolledAt, exclusionCounts, lastCycleSourceCounts, lastCycleNetNewBySource };
+  const prev = pollStatsStore.load();
+  return {
+    total, bySource, byLabel, lastPolledAt,
+    exclusionCounts: prev.exclusionCounts,
+    lastCycleSourceCounts: prev.sourceCounts,
+    lastCycleNetNewBySource: prev.netNewBySource,
+  };
 }
 
-/**
- * Persisted per-poll exclusion counts. Stays as a flat JSON file — it's tiny
- * latest-only state, no need to occupy a DB table.
- */
 export function savePollStats(stats: {
   polledAt: string;
   sourceCounts?: Record<string, number>;
   netNewBySource?: Record<string, number>;
   exclusionCounts: Record<string, number>;
 }): void {
-  const statsPath = path.join(DATA_DIR, 'poll-stats.json');
   // Merge per-source counts with the previous cycle's so a partial cycle (e.g.
   // the fast tier polling only SimplifyJobs) doesn't wipe last-cycle stats for
   // the sources it didn't poll. Each source keeps its most-recent figures
   // from whichever cycle last touched it.
-  let prev: { sourceCounts?: Record<string, number>; netNewBySource?: Record<string, number> } = {};
-  try {
-    prev = JSON.parse(fs.readFileSync(statsPath, 'utf-8'));
-  } catch {}
-  const sourceCounts = { ...(prev.sourceCounts ?? {}), ...(stats.sourceCounts ?? {}) };
-  const netNewBySource = { ...(prev.netNewBySource ?? {}), ...(stats.netNewBySource ?? {}) };
-  fs.writeFileSync(statsPath, JSON.stringify({
+  const prev = pollStatsStore.load();
+  pollStatsStore.save({
     polledAt: stats.polledAt,
-    sourceCounts,
-    netNewBySource,
+    sourceCounts: { ...prev.sourceCounts, ...(stats.sourceCounts ?? {}) },
+    netNewBySource: { ...prev.netNewBySource, ...(stats.netNewBySource ?? {}) },
     exclusionCounts: stats.exclusionCounts,
-  }, null, 2));
+  });
 }
 
 export async function getInternships(filters?: {

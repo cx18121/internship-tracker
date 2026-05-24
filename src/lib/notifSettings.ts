@@ -1,6 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
 import { ROLE_SPECIALIZATIONS, isRoleId, type RoleId } from './role-taxonomy';
+import { jsonStore } from './sidecar';
 
 export type TierFilter = 'all' | 'solid-or-better' | 'top-or-better' | 'elite';
 
@@ -61,23 +60,19 @@ const DEFAULT: NotifSettings = {
   phoneNumbers: [],
 };
 
-const SETTINGS_PATH = path.join(process.cwd(), 'data', 'notif-settings.json');
-
 // Single source of truth for the user-managed notification preferences,
 // read by the poller agent (for score threshold) and the notifier (for tier
 // + season + role gates). The settings API route writes via saveNotifSettings
 // and reads round-trip through this same loader, so the schema lives in one
 // place.
+const settingsStore = jsonStore<NotifSettings>('notif-settings.json', DEFAULT);
+
 export function loadNotifSettings(): NotifSettings {
-  try {
-    return { ...DEFAULT, ...JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf-8')) };
-  } catch {
-    return { ...DEFAULT };
-  }
+  return settingsStore.load();
 }
 
 export function saveNotifSettings(s: NotifSettings): NotifSettings {
-  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(s, null, 2));
+  settingsStore.save(s);
   return s;
 }
 

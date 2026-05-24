@@ -23,9 +23,9 @@
  * `last_checked_at` column, which tracks HEAD checks and doesn't validate
  * LinkedIn content state). Steady-state: ~5min/day for ~7-day TTL.
  */
-import * as fs from 'fs';
-import * as path from 'path';
 import { getInternships, archiveInternshipsByIds } from '../lib/store';
+import { pool } from '../lib/concurrency';
+import { jsonStore } from '../lib/sidecar';
 
 const GUEST_API = 'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/';
 const USER_AGENT =
@@ -55,28 +55,11 @@ const ERROR_STREAK_BAILOUT = 15;
 // 7-day TTL, the steady-state daily slice is ~185 rows ≈ 5 min/run.
 const CHECK_TTL_DAYS = 7;
 
-const HISTORY_PATH = path.join(process.cwd(), 'data', 'linkedin-check-history.json');
-
 interface CheckHistory {
   [id: string]: string; // ISO timestamp of the last LinkedIn-content check
 }
 
-function loadHistory(): CheckHistory {
-  try {
-    if (!fs.existsSync(HISTORY_PATH)) return {};
-    return JSON.parse(fs.readFileSync(HISTORY_PATH, 'utf-8')) || {};
-  } catch {
-    return {};
-  }
-}
-
-function saveHistory(history: CheckHistory): void {
-  try {
-    fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2));
-  } catch (e: any) {
-    console.warn(`[linkedin-revalidate] Failed to write history sidecar: ${e.message}`);
-  }
-}
+const historyStore = jsonStore<CheckHistory>('linkedin-check-history.json', {});
 
 export interface LinkedInRevalResult {
   /** Eligible after applying the TTL filter (excludes recently checked rows). */
@@ -155,7 +138,7 @@ export async function revalidateLinkedIn(opts: {
   const dryRun = opts.dryRun === true;
   const ignoreTtl = opts.ignoreTtl === true;
 
-  const history = loadHistory();
+  const history = historyStore.load();
   const ttlCutoff = Date.now() - CHECK_TTL_DAYS * 24 * 60 * 60 * 1000;
 
   const all = await getInternships({});
@@ -193,49 +176,47 @@ export async function revalidateLinkedIn(opts: {
   let bailedEarly = false;
   const statusCounts: Record<string, number> = {};
 
-  const queue = [...targets];
-  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async (_, workerIdx) => {
-    while (queue.length > 0 && !bailedEarly) {
-      const t = queue.shift();
-      if (!t) return;
+  await pool(targets, concurrency, async (t, workerIdx) => {
+    // bailedEarly is shared across workers; once set, each worker drops its
+    // remaining items on the next iteration (up to one trailing item processed
+    // per worker, matching the prior behaviour).
+    if (bailedEarly) return;
 
-      const { ok, html, status } = await fetchGuestApiHtml(t.jobId, timeoutMs);
-      statusCounts[String(status)] = (statusCounts[String(status)] ?? 0) + 1;
+    const { ok, html, status } = await fetchGuestApiHtml(t.jobId, timeoutMs);
+    statusCounts[String(status)] = (statusCounts[String(status)] ?? 0) + 1;
 
-      if (DEAD_STATUSES.has(status)) {
-        // Confirmed dead — archive immediately, same as the closed-marker path.
-        // Not counted as an error; reset the streak so transient 429s after a
-        // run of 404s don't trigger early bailout.
-        errorStreak = 0;
-        checkedIds.push(t.id);
-        closedIds.push(t.id);
-        // No need to back off as hard — 404 is fast and cheap on LinkedIn's side.
-        await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 800) + workerIdx * 50));
-      } else if (!ok) {
-        errorCount++;
-        errorStreak++;
-        if (errorStreak >= ERROR_STREAK_BAILOUT) {
-          bailedEarly = true;
-          console.warn(`[linkedin-revalidate] Bailing early — ${errorStreak} consecutive HTTP errors (last status=${status}); will retry on next schedule`);
-        }
-        // Back off harder on errors. Doubles to ~3s after an error vs. ~1.5s
-        // baseline; gives LinkedIn's rate-limit bucket time to refill.
-        await new Promise(r => setTimeout(r, 2500 + Math.floor(Math.random() * 1000)));
-      } else {
-        errorStreak = 0;
-        checkedIds.push(t.id);
-        if (isClosedHtml(html)) {
-          closedIds.push(t.id);
-        } else {
-          openCount++;
-        }
-        // Polite jitter on success — keeps us well below any per-IP minute
-        // limit. With concurrency=1 this puts the effective rate at ~30/min.
-        await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 800) + workerIdx * 50));
+    if (DEAD_STATUSES.has(status)) {
+      // Confirmed dead — archive immediately, same as the closed-marker path.
+      // Not counted as an error; reset the streak so transient 429s after a
+      // run of 404s don't trigger early bailout.
+      errorStreak = 0;
+      checkedIds.push(t.id);
+      closedIds.push(t.id);
+      // No need to back off as hard — 404 is fast and cheap on LinkedIn's side.
+      await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 800) + workerIdx * 50));
+    } else if (!ok) {
+      errorCount++;
+      errorStreak++;
+      if (errorStreak >= ERROR_STREAK_BAILOUT) {
+        bailedEarly = true;
+        console.warn(`[linkedin-revalidate] Bailing early — ${errorStreak} consecutive HTTP errors (last status=${status}); will retry on next schedule`);
       }
+      // Back off harder on errors. Doubles to ~3s after an error vs. ~1.5s
+      // baseline; gives LinkedIn's rate-limit bucket time to refill.
+      await new Promise(r => setTimeout(r, 2500 + Math.floor(Math.random() * 1000)));
+    } else {
+      errorStreak = 0;
+      checkedIds.push(t.id);
+      if (isClosedHtml(html)) {
+        closedIds.push(t.id);
+      } else {
+        openCount++;
+      }
+      // Polite jitter on success — keeps us well below any per-IP minute
+      // limit. With concurrency=1 this puts the effective rate at ~30/min.
+      await new Promise(r => setTimeout(r, 1200 + Math.floor(Math.random() * 800) + workerIdx * 50));
     }
   });
-  await Promise.all(workers);
 
   if (!dryRun) {
     if (closedIds.length > 0) {
@@ -246,7 +227,7 @@ export async function revalidateLinkedIn(opts: {
     if (checkedIds.length > 0) {
       const now = new Date().toISOString();
       for (const id of checkedIds) history[id] = now;
-      saveHistory(history);
+      historyStore.save(history);
     }
   }
 

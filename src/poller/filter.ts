@@ -67,70 +67,63 @@ const RESEARCH_INTERN_PATTERNS = [
   'research assistant',   // "Research Assistant Intern" (not a coding role)
 ];
 
+export type ExclusionReason = 'non_us' | 'phd_required' | 'closed' | 'non_swe' | 'not_intern';
+
 export interface FilterResult {
   passed: boolean;
-  reason?: 'non_us' | 'phd_required' | 'closed' | 'non_swe' | 'not_intern';
+  reason?: ExclusionReason;
 }
+
+interface FilterContext {
+  internship: Partial<Internship>;
+  titleLower: string;
+  locationLower: string;
+  combined: string;
+}
+
+interface Rule {
+  reason: ExclusionReason;
+  /** Returns true when the rule rejects the internship. */
+  rejects: (ctx: FilterContext) => boolean;
+}
+
+// Order matters: the first rejecting rule wins. Tier-order chosen to surface
+// the most specific reason — e.g. non-US wins over not-intern because
+// "London engineer" should report 'non_us', not 'not_intern'.
+const RULES: readonly Rule[] = [
+  // Empty/ambiguous locations come back as 'unknown' from classifyLocation
+  // and pass — manual review beats blanket-rejecting unstructured strings.
+  { reason: 'non_us',       rejects: ({ internship }) => classifyLocation(internship.location || '') === 'non_us' },
+  { reason: 'not_intern',   rejects: ({ internship }) => !INTERN_SIGNAL_RE.test(internship.title || '') },
+  // Research-track blocks override the CS-signal allowlist below: "Research
+  // Intern" contains "research" which isn't a CS stem, but it could still
+  // contain "engineer" or "science" via "research engineer" / "research
+  // scientist" so we'd miss them without this rule firing first.
+  { reason: 'non_swe',      rejects: ({ titleLower }) => RESEARCH_INTERN_PATTERNS.some((p) => titleLower.includes(p)) },
+  { reason: 'non_swe',      rejects: ({ titleLower }) => NON_SWE_ROLES.some((r) => titleLower.includes(r)) },
+  // PhD gate runs before cs_signal so "PhD Software Engineer Intern" gets
+  // bounced even though it has strong CS signals.
+  { reason: 'phd_required', rejects: ({ combined }) => PHD_MASTERS_PATTERNS.some((p) => combined.includes(p.toLowerCase())) },
+  // Positive allowlist: must contain a recognized CS/SWE signal. "sde" is
+  // included for Software Development Engineer intern titles.
+  { reason: 'non_swe',      rejects: ({ titleLower, internship }) =>
+      !CS_SIGNAL_STEMS.some((s) => titleLower.includes(s)) &&
+      !CS_SIGNAL_EXACT_RE.test(internship.title || '') },
+  { reason: 'closed',       rejects: ({ combined }) => CLOSED_PATTERNS.some((p) => combined.includes(p.toLowerCase())) },
+];
 
 export function applyHardFilters(internship: Partial<Internship>): FilterResult {
   const titleLower = (internship.title || '').toLowerCase();
   const locationLower = (internship.location || '').toLowerCase();
-  const combined = `${titleLower} ${locationLower}`;
-
-  // Location classification: 'us' / 'non_us' / 'unknown'. Empty or genuinely
-  // ambiguous locations come back as 'unknown' and pass — keep them for
-  // manual review rather than blanket-rejecting unstructured strings.
-  if (classifyLocation(internship.location || '') === 'non_us') {
-    return { passed: false, reason: 'non_us' };
+  const ctx: FilterContext = {
+    internship,
+    titleLower,
+    locationLower,
+    combined: `${titleLower} ${locationLower}`,
+  };
+  for (const rule of RULES) {
+    if (rule.rejects(ctx)) return { passed: false, reason: rule.reason };
   }
-
-  // Require "intern" or "internship" in the title for every source.
-  if (!INTERN_SIGNAL_RE.test(internship.title || '')) {
-    return { passed: false, reason: 'not_intern' };
-  }
-
-  // Research-track blocks: "Research Intern", "Graduate Research", "Research Scientist"
-  // and similar combinations are almost never SWE roles, even when they contain
-  // "engineer" or "science" — the surrounding context makes them non-SWE.
-  for (const p of RESEARCH_INTERN_PATTERNS) {
-    if (titleLower.includes(p)) {
-      return { passed: false, reason: 'non_swe' };
-    }
-  }
-
-  // Check non-SWE roles
-  for (const role of NON_SWE_ROLES) {
-    if (titleLower.includes(role)) {
-      return { passed: false, reason: 'non_swe' };
-    }
-  }
-
-  // Check PhD/Masters required (check title and company description)
-  // Runs before cs_signal to block "PhD Software Engineer Intern" even though it
-  // has strong CS signals — PhD-track roles are rejected regardless of title keywords.
-  for (const pattern of PHD_MASTERS_PATTERNS) {
-    if (combined.includes(pattern.toLowerCase())) {
-      return { passed: false, reason: 'phd_required' };
-    }
-  }
-
-  // CS-signal allowlist: if the title has no recognizable CS/SWE signals, reject.
-  // This catches non-technical roles that slip past the NON_SWE_ROLES keyword list.
-  // "sde" is included for Software Development Engineer intern titles (e.g. "SDE Intern").
-  const hasCSSignal =
-    CS_SIGNAL_STEMS.some(s => titleLower.includes(s)) ||
-    CS_SIGNAL_EXACT_RE.test(internship.title || '');
-  if (!hasCSSignal) {
-    return { passed: false, reason: 'non_swe' };
-  }
-
-  // Check closed/filled
-  for (const pattern of CLOSED_PATTERNS) {
-    if (combined.includes(pattern.toLowerCase())) {
-      return { passed: false, reason: 'closed' };
-    }
-  }
-
   return { passed: true };
 }
 

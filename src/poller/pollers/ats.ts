@@ -1,6 +1,4 @@
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
 import { Internship, ATSTarget } from '../../lib/types';
 import { loadATSTargets } from '../../lib/utils/ats-discovery';
 import { INTERN_SIGNAL_RE, isInternTitle } from '../utils/intern-signal';
@@ -11,6 +9,8 @@ import {
   fetchSmartRecruitersDescription,
 } from '../utils/description-fetchers';
 import { buildInternshipRow } from '../utils/build-row';
+import { pool } from '../../lib/concurrency';
+import { jsonStore } from '../../lib/sidecar';
 
 // Upper-bound safety on raw description size — descriptions feed the scorer
 // pre-truncation, so a verbose 50KB Workday posting would otherwise blow up
@@ -226,16 +226,9 @@ async function pollWorkday(
   // ~12s instead of ~60s. Workday list endpoint doesn't include descriptions;
   // they're only on the per-job CXS detail call.
   const descriptions = new Map<string, string>();
-  const queue = [...interns];
-  await Promise.all(
-    Array.from({ length: Math.min(5, queue.length) }, async () => {
-      while (queue.length > 0) {
-        const j = queue.shift();
-        if (!j) break;
-        descriptions.set(j.externalPath, await fetchWorkdayDescription(baseHost, tenant, board, j.externalPath));
-      }
-    }),
-  );
+  await pool(interns, 5, async (j) => {
+    descriptions.set(j.externalPath, await fetchWorkdayDescription(baseHost, tenant, board, j.externalPath));
+  });
 
   return interns.map((j) => {
     // Workday sometimes returns a facility/campus name (e.g. "Hendrick Motorsports") as
@@ -337,7 +330,6 @@ async function pollWorkdayPlaywright(
   const csrfFailedSlugs: string[] = [];
 
   const CONCURRENCY = parseInt(process.env.WORKDAY_PLAYWRIGHT_CONCURRENCY || '4', 10);
-  const queue = [...csrfTargets];
 
   async function pollOnePw(target: ATSTarget): Promise<void> {
     const tenant = target.slug;
@@ -409,26 +401,19 @@ async function pollWorkdayPlaywright(
       // Fetch descriptions via the same authenticated page.request (re-uses
       // CSRF cookie). Concurrent cap of 5 to keep tenant cost bounded.
       const descriptions = new Map<string, string>();
-      const descQueue = [...interns];
-      await Promise.all(
-        Array.from({ length: Math.min(5, descQueue.length) }, async () => {
-          while (descQueue.length > 0) {
-            const j = descQueue.shift();
-            if (!j) break;
-            try {
-              const r = await page.request.get(
-                `https://${baseHost}/wday/cxs/${tenant}/${board}${j.externalPath}`,
-                { headers: { 'Accept': 'application/json', 'X-Calypso-Csrf-Token': csrfCookie.value } },
-              );
-              if (r.ok()) {
-                const d: any = await r.json();
-                const raw = d?.jobPostingInfo?.jobDescription || '';
-                descriptions.set(j.externalPath, stripHtml(raw).slice(0, MAX_RAW_DESC));
-              }
-            } catch { /* leave description empty */ }
+      await pool(interns, 5, async (j) => {
+        try {
+          const r = await page.request.get(
+            `https://${baseHost}/wday/cxs/${tenant}/${board}${j.externalPath}`,
+            { headers: { 'Accept': 'application/json', 'X-Calypso-Csrf-Token': csrfCookie.value } },
+          );
+          if (r.ok()) {
+            const d: any = await r.json();
+            const raw = d?.jobPostingInfo?.jobDescription || '';
+            descriptions.set(j.externalPath, stripHtml(raw).slice(0, MAX_RAW_DESC));
           }
-        }),
-      );
+        } catch { /* leave description empty */ }
+      });
 
       const tJobs = interns.map((j) => {
         const rawLoc = j.locationsText || '';
@@ -454,17 +439,9 @@ async function pollWorkdayPlaywright(
     }
   }
 
-  const workers = Array.from(
-    { length: Math.min(CONCURRENCY, queue.length) },
-    async () => {
-      while (queue.length > 0) {
-        const target = queue.shift();
-        if (!target) return;
-        await pollOnePw(target);
-      }
-    },
-  );
-  await Promise.all(workers);
+  await pool(csrfTargets, CONCURRENCY, async (target) => {
+    await pollOnePw(target);
+  });
   await browser.close();
   return { jobs, csrfConfirmedSlugs, csrfFailedSlugs };
 }
@@ -473,8 +450,6 @@ async function pollWorkdayPlaywright(
 // curation — the volatile wdCsrfRequired / wdSkipPlaywright flags live here
 // and are gitignored so cycle churn doesn't pollute git status. Read on each
 // pollATS call and overlaid onto the in-memory target list.
-const WD_FLAGS_CACHE_PATH = path.join(process.cwd(), 'data', 'workday-flags-cache.json');
-
 interface WorkdayFlagsCache {
   [slug: string]: {
     wdCsrfRequired?: boolean;
@@ -483,14 +458,7 @@ interface WorkdayFlagsCache {
   };
 }
 
-function loadWorkdayFlagsCache(): WorkdayFlagsCache {
-  try {
-    if (!fs.existsSync(WD_FLAGS_CACHE_PATH)) return {};
-    return JSON.parse(fs.readFileSync(WD_FLAGS_CACHE_PATH, 'utf-8')) || {};
-  } catch {
-    return {};
-  }
-}
+const workdayFlagsStore = jsonStore<WorkdayFlagsCache>('workday-flags-cache.json', {});
 
 function cacheWorkdayFlags(
   confirmed: string[],
@@ -500,7 +468,7 @@ function cacheWorkdayFlags(
   const facetCount = facetDiscoveries?.size ?? 0;
   if (confirmed.length === 0 && failed.length === 0 && facetCount === 0) return;
   try {
-    const cache = loadWorkdayFlagsCache();
+    const cache = workdayFlagsStore.load();
     let confirmedCount = 0;
     let failedCount = 0;
     let withFacets = 0;
@@ -521,7 +489,7 @@ function cacheWorkdayFlags(
         else withoutFacets++;
       }
     }
-    fs.writeFileSync(WD_FLAGS_CACHE_PATH, JSON.stringify(cache, null, 2));
+    workdayFlagsStore.save(cache);
     const parts = [];
     if (confirmedCount > 0)  parts.push(`${confirmedCount} wdCsrfRequired`);
     if (failedCount > 0)     parts.push(`${failedCount} wdSkipPlaywright`);
@@ -536,7 +504,7 @@ function cacheWorkdayFlags(
 }
 
 function overlayWorkdayFlags(targets: ATSTarget[]): ATSTarget[] {
-  const cache = loadWorkdayFlagsCache();
+  const cache = workdayFlagsStore.load();
   if (Object.keys(cache).length === 0) return targets;
   return targets.map((t) => {
     if (t.ats !== 'workday') return t;
@@ -585,7 +553,6 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   // ramping concurrency well above CPU count is fine. Per-host load stays
   // reasonable in practice because targets are spread across many ATS hosts.
   const CONCURRENCY = parseInt(process.env.ATS_POLL_CONCURRENCY || '8', 10);
-  const queue = [...regularTargets];
 
   async function pollOne(target: ATSTarget): Promise<void> {
     try {
@@ -614,17 +581,9 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
     }
   }
 
-  const workers = Array.from(
-    { length: Math.min(CONCURRENCY, queue.length) },
-    async () => {
-      while (queue.length > 0) {
-        const target = queue.shift();
-        if (!target) return;
-        await pollOne(target);
-      }
-    },
-  );
-  await Promise.all(workers);
+  await pool(regularTargets, CONCURRENCY, async (target) => {
+    await pollOne(target);
+  });
 
   // Playwright batch for CSRF-protected Workday instances (pre-flagged + newly-detected 422 fallbacks)
   const allCsrfTargets = [...csrfTargets, ...csrfFallback];

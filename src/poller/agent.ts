@@ -1,20 +1,13 @@
-import md5 from 'md5';
-import * as fs from 'fs';
-import * as path from 'path';
 import { Internship, CycleStats } from '../lib/types';
-import { stripUtm } from '../lib/utils/normalize';
+import { jsonStore } from '../lib/sidecar';
 import { pollGitHub } from './pollers/github';
 import { pollHandshake } from './pollers/handshake';
 import { pollJobSpy } from './pollers/jobspy';
 import { scanPortals } from './pollers/portal-scanner';
 import { pollYCWaaS } from './pollers/yc-waas';
 import { filterInternships } from './filter';
-import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
-import { parseSalary } from '../lib/salary';
-import { normalizeKey } from '../lib/normalize-key';
-import { buildInternshipRow } from './utils/build-row';
-import { smartTrimDescription } from './utils/description-trim';
+import { enrichForStorage } from './utils/enrich';
 import { sendBatchAlert, checkAndAlertSourceHealth } from './notifier';
 import { loadNotifSettings } from '../lib/notifSettings';
 
@@ -24,25 +17,12 @@ export type CycleTier = 'fast' | 'slow' | 'all';
 // because that lives behind store.ts and we want this independent of stored
 // rows). Source-down detection reads this — keying off seenAt is wrong because
 // cross-source dedup bumps seenAt on rediscovery, masking quiet sources.
-const SOURCE_FETCH_HISTORY_PATH = path.join(process.cwd(), 'data', 'source-fetch-history.json');
-
-interface SourceFetchHistory {
-  [source: string]: string; // ISO timestamp of last successful fetch
-}
-
-function loadSourceFetchHistory(): SourceFetchHistory {
-  try {
-    return JSON.parse(fs.readFileSync(SOURCE_FETCH_HISTORY_PATH, 'utf-8'));
-  } catch {
-    return {};
-  }
-}
-
-function saveSourceFetchHistory(history: SourceFetchHistory): void {
-  const dir = path.dirname(SOURCE_FETCH_HISTORY_PATH);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(SOURCE_FETCH_HISTORY_PATH, JSON.stringify(history, null, 2));
-}
+//
+// Schema: { [source]: ISO timestamp of last successful fetch }
+const sourceFetchHistoryStore = jsonStore<Record<string, string>>(
+  'source-fetch-history.json',
+  {},
+);
 
 async function pollFastSources(
   stats: CycleStats,
@@ -166,10 +146,10 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
   // a slow week. Merge with prior history so a partial cycle (fast only)
   // doesn't blank out slow-source timestamps.
   if (fetched.size > 0) {
-    const history = loadSourceFetchHistory();
+    const history = sourceFetchHistoryStore.load();
     const nowIso = new Date().toISOString();
     for (const src of fetched) history[src] = nowIso;
-    saveSourceFetchHistory(history);
+    sourceFetchHistoryStore.save(history);
   }
 
   stats.rawFetched = allRaw.length;
@@ -192,48 +172,10 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
   const totalExcluded = stats.rawFetched - passed.length;
   console.log(`[agent] Filtered: ${passed.length} passed, ${totalExcluded} excluded (nonUS:${stats.excludedNonUS}, phd:${stats.excludedPhDRequired}, closed:${stats.excludedClosed}, nonSWE:${stats.excludedNonSWE})`);
 
-  // Score remaining postings
-  const scored: Internship[] = passed.map(p => {
-    const { score, scoreLabel, matchedKeywords } = scoreInternship(p);
-    const id = md5(`${p.company || ''}${p.title || ''}${stripUtm(p.link || '')}`);
-    // Parse salary from title + description (the two fields most likely to mention pay).
-    const salaryInput = `${p.title || ''} ${p.description || ''}`;
-    const salary = parseSalary(salaryInput);
-    const now = new Date().toISOString();
-    return {
-      ...buildInternshipRow({
-        title: p.title || '',
-        company: p.company || '',
-        location: p.location || '',
-        link: p.link || '',
-        source: p.source || 'Unknown',
-        upstreamPostedAt: p.postedAt,
-        seenAt: now,
-      }),
-      id,
-      // Trim AFTER scoring — scorer sees the full 4000-char poller-side
-      // text; storage gets a UI-friendly subset (benefits/EEO/legal tail
-      // dropped, capped ~2000). Keeps scoring quality, shrinks display.
-      description: smartTrimDescription(p.description) || undefined,
-      // ATS provenance is set by github/portal-scanner pollers and required by
-      // portal-scanner's archiveDisappeared() (closing detection). Forward it.
-      atsSource: p.atsSource,
-      atsJobId: p.atsJobId,
-      atsTarget: p.atsTarget,
-      multiLocation: p.multiLocation,
-      score,
-      scoreLabel,
-      matchedKeywords,
-      isNew: true,
-      normalizedKey: normalizeKey(p.company || '', p.title || ''),
-      ...(salary.text ? {
-        salaryText: salary.text,
-        salaryMin: salary.min ?? undefined,
-        salaryMax: salary.max ?? undefined,
-        salaryUnit: salary.unit ?? undefined,
-      } : {}),
-    } as Internship;
-  });
+  // Score + dehydrate each filtered row. Single `now` shared across the batch
+  // so per-cycle seenAt is identical for every row inserted this cycle.
+  const now = new Date().toISOString();
+  const scored: Internship[] = passed.map((p) => enrichForStorage(p, now));
 
   // Dedup and store
   const { newInternships, totalStored, netNewBySource } = await deduplicateAndStore(scored);
