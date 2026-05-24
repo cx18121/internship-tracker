@@ -1,4 +1,4 @@
--- Initial Postgres schema. Mirrors final SQLite layout (post-applyColumnMigrations).
+-- Initial Postgres schema.
 -- Idempotent: safe to re-run.
 
 CREATE TABLE IF NOT EXISTS internships (
