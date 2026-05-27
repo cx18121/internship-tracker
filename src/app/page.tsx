@@ -107,6 +107,13 @@ export default function InternshipsPage() {
   // Search input ref for `/` keyboard shortcut
   const searchInputRef = useRef<HTMLInputElement>(null);
 
+  // True once the user has actually typed in the search box. Gates the
+  // debounce delay: user keystrokes debounce (120ms), but a *programmatic*
+  // search set — the URL-hydration-on-mount that restores `?q=` from a shared
+  // link — applies immediately (delay 0), so a shared filtered link doesn't
+  // flash the unfiltered list for 120ms before settling.
+  const userTypedSearchRef = useRef(false);
+
   // `/` focuses the search input. Skip when the user is already typing.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -186,7 +193,7 @@ export default function InternshipsPage() {
   }, []);
 
   // Search + location are app-only predicates not in the shared filter spec.
-  const debouncedSearch = useDebouncedValue(searchText, 120);
+  const debouncedSearch = useDebouncedValue(searchText, userTypedSearchRef.current ? 120 : 0);
   const searchLower = debouncedSearch.trim().toLowerCase();
 
   // Push filter state back to URL whenever it changes (after hydration)
@@ -694,7 +701,7 @@ export default function InternshipsPage() {
                   ref={searchInputRef}
                   type="text"
                   value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
+                  onChange={(e) => { userTypedSearchRef.current = true; setSearchText(e.target.value); }}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
                       setSearchText("");
@@ -864,9 +871,9 @@ export default function InternshipsPage() {
                         appliedDate={appliedDates[item.id] ?? null}
                         notes={notesMap[item.id] ?? ""}
                         pending={pendingIds.has(item.id)}
-                        onNotesChange={(note) => updateNote(item.id, note)}
-                        onToggleApplied={() => toggleApplied(item.id, item.applied)}
-                        onHide={() => (item.hidden ? unhidePosting(item.id) : hidePosting(item.id))}
+                        onNotesChange={updateNote}
+                        onToggleApplied={toggleApplied}
+                        onHide={handleListHide}
                       />
                     ))}
                   </div>
