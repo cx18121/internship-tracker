@@ -1,4 +1,5 @@
 import { getInternships } from "@/lib/store";
+import { pickListFields } from "@/app/_lib/list-item";
 
 export const dynamic = "force-dynamic";
 
@@ -33,5 +34,5 @@ export async function GET(request: Request) {
 
   const all = await getInternships({ source, sources, minScore, label, sort, search: q, includeHidden });
   const sliced = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
-  return Response.json(sliced);
+  return Response.json(sliced.map(pickListFields));
 }

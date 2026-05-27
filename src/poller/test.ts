@@ -10,6 +10,8 @@ import { extractInternFacets } from '../poller/pollers/ats';
 import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
+import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
+import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 
 let passed = 0;
 let total = 0;
@@ -843,6 +845,52 @@ test('buildInternshipRow: postedAt falls back to seenAt when upstream is null', 
 });
 
 // ==============================================================
+// 6.7. pickListFields / LIST_FIELDS projection tests
+// ==============================================================
+
+console.log('\n── pickListFields tests ──────────────────────────────────');
+
+test('pickListFields keeps UI/consumer fields and drops heavy unused ones', () => {
+  const full = {
+    id: 'x1', title: 'SWE Intern', company: 'Acme', location: 'NYC',
+    link: 'https://a.co/x1', source: 'Greenhouse', postedAt: '2026-01-01',
+    seenAt: '2026-01-02', score: 88, scoreLabel: 'A',
+    matchedKeywords: ['backend'], applied: false, hidden: false,
+    salaryText: '$50/hr', season: ['summer-2026'],
+    // fields that must NOT ship to the list view:
+    description: 'x'.repeat(5000), salaryMin: 50, salaryMax: 60,
+    salaryUnit: 'hourly', isNew: true,
+  };
+  const out = pickListFields(full as any);
+  // Required by ATS consumer (find-ats-links-daily.ts) + the list/card UI.
+  for (const f of ['id', 'title', 'company', 'link', 'source', 'score',
+                   'scoreLabel', 'postedAt', 'seenAt', 'location',
+                   'matchedKeywords', 'applied', 'hidden', 'salaryText', 'season']) {
+    assert(f in out, `expected field ${f} to be kept`);
+  }
+  // Heavy / unused — must be dropped.
+  for (const f of ['description', 'salaryMin', 'salaryMax', 'salaryUnit', 'isNew']) {
+    assert(!(f in out), `expected field ${f} to be dropped`);
+  }
+  // The allowlist and the output keys agree.
+  assert.deepStrictEqual(Object.keys(out).sort(), [...LIST_FIELDS].sort());
+});
+
+test('pickListFields omits allowlisted fields that are undefined on the row', () => {
+  const sparse = {
+    id: 'x2', title: 'T', company: 'C', location: 'L', link: 'l',
+    source: 'S', postedAt: '2026-01-01', seenAt: '2026-01-02',
+    score: 50, scoreLabel: 'B', matchedKeywords: [], applied: false,
+    // hidden, salaryText, season intentionally absent (undefined)
+  };
+  const out = pickListFields(sparse as any);
+  for (const f of ['hidden', 'salaryText', 'season']) {
+    assert(!(f in out), `expected absent field ${f} to be omitted, not set to undefined`);
+  }
+  assert(out.id === 'x2'); // present fields still projected
+});
+
+// ==============================================================
 // 7. Archive stale postings test
 // ==============================================================
 
@@ -998,6 +1046,84 @@ async function runScoreBreakdownApiTests(): Promise<void> {
     assert.ok(Array.isArray(body.matchedKeywords), 'matchedKeywords must be an array');
   });
 }
+
+// ==============================================================
+// filter-pipeline parity tests
+// ==============================================================
+
+console.log('\n── filter-pipeline tests ─────────────────────────────────');
+
+test('filterAndSortInternships: minScore + source gate, score-desc order', () => {
+  const corpus = [
+    { id: 'a', title: 'SWE', company: 'A', location: 'NYC', source: 'Greenhouse', score: 90, applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'b', title: 'SWE', company: 'B', location: 'NYC', source: 'Indeed',     score: 40, applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'c', title: 'SWE', company: 'C', location: 'NYC', source: 'Greenhouse', score: 70, applied: false, hidden: false, matchedKeywords: [] },
+  ] as any[];
+  const out = filterAndSortInternships(corpus, {
+    searchLower: '', selectedLocations: [], locationText: '',
+    tier: 'all', seasons: [], appliedFilter: 'all', showHidden: false,
+    selectedSources: ['Greenhouse'], minScore: 50, windowCutoff: null,
+    includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'score',
+  });
+  // Indeed row excluded by source; score-40 row excluded by minScore;
+  // remaining ordered score-desc.
+  assert.deepStrictEqual(out.map(i => i.id), ['a', 'c']);
+});
+
+test('filterAndSortInternships: search matches company/title/location, hidden excluded unless showHidden', () => {
+  const corpus = [
+    { id: 'a', title: 'Backend Intern', company: 'Acme', location: 'NYC', source: 'X', score: 50, applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'b', title: 'Frontend Intern', company: 'Beta', location: 'SF', source: 'X', score: 60, applied: false, hidden: true, matchedKeywords: [] },
+  ] as any[];
+  const base = {
+    selectedLocations: [], locationText: '', tier: 'all' as const, seasons: [],
+    appliedFilter: 'all' as const, selectedSources: [], minScore: 0, windowCutoff: null,
+    includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'score' as const,
+  };
+  // Search "acme" hits company on row a only.
+  assert.deepStrictEqual(
+    filterAndSortInternships(corpus, { ...base, searchLower: 'acme', showHidden: false }).map(i => i.id),
+    ['a'],
+  );
+  // Hidden row b is excluded by default, included when showHidden.
+  assert.deepStrictEqual(
+    filterAndSortInternships(corpus, { ...base, searchLower: '', showHidden: false }).map(i => i.id),
+    ['a'],
+  );
+  assert.deepStrictEqual(
+    filterAndSortInternships(corpus, { ...base, searchLower: '', showHidden: true }).map(i => i.id).sort(),
+    ['a', 'b'],
+  );
+});
+
+test('filterAndSortInternships: sortBy posted orders by postedAt desc', () => {
+  const corpus = [
+    { id: 'old', title: 'T', company: 'C', location: 'L', source: 'X', score: 99, postedAt: '2026-01-01', applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'new', title: 'T', company: 'C', location: 'L', source: 'X', score: 10, postedAt: '2026-05-01', applied: false, hidden: false, matchedKeywords: [] },
+  ] as any[];
+  const out = filterAndSortInternships(corpus, {
+    searchLower: '', selectedLocations: [], locationText: '', tier: 'all', seasons: [],
+    appliedFilter: 'all', showHidden: false, selectedSources: [], minScore: 0,
+    windowCutoff: null, includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'posted',
+  });
+  assert.deepStrictEqual(out.map(i => i.id), ['new', 'old']); // newest first, ignores score
+});
+
+test('passesLocalPredicates: search and location branches', () => {
+  const row = { company: 'Acme', title: 'Backend Intern', location: 'New York, NY' } as any;
+  const none = { selectedLocations: [], locationText: '' };
+  // No predicates → passes.
+  assert(passesLocalPredicates(row, { searchLower: '', ...none }) === true);
+  // Search matches title (case-insensitive), fails when absent.
+  assert(passesLocalPredicates(row, { searchLower: 'backend', ...none }) === true);
+  assert(passesLocalPredicates(row, { searchLower: 'frontend', ...none }) === false);
+  // locationText substring: 'york' matches, 'boston' does not.
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: [], locationText: 'york' }) === true);
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: [], locationText: 'boston' }) === false);
+  // selectedLocations: a matching chip passes, a non-matching chip fails.
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: ['new york'], locationText: '' }) === true);
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: ['remote'], locationText: '' }) === false);
+});
 
 // ==============================================================
 // Run and report

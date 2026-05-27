@@ -52,8 +52,10 @@ import {
   type RoleId,
 } from "@/lib/role-taxonomy";
 import { applyFilterSpec } from "@/lib/filter-spec";
+import { passesLocalPredicates as passesLocal, filterAndSortInternships } from "./_lib/filter-pipeline";
 import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
+import { useDebouncedValue } from "./_hooks/useDebouncedValue";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -183,6 +185,10 @@ export default function InternshipsPage() {
     setHydrated(true);
   }, []);
 
+  // Search + location are app-only predicates not in the shared filter spec.
+  const debouncedSearch = useDebouncedValue(searchText, 120);
+  const searchLower = debouncedSearch.trim().toLowerCase();
+
   // Push filter state back to URL whenever it changes (after hydration)
   useEffect(() => {
     if (!hydrated) return;
@@ -193,7 +199,7 @@ export default function InternshipsPage() {
     if (excludeKeywords.length) params.set("exclude", excludeKeywords.join(","));
     if (minScore > 0) params.set("minScore", String(minScore));
     if (locationText) params.set("location", locationText);
-    if (searchText) params.set("q", searchText);
+    if (debouncedSearch) params.set("q", debouncedSearch);
     if (showHidden) params.set("showHidden", "1");
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
     if (tierFilter !== "all") params.set("tier", tierFilter);
@@ -213,7 +219,7 @@ export default function InternshipsPage() {
     selectedSources, selectedLocations, includeKeywords, excludeKeywords,
     minScore, locationText, appliedFilter, tierFilter, selectedSeasons,
     selectedRoles, dateWindow,
-    searchText, showHidden,
+    debouncedSearch, showHidden,
     viewMode, groupByCompany, sortBy, currentPage,
   ]);
 
@@ -221,13 +227,10 @@ export default function InternshipsPage() {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (selectedSources.length === 1) params.set("source", selectedSources[0]);
-      if (minScore > 0) params.set("minScore", String(minScore));
-      // Always fetch hidden so the toggle is instant; filter client-side.
-      params.set("includeHidden", "1");
-
-      const listRes = await fetch(`/api/internships?${params.toString()}`, { signal });
+      // Fetch the full corpus once; ALL filtering (source, score, tier,
+      // season, …) runs client-side via applyFilterSpec. No filter change
+      // triggers a network call or skeleton flash.
+      const listRes = await fetch(`/api/internships?includeHidden=1`, { signal });
 
       if (listRes.status === 503) {
         setOffline(true);
@@ -247,7 +250,7 @@ export default function InternshipsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedSources, minScore]);
+  }, []);
 
   // Abort any in-flight fetchData when filters change again before it lands —
   // otherwise a slow request from filter state N can overwrite a fast
@@ -295,13 +298,13 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, minScore, selectedLocations, locationText,
     includeKeywords, excludeKeywords, appliedFilter, tierFilter,
-    selectedSeasons, selectedRoles, dateWindow, sortBy, searchText, showHidden,
+    selectedSeasons, selectedRoles, dateWindow, sortBy, debouncedSearch, showHidden,
   ]);
 
   // Functional `setAppliedDates` so rapid toggles on different rows compose
   // on top of each other's writes — a captured snapshot would let the
   // second click stomp the first row's entry in state and localStorage.
-  function writeAppliedDate(id: string, on: boolean): void {
+  const writeAppliedDate = useCallback((id: string, on: boolean): void => {
     setAppliedDates((prev) => {
       const next = { ...prev };
       if (on) next[id] = new Date().toISOString();
@@ -309,14 +312,14 @@ export default function InternshipsPage() {
       lsSet(LS_DATES_KEY, next);
       return next;
     });
-  }
+  }, []);
 
-  function patchInternshipField<K extends "applied" | "hidden">(
+  const patchInternshipField = useCallback(<K extends "applied" | "hidden">(
     id: string,
     field: K,
     next: boolean,
     current: boolean,
-  ): Promise<void> {
+  ): Promise<void> => {
     return patch(
       id,
       { [field]: next },
@@ -329,19 +332,32 @@ export default function InternshipsPage() {
         if (field === "applied") writeAppliedDate(id, current);
       },
     );
-  }
+  }, [patch, writeAppliedDate]);
 
-  function toggleApplied(id: string, current: boolean): void {
+  const toggleApplied = useCallback((id: string, current: boolean): void => {
     void patchInternshipField(id, "applied", !current, current);
-  }
-  function hidePosting(id: string): void {
+  }, [patchInternshipField]);
+  const hidePosting = useCallback((id: string): void => {
     void patchInternshipField(id, "hidden", true, false);
-  }
-  function unhidePosting(id: string): void {
+  }, [patchInternshipField]);
+  const unhidePosting = useCallback((id: string): void => {
     void patchInternshipField(id, "hidden", false, true);
-  }
+  }, [patchInternshipField]);
 
-  function updateNote(id: string, note: string) {
+  // Ref mirror of `internships` so the list's onHide can read current
+  // hidden-state without closing over the array (which would give the
+  // callback a new identity every render and defeat memo(InternshipList)).
+  const internshipsRef = useRef(internships);
+  internshipsRef.current = internships;
+
+  const handleListHide = useCallback((id: string) => {
+    const item = internshipsRef.current.find((i) => i.id === id);
+    if (!item) return;
+    if (item.hidden) unhidePosting(id);
+    else hidePosting(id);
+  }, [hidePosting, unhidePosting]);
+
+  const updateNote = useCallback((id: string, note: string) => {
     // Functional update + lsSet inside the updater so two rapid edits on
     // different ids don't stomp each other via stale `notesMap` closure.
     setNotesMap((prev) => {
@@ -350,7 +366,7 @@ export default function InternshipsPage() {
       lsSet(LS_NOTES_KEY, next);
       return next;
     });
-  }
+  }, []);
 
   function clearFilters() {
     setSearchText("");
@@ -419,31 +435,12 @@ export default function InternshipsPage() {
     return Date.now() - cfg.days * 24 * 60 * 60 * 1000;
   }, [dateWindow]);
 
-  // Search + location are app-only predicates not in the shared filter spec.
-  // Factored out so `filtered` and `filteredExcludingSeasons` can't drift —
-  // both used to inline-duplicate this block.
-  const searchLower = searchText.trim().toLowerCase();
-  const passesLocalPredicates = useCallback((i: Internship): boolean => {
-    if (searchLower) {
-      const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
-      if (!hay.includes(searchLower)) return false;
-    }
-    if (selectedLocations.length > 0 || locationText) {
-      const loc = i.location.toLowerCase();
-      const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
-      const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
-      if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
-      if (selectedLocations.length === 0 && locationText && !textMatch) return false;
-    }
-    return true;
-  }, [searchLower, selectedLocations, locationText]);
-
   // Internships that pass every active filter except the season filter.
   // Season chip counts are derived from this so they update when tier, source,
   // role, etc. change — without counting against the season selection itself.
   const filteredExcludingSeasons = useMemo(() => {
     return internships.filter((i) => {
-      if (!passesLocalPredicates(i)) return false;
+      if (!passesLocal(i, { searchLower, selectedLocations, locationText })) return false;
       return applyFilterSpec(i, {
         tier: tierFilter,
         appliedFilter,
@@ -457,7 +454,7 @@ export default function InternshipsPage() {
       });
     });
   }, [
-    internships, passesLocalPredicates, showHidden, selectedSources, minScore, tierFilter,
+    internships, searchLower, selectedLocations, locationText, showHidden, selectedSources, minScore, tierFilter,
     appliedFilter, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
@@ -477,37 +474,30 @@ export default function InternshipsPage() {
     );
   }, [filteredExcludingSeasons]);
 
-  // Client-side filter + sort
-  const filtered = internships
-    .filter((i) => {
-      if (!passesLocalPredicates(i)) return false;
-      // Everything else (tier / seasons / sources / score / date /
-      // keywords / roles / applied / hidden) routes through the spec
-      // shared with the notifier.
-      return applyFilterSpec(i, {
-        tier: tierFilter,
-        seasons: selectedSeasons,
-        appliedFilter,
-        excludeHidden: !showHidden,
-        includeSources: selectedSources,
-        minScore,
-        postedAfter: windowCutoff ?? undefined,
-        includeKeywords,
-        excludeKeywords,
-        roles: selectedRoles,
-      });
-    })
-    .sort((a, b) => {
-      if (sortBy === "posted") {
-        return new Date(b.postedAt ?? 0).getTime() - new Date(a.postedAt ?? 0).getTime();
-      }
-      return (b.score ?? -1) - (a.score ?? -1);
-    });
+  // Client-side filter + sort (memoized)
+  const filtered = useMemo(
+    () =>
+      filterAndSortInternships(internships, {
+        searchLower, selectedLocations, locationText,
+        tier: tierFilter, seasons: selectedSeasons, appliedFilter, showHidden,
+        selectedSources, minScore, windowCutoff,
+        includeKeywords, excludeKeywords, selectedRoles, sortBy,
+      }),
+    [
+      internships, searchLower, selectedLocations, locationText,
+      tierFilter, selectedSeasons, appliedFilter, showHidden,
+      selectedSources, minScore, windowCutoff,
+      includeKeywords, excludeKeywords, selectedRoles, sortBy,
+    ],
+  );
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const paginated = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage],
+  );
 
   const activeFilterCount =
     (searchText !== "" ? 1 : 0) +
@@ -535,7 +525,7 @@ export default function InternshipsPage() {
       applied = 0;
     for (const i of internships) {
       // Mirror the main list's filters, except the appliedFilter tab itself.
-      if (!passesLocalPredicates(i)) continue;
+      if (!passesLocal(i, { searchLower, selectedLocations, locationText })) continue;
       if (!applyFilterSpec(i, {
         tier: tierFilter,
         seasons: selectedSeasons,
@@ -552,7 +542,7 @@ export default function InternshipsPage() {
     }
     return { all, applied, open: all - applied };
   }, [
-    internships, passesLocalPredicates, showHidden, selectedSources, minScore, tierFilter,
+    internships, searchLower, selectedLocations, locationText, showHidden, selectedSources, minScore, tierFilter,
     selectedSeasons, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
@@ -863,12 +853,7 @@ export default function InternshipsPage() {
                     sortBy={sortBy}
                     pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
-                    onHide={(id) => {
-                      const item = internships.find((i) => i.id === id);
-                      if (!item) return;
-                      if (item.hidden) unhidePosting(id);
-                      else hidePosting(id);
-                    }}
+                    onHide={handleListHide}
                   />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">

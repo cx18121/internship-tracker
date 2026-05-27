@@ -10,7 +10,6 @@ export interface Internship {
   score: number | null;
   scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F' | null;
   matchedKeywords?: string[];
-  isNew: boolean;
   applied: boolean;
   hidden?: boolean;
   description?: string;

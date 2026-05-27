@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { ExternalLink, MapPin, Check, Eye, EyeOff } from "lucide-react";
 import type { Internship } from "../_lib/types";
 import {
@@ -27,7 +28,7 @@ interface Props {
   onHide: () => void;
 }
 
-export function InternshipRow({
+function InternshipRowImpl({
   item,
   pending = false,
   onToggleApplied,
@@ -179,3 +180,5 @@ export function InternshipRow({
     </div>
   );
 }
+
+export const InternshipRow = memo(InternshipRowImpl);

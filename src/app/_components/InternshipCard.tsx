@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, memo } from "react";
 import { MapPin, ExternalLink, StickyNote, Check, Eye, EyeOff } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type { Internship } from "../_lib/types";
@@ -22,7 +22,7 @@ interface Props {
   onHide: () => void;
 }
 
-export function InternshipCard({
+function InternshipCardImpl({
   item,
   appliedDate,
   notes,
@@ -193,3 +193,5 @@ export function InternshipCard({
     </article>
   );
 }
+
+export const InternshipCard = memo(InternshipCardImpl);
