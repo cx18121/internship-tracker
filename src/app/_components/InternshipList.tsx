@@ -31,7 +31,7 @@ interface Props {
   sortBy: SortBy;
   pendingIds: Set<string>;
   onToggleApplied: (id: string, current: boolean) => void;
-  onHide: (id: string) => void;
+  onHide: (id: string, hidden: boolean) => void;
 }
 
 interface Group {
@@ -105,8 +105,8 @@ function InternshipListImpl({
             key={item.id}
             item={item}
             pending={pendingIds.has(item.id)}
-            onToggleApplied={() => onToggleApplied(item.id, item.applied)}
-            onHide={() => onHide(item.id)}
+            onToggleApplied={onToggleApplied}
+            onHide={onHide}
           />
         ))}
       </div>
@@ -181,8 +181,8 @@ function GroupedList({
                     key={item.id}
                     item={item}
                     pending={pendingIds.has(item.id)}
-                    onToggleApplied={() => onToggleApplied(item.id, item.applied)}
-                    onHide={() => onHide(item.id)}
+                    onToggleApplied={onToggleApplied}
+                    onHide={onHide}
                   />
                 ))}
               </div>

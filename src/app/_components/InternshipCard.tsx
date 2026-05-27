@@ -22,7 +22,7 @@ interface Props {
   // effective. The card supplies its own item.id at the call site.
   onNotesChange: (id: string, note: string) => void;
   onToggleApplied: (id: string, current: boolean) => void;
-  onHide: (id: string) => void;
+  onHide: (id: string, hidden: boolean) => void;
 }
 
 function InternshipCardImpl({
@@ -48,7 +48,7 @@ function InternshipCardImpl({
       {/* Hide / Unhide — appears on hover, top-right corner. Label and icon
           flip based on current state. */}
       <button
-        onClick={() => onHide(item.id)}
+        onClick={() => onHide(item.id, item.hidden ?? false)}
         disabled={pending}
         aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
         aria-pressed={item.hidden ?? false}
