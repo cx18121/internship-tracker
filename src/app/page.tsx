@@ -299,7 +299,7 @@ export default function InternshipsPage() {
   // Functional `setAppliedDates` so rapid toggles on different rows compose
   // on top of each other's writes — a captured snapshot would let the
   // second click stomp the first row's entry in state and localStorage.
-  function writeAppliedDate(id: string, on: boolean): void {
+  const writeAppliedDate = useCallback((id: string, on: boolean): void => {
     setAppliedDates((prev) => {
       const next = { ...prev };
       if (on) next[id] = new Date().toISOString();
@@ -307,14 +307,14 @@ export default function InternshipsPage() {
       lsSet(LS_DATES_KEY, next);
       return next;
     });
-  }
+  }, []);
 
-  function patchInternshipField<K extends "applied" | "hidden">(
+  const patchInternshipField = useCallback(<K extends "applied" | "hidden">(
     id: string,
     field: K,
     next: boolean,
     current: boolean,
-  ): Promise<void> {
+  ): Promise<void> => {
     return patch(
       id,
       { [field]: next },
@@ -327,19 +327,19 @@ export default function InternshipsPage() {
         if (field === "applied") writeAppliedDate(id, current);
       },
     );
-  }
+  }, [patch, writeAppliedDate]);
 
-  function toggleApplied(id: string, current: boolean): void {
+  const toggleApplied = useCallback((id: string, current: boolean): void => {
     void patchInternshipField(id, "applied", !current, current);
-  }
-  function hidePosting(id: string): void {
+  }, [patchInternshipField]);
+  const hidePosting = useCallback((id: string): void => {
     void patchInternshipField(id, "hidden", true, false);
-  }
-  function unhidePosting(id: string): void {
+  }, [patchInternshipField]);
+  const unhidePosting = useCallback((id: string): void => {
     void patchInternshipField(id, "hidden", false, true);
-  }
+  }, [patchInternshipField]);
 
-  function updateNote(id: string, note: string) {
+  const updateNote = useCallback((id: string, note: string) => {
     // Functional update + lsSet inside the updater so two rapid edits on
     // different ids don't stomp each other via stale `notesMap` closure.
     setNotesMap((prev) => {
@@ -348,7 +348,7 @@ export default function InternshipsPage() {
       lsSet(LS_NOTES_KEY, next);
       return next;
     });
-  }
+  }, []);
 
   function clearFilters() {
     setSearchText("");
