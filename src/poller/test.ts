@@ -11,7 +11,7 @@ import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
-import { filterAndSortInternships } from '../app/_lib/filter-pipeline';
+import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 
 let passed = 0;
 let total = 0;
@@ -1107,6 +1107,22 @@ test('filterAndSortInternships: sortBy posted orders by postedAt desc', () => {
     windowCutoff: null, includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'posted',
   });
   assert.deepStrictEqual(out.map(i => i.id), ['new', 'old']); // newest first, ignores score
+});
+
+test('passesLocalPredicates: search and location branches', () => {
+  const row = { company: 'Acme', title: 'Backend Intern', location: 'New York, NY' } as any;
+  const none = { selectedLocations: [], locationText: '' };
+  // No predicates → passes.
+  assert(passesLocalPredicates(row, { searchLower: '', ...none }) === true);
+  // Search matches title (case-insensitive), fails when absent.
+  assert(passesLocalPredicates(row, { searchLower: 'backend', ...none }) === true);
+  assert(passesLocalPredicates(row, { searchLower: 'frontend', ...none }) === false);
+  // locationText substring: 'york' matches, 'boston' does not.
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: [], locationText: 'york' }) === true);
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: [], locationText: 'boston' }) === false);
+  // selectedLocations: a matching chip passes, a non-matching chip fails.
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: ['new york'], locationText: '' }) === true);
+  assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: ['remote'], locationText: '' }) === false);
 });
 
 // ==============================================================

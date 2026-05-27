@@ -418,21 +418,14 @@ export default function InternshipsPage() {
   }, [dateWindow]);
 
   // Search + location are app-only predicates not in the shared filter spec.
-  // Factored out so `filtered` and `filteredExcludingSeasons` can't drift —
-  // both used to inline-duplicate this block.
   const searchLower = searchText.trim().toLowerCase();
-  const passesLocalPredicates = useCallback(
-    (i: Internship): boolean =>
-      passesLocal(i, { searchLower, selectedLocations, locationText }),
-    [searchLower, selectedLocations, locationText],
-  );
 
   // Internships that pass every active filter except the season filter.
   // Season chip counts are derived from this so they update when tier, source,
   // role, etc. change — without counting against the season selection itself.
   const filteredExcludingSeasons = useMemo(() => {
     return internships.filter((i) => {
-      if (!passesLocalPredicates(i)) return false;
+      if (!passesLocal(i, { searchLower, selectedLocations, locationText })) return false;
       return applyFilterSpec(i, {
         tier: tierFilter,
         appliedFilter,
@@ -446,7 +439,7 @@ export default function InternshipsPage() {
       });
     });
   }, [
-    internships, passesLocalPredicates, showHidden, selectedSources, minScore, tierFilter,
+    internships, searchLower, selectedLocations, locationText, showHidden, selectedSources, minScore, tierFilter,
     appliedFilter, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
@@ -517,7 +510,7 @@ export default function InternshipsPage() {
       applied = 0;
     for (const i of internships) {
       // Mirror the main list's filters, except the appliedFilter tab itself.
-      if (!passesLocalPredicates(i)) continue;
+      if (!passesLocal(i, { searchLower, selectedLocations, locationText })) continue;
       if (!applyFilterSpec(i, {
         tier: tierFilter,
         seasons: selectedSeasons,
@@ -534,7 +527,7 @@ export default function InternshipsPage() {
     }
     return { all, applied, open: all - applied };
   }, [
-    internships, passesLocalPredicates, showHidden, selectedSources, minScore, tierFilter,
+    internships, searchLower, selectedLocations, locationText, showHidden, selectedSources, minScore, tierFilter,
     selectedSeasons, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
   ]);
 
