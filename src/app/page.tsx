@@ -55,6 +55,7 @@ import { applyFilterSpec } from "@/lib/filter-spec";
 import { passesLocalPredicates as passesLocal, filterAndSortInternships } from "./_lib/filter-pipeline";
 import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
+import { useDebouncedValue } from "./_hooks/useDebouncedValue";
 
 export default function InternshipsPage() {
   const [internships, setInternships] = useState<Internship[]>([]);
@@ -184,6 +185,10 @@ export default function InternshipsPage() {
     setHydrated(true);
   }, []);
 
+  // Search + location are app-only predicates not in the shared filter spec.
+  const debouncedSearch = useDebouncedValue(searchText, 120);
+  const searchLower = debouncedSearch.trim().toLowerCase();
+
   // Push filter state back to URL whenever it changes (after hydration)
   useEffect(() => {
     if (!hydrated) return;
@@ -194,7 +199,7 @@ export default function InternshipsPage() {
     if (excludeKeywords.length) params.set("exclude", excludeKeywords.join(","));
     if (minScore > 0) params.set("minScore", String(minScore));
     if (locationText) params.set("location", locationText);
-    if (searchText) params.set("q", searchText);
+    if (debouncedSearch) params.set("q", debouncedSearch);
     if (showHidden) params.set("showHidden", "1");
     if (appliedFilter !== "all") params.set("applied", appliedFilter);
     if (tierFilter !== "all") params.set("tier", tierFilter);
@@ -214,7 +219,7 @@ export default function InternshipsPage() {
     selectedSources, selectedLocations, includeKeywords, excludeKeywords,
     minScore, locationText, appliedFilter, tierFilter, selectedSeasons,
     selectedRoles, dateWindow,
-    searchText, showHidden,
+    debouncedSearch, showHidden,
     viewMode, groupByCompany, sortBy, currentPage,
   ]);
 
@@ -293,7 +298,7 @@ export default function InternshipsPage() {
     hydrated,
     selectedSources, minScore, selectedLocations, locationText,
     includeKeywords, excludeKeywords, appliedFilter, tierFilter,
-    selectedSeasons, selectedRoles, dateWindow, sortBy, searchText, showHidden,
+    selectedSeasons, selectedRoles, dateWindow, sortBy, debouncedSearch, showHidden,
   ]);
 
   // Functional `setAppliedDates` so rapid toggles on different rows compose
@@ -429,9 +434,6 @@ export default function InternshipsPage() {
     if (!cfg || cfg.days == null) return null;
     return Date.now() - cfg.days * 24 * 60 * 60 * 1000;
   }, [dateWindow]);
-
-  // Search + location are app-only predicates not in the shared filter spec.
-  const searchLower = searchText.trim().toLowerCase();
 
   // Internships that pass every active filter except the season filter.
   // Season chip counts are derived from this so they update when tier, source,
