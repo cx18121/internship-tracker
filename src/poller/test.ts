@@ -875,6 +875,20 @@ test('pickListFields keeps UI/consumer fields and drops heavy unused ones', () =
   assert.deepStrictEqual(Object.keys(out).sort(), [...LIST_FIELDS].sort());
 });
 
+test('pickListFields omits allowlisted fields that are undefined on the row', () => {
+  const sparse = {
+    id: 'x2', title: 'T', company: 'C', location: 'L', link: 'l',
+    source: 'S', postedAt: '2026-01-01', seenAt: '2026-01-02',
+    score: 50, scoreLabel: 'B', matchedKeywords: [], applied: false,
+    // hidden, salaryText, season intentionally absent (undefined)
+  };
+  const out = pickListFields(sparse as any);
+  for (const f of ['hidden', 'salaryText', 'season']) {
+    assert(!(f in out), `expected absent field ${f} to be omitted, not set to undefined`);
+  }
+  assert(out.id === 'x2'); // present fields still projected
+});
+
 // ==============================================================
 // 7. Archive stale postings test
 // ==============================================================
