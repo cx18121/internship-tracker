@@ -10,6 +10,7 @@ import { extractInternFacets } from '../poller/pollers/ats';
 import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
+import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 
 let passed = 0;
 let total = 0;
@@ -840,6 +841,38 @@ test('buildInternshipRow: wiring fields unchanged by description refactor', () =
 test('buildInternshipRow: postedAt falls back to seenAt when upstream is null', () => {
   const row = buildInternshipRow({ ...ROW_DEFAULTS, upstreamPostedAt: null });
   assert.strictEqual(row.postedAt, ROW_DEFAULTS.seenAt);
+});
+
+// ==============================================================
+// 6.7. pickListFields / LIST_FIELDS projection tests
+// ==============================================================
+
+console.log('\n── pickListFields tests ──────────────────────────────────');
+
+test('pickListFields keeps UI/consumer fields and drops heavy unused ones', () => {
+  const full = {
+    id: 'x1', title: 'SWE Intern', company: 'Acme', location: 'NYC',
+    link: 'https://a.co/x1', source: 'Greenhouse', postedAt: '2026-01-01',
+    seenAt: '2026-01-02', score: 88, scoreLabel: 'A',
+    matchedKeywords: ['backend'], applied: false, hidden: false,
+    salaryText: '$50/hr', season: ['summer-2026'],
+    // fields that must NOT ship to the list view:
+    description: 'x'.repeat(5000), salaryMin: 50, salaryMax: 60,
+    salaryUnit: 'hourly', isNew: true,
+  };
+  const out = pickListFields(full as any);
+  // Required by ATS consumer (find-ats-links-daily.ts) + the list/card UI.
+  for (const f of ['id', 'title', 'company', 'link', 'source', 'score',
+                   'scoreLabel', 'postedAt', 'seenAt', 'location',
+                   'matchedKeywords', 'applied', 'hidden', 'salaryText', 'season']) {
+    assert(f in out, `expected field ${f} to be kept`);
+  }
+  // Heavy / unused — must be dropped.
+  for (const f of ['description', 'salaryMin', 'salaryMax', 'salaryUnit', 'isNew']) {
+    assert(!(f in out), `expected field ${f} to be dropped`);
+  }
+  // The allowlist and the output keys agree.
+  assert.deepStrictEqual(Object.keys(out).sort(), [...LIST_FIELDS].sort());
 });
 
 // ==============================================================
