@@ -52,6 +52,7 @@ import {
   type RoleId,
 } from "@/lib/role-taxonomy";
 import { applyFilterSpec } from "@/lib/filter-spec";
+import { passesLocalPredicates as passesLocal, filterAndSortInternships } from "./_lib/filter-pipeline";
 import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
 
@@ -420,20 +421,11 @@ export default function InternshipsPage() {
   // Factored out so `filtered` and `filteredExcludingSeasons` can't drift —
   // both used to inline-duplicate this block.
   const searchLower = searchText.trim().toLowerCase();
-  const passesLocalPredicates = useCallback((i: Internship): boolean => {
-    if (searchLower) {
-      const hay = `${i.company} ${i.title} ${i.location ?? ""}`.toLowerCase();
-      if (!hay.includes(searchLower)) return false;
-    }
-    if (selectedLocations.length > 0 || locationText) {
-      const loc = i.location.toLowerCase();
-      const locMatch = selectedLocations.some((l) => loc.includes(l.toLowerCase()));
-      const textMatch = locationText ? loc.includes(locationText.toLowerCase()) : false;
-      if (!locMatch && !textMatch && !(selectedLocations.length === 0)) return false;
-      if (selectedLocations.length === 0 && locationText && !textMatch) return false;
-    }
-    return true;
-  }, [searchLower, selectedLocations, locationText]);
+  const passesLocalPredicates = useCallback(
+    (i: Internship): boolean =>
+      passesLocal(i, { searchLower, selectedLocations, locationText }),
+    [searchLower, selectedLocations, locationText],
+  );
 
   // Internships that pass every active filter except the season filter.
   // Season chip counts are derived from this so they update when tier, source,
@@ -474,37 +466,30 @@ export default function InternshipsPage() {
     );
   }, [filteredExcludingSeasons]);
 
-  // Client-side filter + sort
-  const filtered = internships
-    .filter((i) => {
-      if (!passesLocalPredicates(i)) return false;
-      // Everything else (tier / seasons / sources / score / date /
-      // keywords / roles / applied / hidden) routes through the spec
-      // shared with the notifier.
-      return applyFilterSpec(i, {
-        tier: tierFilter,
-        seasons: selectedSeasons,
-        appliedFilter,
-        excludeHidden: !showHidden,
-        includeSources: selectedSources,
-        minScore,
-        postedAfter: windowCutoff ?? undefined,
-        includeKeywords,
-        excludeKeywords,
-        roles: selectedRoles,
-      });
-    })
-    .sort((a, b) => {
-      if (sortBy === "posted") {
-        return new Date(b.postedAt ?? 0).getTime() - new Date(a.postedAt ?? 0).getTime();
-      }
-      return (b.score ?? -1) - (a.score ?? -1);
-    });
+  // Client-side filter + sort (memoized)
+  const filtered = useMemo(
+    () =>
+      filterAndSortInternships(internships, {
+        searchLower, selectedLocations, locationText,
+        tier: tierFilter, seasons: selectedSeasons, appliedFilter, showHidden,
+        selectedSources, minScore, windowCutoff,
+        includeKeywords, excludeKeywords, selectedRoles, sortBy,
+      }),
+    [
+      internships, searchLower, selectedLocations, locationText,
+      tierFilter, selectedSeasons, appliedFilter, showHidden,
+      selectedSources, minScore, windowCutoff,
+      includeKeywords, excludeKeywords, selectedRoles, sortBy,
+    ],
+  );
 
   // Pagination
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const paginated = useMemo(
+    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
+    [filtered, safePage],
+  );
 
   const activeFilterCount =
     (searchText !== "" ? 1 : 0) +

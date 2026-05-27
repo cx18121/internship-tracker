@@ -11,6 +11,7 @@ import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
+import { filterAndSortInternships } from '../app/_lib/filter-pipeline';
 
 let passed = 0;
 let total = 0;
@@ -1045,6 +1046,68 @@ async function runScoreBreakdownApiTests(): Promise<void> {
     assert.ok(Array.isArray(body.matchedKeywords), 'matchedKeywords must be an array');
   });
 }
+
+// ==============================================================
+// filter-pipeline parity tests
+// ==============================================================
+
+console.log('\n── filter-pipeline tests ─────────────────────────────────');
+
+test('filterAndSortInternships: minScore + source gate, score-desc order', () => {
+  const corpus = [
+    { id: 'a', title: 'SWE', company: 'A', location: 'NYC', source: 'Greenhouse', score: 90, applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'b', title: 'SWE', company: 'B', location: 'NYC', source: 'Indeed',     score: 40, applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'c', title: 'SWE', company: 'C', location: 'NYC', source: 'Greenhouse', score: 70, applied: false, hidden: false, matchedKeywords: [] },
+  ] as any[];
+  const out = filterAndSortInternships(corpus, {
+    searchLower: '', selectedLocations: [], locationText: '',
+    tier: 'all', seasons: [], appliedFilter: 'all', showHidden: false,
+    selectedSources: ['Greenhouse'], minScore: 50, windowCutoff: null,
+    includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'score',
+  });
+  // Indeed row excluded by source; score-40 row excluded by minScore;
+  // remaining ordered score-desc.
+  assert.deepStrictEqual(out.map(i => i.id), ['a', 'c']);
+});
+
+test('filterAndSortInternships: search matches company/title/location, hidden excluded unless showHidden', () => {
+  const corpus = [
+    { id: 'a', title: 'Backend Intern', company: 'Acme', location: 'NYC', source: 'X', score: 50, applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'b', title: 'Frontend Intern', company: 'Beta', location: 'SF', source: 'X', score: 60, applied: false, hidden: true, matchedKeywords: [] },
+  ] as any[];
+  const base = {
+    selectedLocations: [], locationText: '', tier: 'all' as const, seasons: [],
+    appliedFilter: 'all' as const, selectedSources: [], minScore: 0, windowCutoff: null,
+    includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'score' as const,
+  };
+  // Search "acme" hits company on row a only.
+  assert.deepStrictEqual(
+    filterAndSortInternships(corpus, { ...base, searchLower: 'acme', showHidden: false }).map(i => i.id),
+    ['a'],
+  );
+  // Hidden row b is excluded by default, included when showHidden.
+  assert.deepStrictEqual(
+    filterAndSortInternships(corpus, { ...base, searchLower: '', showHidden: false }).map(i => i.id),
+    ['a'],
+  );
+  assert.deepStrictEqual(
+    filterAndSortInternships(corpus, { ...base, searchLower: '', showHidden: true }).map(i => i.id).sort(),
+    ['a', 'b'],
+  );
+});
+
+test('filterAndSortInternships: sortBy posted orders by postedAt desc', () => {
+  const corpus = [
+    { id: 'old', title: 'T', company: 'C', location: 'L', source: 'X', score: 99, postedAt: '2026-01-01', applied: false, hidden: false, matchedKeywords: [] },
+    { id: 'new', title: 'T', company: 'C', location: 'L', source: 'X', score: 10, postedAt: '2026-05-01', applied: false, hidden: false, matchedKeywords: [] },
+  ] as any[];
+  const out = filterAndSortInternships(corpus, {
+    searchLower: '', selectedLocations: [], locationText: '', tier: 'all', seasons: [],
+    appliedFilter: 'all', showHidden: false, selectedSources: [], minScore: 0,
+    windowCutoff: null, includeKeywords: [], excludeKeywords: [], selectedRoles: [], sortBy: 'posted',
+  });
+  assert.deepStrictEqual(out.map(i => i.id), ['new', 'old']); // newest first, ignores score
+});
 
 // ==============================================================
 // Run and report
