@@ -221,13 +221,10 @@ export default function InternshipsPage() {
     if (isRefresh) setRefreshing(true);
     else setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (selectedSources.length === 1) params.set("source", selectedSources[0]);
-      if (minScore > 0) params.set("minScore", String(minScore));
-      // Always fetch hidden so the toggle is instant; filter client-side.
-      params.set("includeHidden", "1");
-
-      const listRes = await fetch(`/api/internships?${params.toString()}`, { signal });
+      // Fetch the full corpus once; ALL filtering (source, score, tier,
+      // season, …) runs client-side via applyFilterSpec. No filter change
+      // triggers a network call or skeleton flash.
+      const listRes = await fetch(`/api/internships?includeHidden=1`, { signal });
 
       if (listRes.status === 503) {
         setOffline(true);
@@ -247,7 +244,7 @@ export default function InternshipsPage() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [selectedSources, minScore]);
+  }, []);
 
   // Abort any in-flight fetchData when filters change again before it lands —
   // otherwise a slow request from filter state N can overwrite a fast
