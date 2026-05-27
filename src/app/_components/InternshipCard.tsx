@@ -17,9 +17,12 @@ interface Props {
   appliedDate: string | null;
   notes: string;
   pending?: boolean;
-  onNotesChange: (note: string) => void;
-  onToggleApplied: () => void;
-  onHide: () => void;
+  // id-based so the parent can pass stable (referentially-constant) handlers
+  // instead of per-item arrows — that's what keeps memo(InternshipCard)
+  // effective. The card supplies its own item.id at the call site.
+  onNotesChange: (id: string, note: string) => void;
+  onToggleApplied: (id: string, current: boolean) => void;
+  onHide: (id: string) => void;
 }
 
 function InternshipCardImpl({
@@ -45,7 +48,7 @@ function InternshipCardImpl({
       {/* Hide / Unhide — appears on hover, top-right corner. Label and icon
           flip based on current state. */}
       <button
-        onClick={onHide}
+        onClick={() => onHide(item.id)}
         disabled={pending}
         aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
         aria-pressed={item.hidden ?? false}
@@ -145,7 +148,7 @@ function InternshipCardImpl({
           Apply
         </a>
         <button
-          onClick={onToggleApplied}
+          onClick={() => onToggleApplied(item.id, item.applied)}
           disabled={pending}
           aria-pressed={item.applied}
           aria-busy={pending}
@@ -185,7 +188,7 @@ function InternshipCardImpl({
         <Textarea
           placeholder="Notes…"
           value={notes}
-          onChange={(e) => onNotesChange(e.target.value)}
+          onChange={(e) => onNotesChange(item.id, e.target.value)}
           className="text-[12px] bg-white/[0.04] border-white/10 text-white/80 placeholder:text-white/30 resize-none h-16"
         />
       )}
