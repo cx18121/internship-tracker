@@ -24,8 +24,11 @@ export const LIST_GRID_COLS =
 interface Props {
   item: Internship;
   pending?: boolean;
-  onToggleApplied: () => void;
-  onHide: () => void;
+  // id-based so the parent passes stable handlers (no per-row closures),
+  // keeping memo(InternshipRow) effective even when InternshipList re-renders
+  // (e.g. on a pendingIds change). The row supplies its own item values.
+  onToggleApplied: (id: string, current: boolean) => void;
+  onHide: (id: string, hidden: boolean) => void;
 }
 
 function InternshipRowImpl({
@@ -147,7 +150,7 @@ function InternshipRowImpl({
           <span className="hidden md:inline">Apply</span>
         </a>
         <button
-          onClick={onToggleApplied}
+          onClick={() => onToggleApplied(item.id, item.applied)}
           disabled={pending}
           aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
           aria-pressed={item.applied}
@@ -165,7 +168,7 @@ function InternshipRowImpl({
             so touch users can also dismiss postings (list is the default
             mobile view). Label and icon flip based on current state. */}
         <button
-          onClick={onHide}
+          onClick={() => onHide(item.id, item.hidden ?? false)}
           disabled={pending}
           aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
           aria-pressed={item.hidden ?? false}

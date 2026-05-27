@@ -193,7 +193,13 @@ export default function InternshipsPage() {
   }, []);
 
   // Search + location are app-only predicates not in the shared filter spec.
-  const debouncedSearch = useDebouncedValue(searchText, userTypedSearchRef.current ? 120 : 0);
+  // Debounce only real typing into a non-empty query. Programmatic sets
+  // (URL hydration) and clears (Escape / clear button / Clear All, which set
+  // searchText back to "") apply immediately — no 120ms lag on those paths.
+  const debouncedSearch = useDebouncedValue(
+    searchText,
+    userTypedSearchRef.current && searchText !== "" ? 120 : 0,
+  );
   const searchLower = debouncedSearch.trim().toLowerCase();
 
   // Push filter state back to URL whenever it changes (after hydration)
@@ -351,16 +357,11 @@ export default function InternshipsPage() {
     void patchInternshipField(id, "hidden", false, true);
   }, [patchInternshipField]);
 
-  // Ref mirror of `internships` so the list's onHide can read current
-  // hidden-state without closing over the array (which would give the
-  // callback a new identity every render and defeat memo(InternshipList)).
-  const internshipsRef = useRef(internships);
-  internshipsRef.current = internships;
-
-  const handleListHide = useCallback((id: string) => {
-    const item = internshipsRef.current.find((i) => i.id === id);
-    if (!item) return;
-    if (item.hidden) unhidePosting(id);
+  // Stable hide/unhide dispatcher. The row/card pass their own committed
+  // `hidden` value, so no ref into `internships` is needed — keeping the
+  // handler referentially stable without a render-phase ref write.
+  const handleListHide = useCallback((id: string, hidden: boolean) => {
+    if (hidden) unhidePosting(id);
     else hidePosting(id);
   }, [hidePosting, unhidePosting]);
 
