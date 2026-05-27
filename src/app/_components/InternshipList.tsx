@@ -4,7 +4,7 @@
 // collapsible per-company sections when groupByCompany is on. Both modes
 // reuse the same InternshipRow for visual consistency.
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Internship, SortBy } from "../_lib/types";
 import { InternshipRow, LIST_GRID_COLS } from "./InternshipRow";
@@ -88,7 +88,7 @@ function ColumnHeader({ sortBy }: { sortBy: SortBy }): React.JSX.Element {
   );
 }
 
-export function InternshipList({
+function InternshipListImpl({
   items,
   groupByCompany,
   sortBy,
@@ -124,6 +124,8 @@ export function InternshipList({
     />
   );
 }
+
+export const InternshipList = memo(InternshipListImpl);
 
 function GroupedList({
   items,

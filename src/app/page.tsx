@@ -339,6 +339,19 @@ export default function InternshipsPage() {
     void patchInternshipField(id, "hidden", false, true);
   }, [patchInternshipField]);
 
+  // Ref mirror of `internships` so the list's onHide can read current
+  // hidden-state without closing over the array (which would give the
+  // callback a new identity every render and defeat memo(InternshipList)).
+  const internshipsRef = useRef(internships);
+  internshipsRef.current = internships;
+
+  const handleListHide = useCallback((id: string) => {
+    const item = internshipsRef.current.find((i) => i.id === id);
+    if (!item) return;
+    if (item.hidden) unhidePosting(id);
+    else hidePosting(id);
+  }, [hidePosting, unhidePosting]);
+
   const updateNote = useCallback((id: string, note: string) => {
     // Functional update + lsSet inside the updater so two rapid edits on
     // different ids don't stomp each other via stale `notesMap` closure.
@@ -838,12 +851,7 @@ export default function InternshipsPage() {
                     sortBy={sortBy}
                     pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
-                    onHide={(id) => {
-                      const item = internships.find((i) => i.id === id);
-                      if (!item) return;
-                      if (item.hidden) unhidePosting(id);
-                      else hidePosting(id);
-                    }}
+                    onHide={handleListHide}
                   />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
