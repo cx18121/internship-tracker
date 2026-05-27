@@ -8,7 +8,7 @@
 
 Pressing filter buttons feels laggy. The corpus is ~6,200 internships, loaded into the browser and filtered client-side. Three issues cause the lag:
 
-1. **Filters that round-trip to the server.** `source` and `minScore` are wired into `fetchData`'s deps (`page.tsx:250, 259-264`). Clicking a source chip or changing min-score sets `loading=true`, blanks the list to a skeleton, refetches ~6k rows over the network, then re-renders. The skeleton flash is the primary "laggy" tell — and it is redundant: the API already returns the full corpus (`includeHidden=1`), and `applyFilterSpec` already re-applies `minScore` and `includeSources` client-side (`page.tsx:452-455`). The server filtering changes no results.
+1. **Filters that round-trip to the server.** `source` and `minScore` are wired into `fetchData`'s deps (`page.tsx:250, 259-264`). Clicking a source chip or changing min-score sets `loading=true`, blanks the list to a skeleton, refetches over the network, then re-renders. The skeleton flash is the primary "laggy" tell — and it is redundant: today the route forwards `source`/`minScore` into SQL (`route.ts:34`, `store.ts:587,594`) so the browser holds the *filtered* set, but the client *also* re-applies the same `minScore`/`includeSources` predicates via `applyFilterSpec` (`page.tsx:452-455`, `filter-spec.ts:86,93`). The client predicate is a **superset** of the server's, so dropping the server params makes the browser hold the full corpus and filter it down to the identical visible result — the server filtering changes nothing the user sees.
 
 2. **Unmemoized filter/sort pipeline.** `filtered` and `paginated` (`page.tsx:481-510`) recompute on *every* render — every keystroke, hover, and toggle — over all ~6,200 rows. `filteredExcludingSeasons` and `tabCounts` are already memoized.
 
@@ -45,17 +45,25 @@ Wrap `filtered` (filter + sort) and `paginated` (slice) in `useMemo` keyed on th
 Wrap `InternshipRow` and `InternshipCard` in `React.memo`. Make their callback props referentially stable so memo holds: convert the inline arrow handlers passed from `page.tsx` / `InternshipList` into stable id-based handlers via `useCallback`. Toggling/applying one row must not re-render the other rows on the page.
 
 **4. Debounce search.**
-Keep the search `<input>` value updating immediately (controlled, instant feedback). Debounce the *derived* value used for filtering (~120ms) and the URL `replaceState` writes, so a keystroke burst triggers one sweep instead of one-per-character. The `/` focus shortcut and Escape-to-clear behavior are unchanged.
+Keep the search `<input>` value updating immediately (controlled, instant feedback). Introduce a single debounced `appliedSearch` value (~120ms) and route **all three** of its current consumers off it together — filtering (`page.tsx:425`), the page-reset effect (`page.tsx:291`), and URL `replaceState` (`page.tsx:187`). Driving them off the debounced value as a unit avoids transient desync between the visible input, the URL, and the results (and a double page-reset). The `/` focus shortcut and Escape-to-clear behavior are unchanged.
 
-### Growth-readiness (included, low-risk)
+**5. Trim the API list payload to list-needed fields. (Required — not deferred.)**
+This is a real cost *today*, not just at 50k: `getInternships` does `SELECT *` and `fromRow` includes `description` (`store.ts:143`), so the list payload carries full descriptions even though the UI hides them — that is why `internships.json` is 3.8 MB at 6k rows. At 50k this becomes the dominant cold-load wall (transfer + parse + memory). Return only fields the UI reads.
 
-**5. Trim the API list payload to list-needed fields.**
-At 50k rows, initial JSON transfer/parse dominates cold load. Return only fields the UI reads. Descriptions are already omitted; audit `Internship` (wire type, `src/app/_lib/types.ts`) against what the list/card actually render and drop unused fields server-side in the list route. Must not remove any field consumed by `applyFilterSpec`, sorting, grouping, keyword/role chips, or row rendering.
+Audit before removing any field:
+- **UI reads:** `applyFilterSpec`, sorting, grouping by company, keyword/role chips, and `InternshipRow`/`InternshipCard` rendering.
+- **External consumer:** `src/poller/scripts/find-ats-links-daily.ts` calls `/api/internships` and reads `id`, `title`, `company`, `link` — these must stay. (It also types the response as `{ data, count }` while the route returns a bare array; do not change the response shape as part of this work.)
+- **Other API routes** under `src/app/api/internships/**` (e.g. score-breakdown) are separate endpoints and unaffected, but confirm none re-fetch the list route.
+When in doubt, keep the field.
+
+### Known remaining cost toward 50k (acknowledged, not addressed here)
+
+Even fully memoized, each filter-state change still runs **three** whole-corpus passes — `filteredExcludingSeasons` (`page.tsx:444`), `filtered` + sort (`page.tsx:481`), and `tabCounts` (`page.tsx:533`). At 6k this is sub-frame; toward 50k it becomes the next bottleneck. This spec does not consolidate them — it's the logical follow-up once the network/skeleton and payload wins land and we can measure. Flagged so it isn't a surprise.
 
 ### Deferred (not built now)
 
 - **List virtualization** — profile after core changes; add only if render time still dominates at target scale.
-- **Server-side pagination** — leave the data-fetch as a clean seam (single `fetchData` entry point) so this is a localized swap beyond ~50k. Not built now.
+- **Server-side pagination** — the right move *beyond* ~50k. Note this is **not** a localized swap: filtering, tab counts, season counts, and total page count are all derived from the full in-memory corpus (`page.tsx:390,444,508`), so moving to server-side paging means redesigning all of those derivations together. Called out honestly as a larger future effort, not a drop-in.
 
 ## Verification
 
