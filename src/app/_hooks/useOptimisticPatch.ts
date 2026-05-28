@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { ownerHeader } from "../_lib/ownerHeader";
 
 /**
  * Per-row optimistic PATCH against /api/internships/:id with rollback on
@@ -38,7 +39,7 @@ export function useOptimisticPatch(): {
       try {
         const res = await fetch(`/api/internships/${id}`, {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...ownerHeader() },
           body: JSON.stringify(body),
         });
         ok = res.ok;

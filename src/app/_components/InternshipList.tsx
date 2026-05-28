@@ -32,6 +32,7 @@ interface Props {
   pendingIds: Set<string>;
   onToggleApplied: (id: string, current: boolean) => void;
   onHide: (id: string, hidden: boolean) => void;
+  isOwner: boolean;
 }
 
 interface Group {
@@ -95,6 +96,7 @@ function InternshipListImpl({
   pendingIds,
   onToggleApplied,
   onHide,
+  isOwner,
 }: Props) {
   if (!groupByCompany) {
     return (
@@ -107,6 +109,7 @@ function InternshipListImpl({
             pending={pendingIds.has(item.id)}
             onToggleApplied={onToggleApplied}
             onHide={onHide}
+            isOwner={isOwner}
           />
         ))}
       </div>
@@ -121,6 +124,7 @@ function InternshipListImpl({
       pendingIds={pendingIds}
       onToggleApplied={onToggleApplied}
       onHide={onHide}
+      isOwner={isOwner}
     />
   );
 }
@@ -133,6 +137,7 @@ function GroupedList({
   pendingIds,
   onToggleApplied,
   onHide,
+  isOwner,
 }: Omit<Props, "groupByCompany">): React.JSX.Element {
   const groups = useMemo(() => groupItems(items), [items]);
   // Every group renders a section header — including single-role companies —
@@ -183,6 +188,7 @@ function GroupedList({
                     pending={pendingIds.has(item.id)}
                     onToggleApplied={onToggleApplied}
                     onHide={onHide}
+                    isOwner={isOwner}
                   />
                 ))}
               </div>

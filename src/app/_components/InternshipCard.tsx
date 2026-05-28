@@ -23,6 +23,7 @@ interface Props {
   onNotesChange: (id: string, note: string) => void;
   onToggleApplied: (id: string, current: boolean) => void;
   onHide: (id: string, hidden: boolean) => void;
+  isOwner: boolean;
 }
 
 function InternshipCardImpl({
@@ -33,6 +34,7 @@ function InternshipCardImpl({
   onNotesChange,
   onToggleApplied,
   onHide,
+  isOwner,
 }: Props) {
   const [notesOpen, setNotesOpen] = useState(false);
   const uniqueKws = Array.from(new Set(item.matchedKeywords ?? []));
@@ -47,16 +49,18 @@ function InternshipCardImpl({
     >
       {/* Hide / Unhide — appears on hover, top-right corner. Label and icon
           flip based on current state. */}
-      <button
-        onClick={() => onHide(item.id, item.hidden ?? false)}
-        disabled={pending}
-        aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
-        aria-pressed={item.hidden ?? false}
-        title={item.hidden ? "Unhide this posting" : "Hide this posting"}
-        className="absolute top-2.5 right-2.5 h-6 w-6 inline-flex items-center justify-center rounded text-white/35 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
-      >
-        {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-      </button>
+      {isOwner && (
+        <button
+          onClick={() => onHide(item.id, item.hidden ?? false)}
+          disabled={pending}
+          aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
+          aria-pressed={item.hidden ?? false}
+          title={item.hidden ? "Unhide this posting" : "Hide this posting"}
+          className="absolute top-2.5 right-2.5 h-6 w-6 inline-flex items-center justify-center rounded text-white/35 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
+        >
+          {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+        </button>
+      )}
       {/* Header row: identity left, score+timing right */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
@@ -147,27 +151,31 @@ function InternshipCardImpl({
           <ExternalLink className="h-3 w-3" />
           Apply
         </a>
-        <button
-          onClick={() => onToggleApplied(item.id, item.applied)}
-          disabled={pending}
-          aria-pressed={item.applied}
-          aria-busy={pending}
-          className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] border transition-colors disabled:opacity-50 disabled:cursor-wait ${
-            item.applied
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
-              : "border-white/15 bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/80"
-          }`}
-        >
-          {item.applied ? (
-            <>
-              <Check className="h-3 w-3" /> Applied
-            </>
-          ) : (
-            "Mark applied"
-          )}
-        </button>
-        {appliedDate && item.applied && (
-          <span className="text-[10px] text-white/45 tabular-nums">{formatDate(appliedDate)}</span>
+        {isOwner && (
+          <>
+            <button
+              onClick={() => onToggleApplied(item.id, item.applied)}
+              disabled={pending}
+              aria-pressed={item.applied}
+              aria-busy={pending}
+              className={`inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11.5px] border transition-colors disabled:opacity-50 disabled:cursor-wait ${
+                item.applied
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/15"
+                  : "border-white/15 bg-transparent text-white/55 hover:bg-white/[0.04] hover:text-white/80"
+              }`}
+            >
+              {item.applied ? (
+                <>
+                  <Check className="h-3 w-3" /> Applied
+                </>
+              ) : (
+                "Mark applied"
+              )}
+            </button>
+            {appliedDate && item.applied && (
+              <span className="text-[10px] text-white/45 tabular-nums">{formatDate(appliedDate)}</span>
+            )}
+          </>
         )}
         <button
           onClick={() => setNotesOpen((v) => !v)}

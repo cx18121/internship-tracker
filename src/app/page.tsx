@@ -56,8 +56,10 @@ import { passesLocalPredicates as passesLocal, filterAndSortInternships } from "
 import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
 import { useDebouncedValue } from "./_hooks/useDebouncedValue";
+import { useIsOwner } from "./_hooks/useIsOwner";
 
 export default function InternshipsPage() {
+  const isOwner = useIsOwner();
   const [internships, setInternships] = useState<Internship[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<Sources | null>(null);
@@ -621,16 +623,18 @@ export default function InternshipsPage() {
                 <Layers className="h-3.5 w-3.5" />
               </button>
             )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setNotifModalOpen(true)}
-              aria-label="Notifications"
-              className="gap-1.5 h-7 px-2 sm:px-2.5 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
-            >
-              <Bell className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Notifications</span>
-            </Button>
+            {isOwner && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setNotifModalOpen(true)}
+                aria-label="Notifications"
+                className="gap-1.5 h-7 px-2 sm:px-2.5 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
+              >
+                <Bell className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">Notifications</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -862,6 +866,7 @@ export default function InternshipsPage() {
                     pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
                     onHide={handleListHide}
+                    isOwner={isOwner}
                   />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
@@ -875,6 +880,7 @@ export default function InternshipsPage() {
                         onNotesChange={updateNote}
                         onToggleApplied={toggleApplied}
                         onHide={handleListHide}
+                        isOwner={isOwner}
                       />
                     ))}
                   </div>

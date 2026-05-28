@@ -1,4 +1,5 @@
 import { patchInternship } from "@/lib/store";
+import { isOwnerRequest, forbidden } from "@/lib/owner";
 import type { Internship } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,7 @@ export async function PATCH(
   request: Request,
   ctx: { params: Promise<{ id: string }> },
 ) {
+  if (!isOwnerRequest(request)) return forbidden();
   const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
   const patch: Partial<Internship> = {};

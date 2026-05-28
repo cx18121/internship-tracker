@@ -29,6 +29,17 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <main className="min-h-full overflow-x-hidden overflow-y-auto">{children}</main>
+        <footer className="px-4 py-3 text-center text-xs text-muted-foreground">
+          built by{" "}
+          <a
+            href="https://charliexue.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline-offset-2 hover:underline"
+          >
+            charlie xue
+          </a>
+        </footer>
       </body>
     </html>
   );

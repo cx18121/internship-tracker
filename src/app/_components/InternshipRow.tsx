@@ -29,6 +29,7 @@ interface Props {
   // (e.g. on a pendingIds change). The row supplies its own item values.
   onToggleApplied: (id: string, current: boolean) => void;
   onHide: (id: string, hidden: boolean) => void;
+  isOwner: boolean;
 }
 
 function InternshipRowImpl({
@@ -36,6 +37,7 @@ function InternshipRowImpl({
   pending = false,
   onToggleApplied,
   onHide,
+  isOwner,
 }: Props) {
   const primarySeason = (item.season ?? [])[0];
 
@@ -149,34 +151,38 @@ function InternshipRowImpl({
           <ExternalLink className="h-3 w-3" />
           <span className="hidden md:inline">Apply</span>
         </a>
-        <button
-          onClick={() => onToggleApplied(item.id, item.applied)}
-          disabled={pending}
-          aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
-          aria-pressed={item.applied}
-          aria-busy={pending}
-          className={`h-6 w-6 inline-flex items-center justify-center rounded transition-colors disabled:opacity-50 disabled:cursor-wait ${
-            item.applied
-              ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
-              : "bg-transparent text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
-          }`}
-          title={item.applied ? "Mark unapplied" : "Mark applied"}
-        >
-          {item.applied ? <Check className="h-3.5 w-3.5" /> : <span className="text-[14px] leading-none">○</span>}
-        </button>
-        {/* Hide / Unhide — visible on hover/focus on desktop, always on mobile
-            so touch users can also dismiss postings (list is the default
-            mobile view). Label and icon flip based on current state. */}
-        <button
-          onClick={() => onHide(item.id, item.hidden ?? false)}
-          disabled={pending}
-          aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
-          aria-pressed={item.hidden ?? false}
-          className="inline-flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
-          title={item.hidden ? "Unhide this posting" : "Hide this posting"}
-        >
-          {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-        </button>
+        {isOwner && (
+          <>
+            <button
+              onClick={() => onToggleApplied(item.id, item.applied)}
+              disabled={pending}
+              aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
+              aria-pressed={item.applied}
+              aria-busy={pending}
+              className={`h-6 w-6 inline-flex items-center justify-center rounded transition-colors disabled:opacity-50 disabled:cursor-wait ${
+                item.applied
+                  ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                  : "bg-transparent text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
+              }`}
+              title={item.applied ? "Mark unapplied" : "Mark applied"}
+            >
+              {item.applied ? <Check className="h-3.5 w-3.5" /> : <span className="text-[14px] leading-none">○</span>}
+            </button>
+            {/* Hide / Unhide — visible on hover/focus on desktop, always on mobile
+                so touch users can also dismiss postings (list is the default
+                mobile view). Label and icon flip based on current state. */}
+            <button
+              onClick={() => onHide(item.id, item.hidden ?? false)}
+              disabled={pending}
+              aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
+              aria-pressed={item.hidden ?? false}
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
+              title={item.hidden ? "Unhide this posting" : "Hide this posting"}
+            >
+              {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
+            </button>
+          </>
+        )}
         </div>
       </div>
 
