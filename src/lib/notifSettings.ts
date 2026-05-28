@@ -71,9 +71,9 @@ export function loadNotifSettings(): NotifSettings {
   return settingsStore.load();
 }
 
-export function saveNotifSettings(s: NotifSettings): NotifSettings {
-  settingsStore.save(s);
-  return s;
+export function saveNotifSettings(s: NotifSettings): { ok: boolean; settings: NotifSettings } {
+  const ok = settingsStore.save(s);
+  return { ok, settings: s };
 }
 
 // Parse arbitrary input (typically a JSON body posted from the client) into

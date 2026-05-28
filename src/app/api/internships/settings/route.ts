@@ -14,5 +14,12 @@ export async function POST(request: Request) {
   if (!isOwnerRequest(request)) return forbidden();
   const body = await request.json().catch(() => ({}));
   const merged = parseNotifSettings(body, loadNotifSettings());
-  return Response.json(saveNotifSettings(merged));
+  const { ok, settings } = saveNotifSettings(merged);
+  if (!ok) {
+    return Response.json(
+      { error: "Failed to persist notification settings" },
+      { status: 500 },
+    );
+  }
+  return Response.json(settings);
 }

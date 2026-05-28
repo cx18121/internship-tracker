@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { ownerHeader } from "../_lib/ownerHeader";
 
 /**
@@ -18,20 +18,26 @@ export function useOptimisticPatch(): {
   pendingIds: Set<string>;
   patch: (id: string, body: object, apply: () => void, revert: () => void) => Promise<void>;
 } {
+  // Two parallel pending stores:
+  //  - `pendingRef` is the source of truth for the in-flight guard. It mutates
+  //    synchronously inside `patch`, so two same-row clicks fired in the same
+  //    tick (before React re-renders) cannot both pass `has(id)` and race two
+  //    PATCHes against each other.
+  //  - `pendingIds` is the same set surfaced as React state so consumers can
+  //    render disabled/aria-busy on the row. Updates lag a render behind the
+  //    ref, but only UI flags care about that.
+  const pendingRef = useRef<Set<string>>(new Set());
   const [pendingIds, setPendingIds] = useState<Set<string>>(() => new Set());
 
   const setPending = useCallback((id: string, on: boolean) => {
-    setPendingIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
+    if (on) pendingRef.current.add(id);
+    else pendingRef.current.delete(id);
+    setPendingIds(new Set(pendingRef.current));
   }, []);
 
   const patch = useCallback(
     async (id: string, body: object, apply: () => void, revert: () => void): Promise<void> => {
-      if (pendingIds.has(id)) return;
+      if (pendingRef.current.has(id)) return;
       setPending(id, true);
       apply();
 
@@ -53,7 +59,7 @@ export function useOptimisticPatch(): {
       if (!ok) revert();
       setPending(id, false);
     },
-    [pendingIds, setPending],
+    [setPending],
   );
 
   return { pendingIds, patch };

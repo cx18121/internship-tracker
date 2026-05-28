@@ -124,26 +124,38 @@ export async function POST(request: Request) {
     let nextState: ButtonState;
     let footerNote: string | null;
 
+    // patchInternship returns null when the row no longer exists (archived,
+    // deleted, or stale custom_id). Without checking, we'd silently mutate
+    // the Discord message to "✅ Marked applied" while the DB actually did
+    // nothing — confusing if the user later checks the site.
+    let patchResult: Awaited<ReturnType<typeof patchInternship>>;
     if (action === "applied") {
-      await patchInternship(internshipId, { applied: true, appliedAt: new Date().toISOString() });
+      patchResult = await patchInternship(internshipId, { applied: true, appliedAt: new Date().toISOString() });
       nextState = 'applied';
       footerNote = '✅ Marked applied';
     } else if (action === "hidden") {
-      await patchInternship(internshipId, { hidden: true });
+      patchResult = await patchInternship(internshipId, { hidden: true });
       nextState = 'hidden';
       footerNote = '❌ Hidden';
     } else if (action === "unapplied") {
-      await patchInternship(internshipId, { applied: false, appliedAt: undefined });
+      patchResult = await patchInternship(internshipId, { applied: false, appliedAt: undefined });
       nextState = 'fresh';
       footerNote = null;
     } else if (action === "unhidden") {
-      await patchInternship(internshipId, { hidden: false });
+      patchResult = await patchInternship(internshipId, { hidden: false });
       nextState = 'fresh';
       footerNote = null;
     } else {
       return Response.json({
         type: 4,
         data: { content: `unknown action: ${action}`, flags: 64 },
+      });
+    }
+
+    if (!patchResult) {
+      return Response.json({
+        type: 4,
+        data: { content: `Internship not found (id: ${internshipId}) — it may have been archived.`, flags: 64 },
       });
     }
 

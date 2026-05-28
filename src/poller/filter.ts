@@ -77,7 +77,6 @@ export interface FilterResult {
 interface FilterContext {
   internship: Partial<Internship>;
   titleLower: string;
-  locationLower: string;
   combined: string;
 }
 
@@ -118,7 +117,6 @@ export function applyHardFilters(internship: Partial<Internship>): FilterResult 
   const ctx: FilterContext = {
     internship,
     titleLower,
-    locationLower,
     combined: `${titleLower} ${locationLower}`,
   };
   for (const rule of RULES) {

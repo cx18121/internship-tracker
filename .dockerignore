@@ -28,3 +28,22 @@ test-jobspy.ts
 
 # Local Mac-only run config
 scripts/com.internship-tracker.backup.plist.example
+
+# Local runtime state in data/. Anything kept here must already be listed
+# in scripts/seed-config.cjs (MERGE_FILES, OVERWRITE_FILES, or seed-if-missing).
+# Everything else is per-host runtime drift and must NOT be baked into the
+# image — Codex flagged handshake-auth.json as a secret leak via COPY . .
+data/handshake-auth.json
+data/internships.json
+data/notif-settings.json
+data/poll-stats.json
+data/portal-snapshots.json
+data/seen.json
+data/linkedin-check-history.json
+data/simplify-resolved.json
+data/source-alerts.json
+data/source-fetch-history.json
+data/scan-history.tsv
+data/backup-*
+data/*.db
+data/*.db-*

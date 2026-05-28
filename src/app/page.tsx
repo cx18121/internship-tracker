@@ -57,6 +57,7 @@ import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
 import { useDebouncedValue } from "./_hooks/useDebouncedValue";
 import { useIsOwner } from "./_hooks/useIsOwner";
+import { ownerHeader } from "./_lib/ownerHeader";
 
 export default function InternshipsPage() {
   const isOwner = useIsOwner();
@@ -245,7 +246,15 @@ export default function InternshipsPage() {
       // Fetch the full corpus once; ALL filtering (source, score, tier,
       // season, …) runs client-side via applyFilterSpec. No filter change
       // triggers a network call or skeleton flash.
-      const listRes = await fetch(`/api/internships?includeHidden=1`, { signal });
+      // Only owners receive hidden rows; for friends the includeHidden flag is
+      // ignored server-side anyway, but skipping it client-side avoids the
+      // pointless query bit. Owner header is sent unconditionally — server
+      // verifies it — so a friend who forges localStorage.ownerToken still gets
+      // hidden-stripped data.
+      const listRes = await fetch(
+        `/api/internships${isOwner ? "?includeHidden=1" : ""}`,
+        { signal, headers: ownerHeader() },
+      );
 
       if (listRes.status === 503) {
         setOffline(true);
@@ -392,6 +401,7 @@ export default function InternshipsPage() {
     setSelectedRoles([]);
     setDateWindow("all");
     setSortBy("score");
+    setShowHidden(false);
     setCurrentPage(1);
   }
 
