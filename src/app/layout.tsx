@@ -29,13 +29,13 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <main className="min-h-full overflow-x-hidden overflow-y-auto">{children}</main>
-        <footer className="px-4 py-3 text-center text-xs text-muted-foreground">
+        <footer className="px-4 py-3 text-right text-xs text-white/25">
           built by{" "}
           <a
             href="https://charliexue.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="underline-offset-2 hover:underline"
+            className="hover:text-white/50 transition-colors"
           >
             charlie xue
           </a>
