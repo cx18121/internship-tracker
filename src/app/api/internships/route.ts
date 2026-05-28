@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
 import { getInternships } from "@/lib/store";
 import { pickListFields } from "@/app/_lib/list-item";
 import { isOwnerRequest } from "@/lib/owner";
@@ -39,5 +41,34 @@ export async function GET(request: Request) {
 
   const all = await getInternships({ source, sources, minScore, label, sort, search: q, includeHidden });
   const sliced = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
-  return Response.json(sliced.map(pickListFields));
+  const body = JSON.stringify(sliced.map(pickListFields));
+
+  // ETag = short hash of the body. If the client already has this version
+  // cached (via If-None-Match), skip transferring the whole payload.
+  // Cheap on the server (sha1 of a JSON string is fast), instant on the
+  // client (304 returns an empty body).
+  const etag = `W/"${createHash("sha1").update(body).digest("base64").slice(0, 22)}"`;
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304, headers: { ETag: etag } });
+  }
+
+  // Next.js 16 doesn't auto-compress dynamic API responses, and this payload
+  // is the biggest hit on first load (~2.1MB raw → ~410KB gzip). Gzip when
+  // the client signals support; otherwise return raw. Brotli isn't in the
+  // stdlib's sync API, so gzip is the sweet spot of "free" + universally
+  // supported by browsers.
+  const acceptEncoding = request.headers.get("accept-encoding") ?? "";
+  const headers: Record<string, string> = {
+    "content-type": "application/json; charset=utf-8",
+    ETag: etag,
+    Vary: "Accept-Encoding",
+  };
+  if (acceptEncoding.includes("gzip")) {
+    const compressed = gzipSync(body);
+    headers["content-encoding"] = "gzip";
+    headers["content-length"] = String(compressed.byteLength);
+    return new Response(compressed, { headers });
+  }
+  headers["content-length"] = String(Buffer.byteLength(body));
+  return new Response(body, { headers });
 }
