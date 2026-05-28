@@ -78,7 +78,14 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h | Score threshold: ${process.env.SCORE_THRESHOLD || '50'}`);
 
   // Initial run — do everything once so the DB has fresh state.
-  await runCycle({ tier: 'all' });
+  // Wrapped so a transient startup failure (single source 500, DNS hiccup,
+  // etc.) just logs and continues to the interval setup, rather than killing
+  // the supervisor before any poll cycle is ever scheduled.
+  try {
+    await runCycle({ tier: 'all' });
+  } catch (err) {
+    console.error('[internship-tracker] Initial cycle threw:', err);
+  }
 
   // Daily revalidation
   const revMs = msUntilNextBoundary(REVALIDATE_INTERVAL_MS);

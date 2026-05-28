@@ -55,7 +55,7 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
 export async function sendBatchAlert(
   newInternships: Internship[],
   scoreThresholdFallback: number
-): Promise<boolean> {
+): Promise<{ ok: boolean; sentCount: number }> {
   // notif-settings.json is the user-editable source of truth for all four
   // notification gates (score, tier, seasons, source-down). The caller's
   // `scoreThresholdFallback` is used only when the file is missing/invalid.
@@ -72,7 +72,7 @@ export async function sendBatchAlert(
     const gateMsg = settings.tierFilter !== 'all' ? ` tier=${settings.tierFilter}` : '';
     const seasonMsg = settings.seasons.length > 0 ? ` seasons=[${settings.seasons.join(',')}]` : '';
     console.log(`[notifier] No postings passed filters (minScore=${effectiveMinScore}${gateMsg}${seasonMsg}), skipping alert`);
-    return false;
+    return { ok: false, sentCount: 0 };
   }
 
   // Validate links in parallel before sending — drop anything that returns
@@ -87,7 +87,7 @@ export async function sendBatchAlert(
   }
   if (live.length === 0) {
     console.log('[notifier] All eligible postings had dead links — skipping alert');
-    return false;
+    return { ok: false, sentCount: 0 };
   }
 
   const channels = settings.channels ?? { discord: true, email: false, sms: false };
@@ -99,7 +99,10 @@ export async function sendBatchAlert(
     channels.sms ? sendSmsAlert(live, settings.phoneNumbers ?? []) : Promise.resolve(false),
   ]);
 
-  return channelResults.some(Boolean);
+  // sentCount = postings that actually went out via at least one channel.
+  // (Pre-fix: caller computed "rows above scoreThreshold" which overreports
+  // because tier/season/dead-link drops happen after that.)
+  return { ok: channelResults.some(Boolean), sentCount: channelResults.some(Boolean) ? live.length : 0 };
 }
 
 /**
@@ -244,33 +247,45 @@ export async function checkAndAlertSourceHealth(): Promise<void> {
   const recoveredNow: string[] = [];
 
   // Only evaluate sources we have any history for — a source we've never
-  // successfully fetched isn't "down", it's "not configured".
+  // successfully fetched isn't "down", it's "not configured". State is NOT
+  // mutated in this loop — only after the corresponding Discord post
+  // succeeds, so a failed alert doesn't get marked sent (and therefore retries
+  // next cycle instead of going silently un-alerted forever).
   for (const [source, lastIso] of Object.entries(history)) {
     const age = now - new Date(lastIso).getTime();
     // Down only if quiet for 24h but had a successful fetch in the last 7d.
     // Anything stale > 7d → don't alert (probably retired/disabled source).
     const isDown = age > DAY_MS && age <= WEEK_MS;
     const alreadyAlerted = !!state.alertedSources[source];
-    if (isDown && !alreadyAlerted) {
-      downNow.push(source);
-      state.alertedSources[source] = new Date().toISOString();
-    } else if (!isDown && alreadyAlerted) {
-      recoveredNow.push(source);
-      delete state.alertedSources[source];
-    }
+    if (isDown && !alreadyAlerted) downNow.push(source);
+    else if (!isDown && alreadyAlerted) recoveredNow.push(source);
   }
 
   if (downNow.length === 0 && recoveredNow.length === 0) return;
 
+  let mutated = false;
   if (downNow.length > 0) {
     const msg = `⚠️ **Source(s) quiet for 24h+**: ${downNow.join(', ')}\nNo new records since the last cycle — check the poller logs.`;
-    await discordPost({ content: msg });
+    const ok = await discordPost({ content: msg });
+    if (ok) {
+      const stamp = new Date().toISOString();
+      for (const source of downNow) state.alertedSources[source] = stamp;
+      mutated = true;
+    } else {
+      console.warn(`[notifier] down alert failed to post; will retry next cycle: ${downNow.join(', ')}`);
+    }
   }
   if (recoveredNow.length > 0) {
     const msg = `✅ **Source(s) back online**: ${recoveredNow.join(', ')}`;
-    await discordPost({ content: msg });
+    const ok = await discordPost({ content: msg });
+    if (ok) {
+      for (const source of recoveredNow) delete state.alertedSources[source];
+      mutated = true;
+    } else {
+      console.warn(`[notifier] recovery alert failed to post; will retry next cycle: ${recoveredNow.join(', ')}`);
+    }
   }
 
-  alertStateStore.save(state);
+  if (mutated) alertStateStore.save(state);
 }
 

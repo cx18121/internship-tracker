@@ -9,7 +9,6 @@ import { filterInternships } from './filter';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { enrichForStorage } from './utils/enrich';
 import { sendBatchAlert, checkAndAlertSourceHealth } from './notifier';
-import { loadNotifSettings } from '../lib/notifSettings';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
@@ -207,10 +206,12 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
   // Send notifications. notif-settings.json (user-edited in the UI) is the
   // source of truth for minScore; SCORE_THRESHOLD env is the legacy fallback.
   const envThreshold = parseInt(process.env.SCORE_THRESHOLD || '50', 10);
-  const scoreThreshold = loadNotifSettings().minScore ?? envThreshold;
   if (newInternships.length > 0) {
-    const sent = await sendBatchAlert(newInternships, envThreshold);
-    if (sent) stats.sent = newInternships.filter(i => (i.score ?? 0) >= scoreThreshold).length;
+    // stats.sent now reflects postings that actually went out — the notifier
+    // also drops on tier/season/dead-link filters, so the old caller-side
+    // "rows above scoreThreshold" overreported.
+    const { sentCount } = await sendBatchAlert(newInternships, envThreshold);
+    stats.sent = sentCount;
   }
 
   // Source-down detection — only after a full cycle (tier === 'all' or 'slow')

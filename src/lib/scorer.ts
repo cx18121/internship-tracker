@@ -111,7 +111,7 @@ export interface ScoreResult {
 /**
  * Score an internship against the scoring config.
  *
- * @param entry  The internship to score (only title/company/description/location are read).
+ * @param entry  The internship to score (only title/company/location are read).
  * @param config Optional config override — defaults to the cached load of
  *               data/scoring-config.json. Tests pass a synthetic config here
  *               to verify tier boundaries without touching the filesystem.

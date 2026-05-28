@@ -32,6 +32,21 @@ function isISODateString(v: string): boolean {
   return !Number.isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2}T/.test(v);
 }
 
+// Length caps so a malformed/malicious client (even an owner one) can't
+// silently bloat a row with megabytes of text. URLs above 2KB are well past
+// what any real ATS produces; statuses are short freeform strings.
+const MAX_URL_LEN = 2048;
+const MAX_STATUS_LEN = 200;
+
+function isHttpUrl(v: string): boolean {
+  try {
+    const u = new URL(v);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 const validators: Record<(typeof ALLOWED)[number], (v: unknown) => unknown | typeof INVALID> = {
   applied: (v) => (typeof v === "boolean" ? v : INVALID),
   isNew: (v) => (typeof v === "boolean" ? v : INVALID),
@@ -42,13 +57,18 @@ const validators: Record<(typeof ALLOWED)[number], (v: unknown) => unknown | typ
   },
   applicationUrl: (v) => {
     if (v === null) return undefined;
-    return typeof v === "string" ? v : INVALID;
+    if (typeof v !== "string" || v.length > MAX_URL_LEN || !isHttpUrl(v)) return INVALID;
+    return v;
   },
   applicationStatus: (v) => {
     if (v === null) return undefined;
-    return typeof v === "string" ? v : INVALID;
+    if (typeof v !== "string" || v.length > MAX_STATUS_LEN) return INVALID;
+    return v;
   },
-  link: (v) => (typeof v === "string" && v.length > 0 ? v : INVALID),
+  link: (v) => {
+    if (typeof v !== "string" || v.length === 0 || v.length > MAX_URL_LEN || !isHttpUrl(v)) return INVALID;
+    return v;
+  },
 };
 
 export async function PATCH(

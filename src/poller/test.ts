@@ -150,9 +150,11 @@ test('US: "CA - San Francisco" → passes (California prefix, US city)', () => {
 
 console.log('\n── Scorer tests ──────────────────────────────────────────');
 
-// T1(40) + elite(55) + tech(11+ from Python/RAG/PostgreSQL in description) +
-// preferred(6) = 100+ → clamp 100 → A
-test('T1 role + elite company + strong tech in description → A', () => {
+// T1(40) + elite(55) + preferred(6) = 101 → clamp 100 → A.
+// (description is ignored by scorer — see "Tech keywords in description do NOT
+// contribute to score" below — but kept on the input here so the test mirrors
+// a realistic row shape.)
+test('T1 role + elite company + preferred location → A', () => {
   const r = scoreInternship({
     title: 'Software Engineer Intern',
     company: 'Anthropic',
