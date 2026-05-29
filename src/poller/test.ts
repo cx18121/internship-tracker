@@ -12,6 +12,7 @@ import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/des
 import { buildInternshipRow } from './utils/build-row';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
+import { groupInternships } from '../app/_components/InternshipList';
 
 let passed = 0;
 let total = 0;
@@ -1125,6 +1126,57 @@ test('passesLocalPredicates: search and location branches', () => {
   // selectedLocations: a matching chip passes, a non-matching chip fails.
   assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: ['new york'], locationText: '' }) === true);
   assert(passesLocalPredicates(row, { searchLower: '', selectedLocations: ['remote'], locationText: '' }) === false);
+});
+
+console.log('\n── groupInternships tests ────────────────────────────────');
+
+test('groupInternships: score sort orders companies by avg score desc', () => {
+  const corpus = [
+    { id: 'a1', company: 'Acme', score: 80, applied: false },
+    { id: 'a2', company: 'Acme', score: 90, applied: true },
+    { id: 'b1', company: 'Beta', score: 95, applied: false },
+    { id: 'c1', company: 'Cyon', score: 50, applied: false },
+  ] as any[];
+  const out = groupInternships(corpus, 'score');
+  assert.deepStrictEqual(out.map(g => g.company), ['Beta', 'Acme', 'Cyon']); // avg 95, 85, 50
+  const acme = out.find(g => g.company === 'Acme')!;
+  assert.strictEqual(acme.avgScore, 85);
+  assert.strictEqual(acme.appliedCount, 1);
+});
+
+test('groupInternships: posted sort orders companies by newest posting, ignoring score', () => {
+  const corpus = [
+    { id: 'old', company: 'OldCo', score: 99, postedAt: '2026-01-01', applied: false },
+    { id: 'new', company: 'NewCo', score: 1,  postedAt: '2026-05-01', applied: false },
+  ] as any[];
+  // The bug this guards: under "posted", NewCo ranks first because it posted more
+  // recently — NOT OldCo, which would win on score. Company order must follow the
+  // active sort, not always avg score.
+  assert.deepStrictEqual(groupInternships(corpus, 'posted').map(g => g.company), ['NewCo', 'OldCo']);
+});
+
+test('groupInternships: posted sort ranks a company by its most-recent role', () => {
+  const corpus = [
+    { id: 'x-feb', company: 'X', score: 0, postedAt: '2026-02-01', applied: false },
+    { id: 'x-apr', company: 'X', score: 0, postedAt: '2026-04-01', applied: false },
+    { id: 'y-mar', company: 'Y', score: 0, postedAt: '2026-03-01', applied: false },
+  ] as any[];
+  const out = groupInternships(corpus, 'posted');
+  // X's newest role (Apr) beats Y's only role (Mar). A min/first-based ranking
+  // would see X's first role (Feb) and flip the order — this asserts max-based.
+  assert.deepStrictEqual(out.map(g => g.company), ['X', 'Y']);
+  // Roles within a group keep their incoming order (the caller pre-sorts the list).
+  assert.deepStrictEqual(out.find(g => g.company === 'X')!.items.map((i: any) => i.id), ['x-feb', 'x-apr']);
+});
+
+test('groupInternships: blank company → "Unknown"; null postedAt sorts last under posted', () => {
+  const corpus = [
+    { id: 'k', company: 'Known', score: 0, postedAt: '2026-05-01', applied: false },
+    { id: 'u', company: '',      score: 0, postedAt: null,         applied: false },
+  ] as any[];
+  // Empty company name buckets into "Unknown"; a null postedAt is treated as
+  // epoch 0, so it ranks last under the posted sort.
+  assert.deepStrictEqual(groupInternships(corpus, 'posted').map(g => g.company), ['Known', 'Unknown']);
 });
 
 // ==============================================================
