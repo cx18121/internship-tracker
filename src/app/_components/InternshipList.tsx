@@ -4,7 +4,7 @@
 // collapsible per-company sections when groupByCompany is on. Both modes
 // reuse the same InternshipRow for visual consistency.
 
-import { useState, useMemo, memo } from "react";
+import { useState, memo } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Internship, SortBy } from "../_lib/types";
 import { InternshipRow, LIST_GRID_COLS } from "./InternshipRow";
@@ -26,8 +26,13 @@ const COL_HEADERS: Array<{ label: string; mobileHidden?: boolean; sortKey?: Sort
 ];
 
 interface Props {
+  // Flat (ungrouped) list mode: the paginated row slice to render.
   items: Internship[];
-  groupByCompany: boolean;
+  // Grouped mode: pre-built, pre-paginated company sections. Non-null switches
+  // the component into grouped rendering; null renders the flat `items` list.
+  // Grouping + group-level pagination happen in the page so a company's roles
+  // never split across pages.
+  groups: Group[] | null;
   sortBy: SortBy;
   pendingIds: Set<string>;
   onToggleApplied: (id: string, current: boolean) => void;
@@ -35,14 +40,21 @@ interface Props {
   isOwner: boolean;
 }
 
-interface Group {
+export interface Group {
   company: string;
   items: Internship[];
   avgScore: number;
   appliedCount: number;
 }
 
-function groupItems(items: Internship[]): Group[] {
+const latestPostedAt = (roles: Internship[]): number =>
+  roles.reduce((max, r) => Math.max(max, new Date(r.postedAt ?? 0).getTime()), 0);
+
+// Group internships by company, then order the company sections to match the
+// active sort: by most-recently-posted role under "posted", by average score
+// otherwise. Roles within a company keep their incoming order, which is already
+// sort-correct because callers pass an already-sorted list.
+export function groupInternships(items: Internship[], sortBy: SortBy): Group[] {
   const map = new Map<string, Internship[]>();
   for (const i of items) {
     const k = i.company || "Unknown";
@@ -58,6 +70,15 @@ function groupItems(items: Internship[]): Group[] {
       avgScore: roles.length > 0 ? Math.round(totalScore / roles.length) : 0,
       appliedCount: roles.filter((r) => r.applied).length,
     });
+  }
+  if (sortBy === "posted") {
+    // Decorate-sort: compute each company's latest posting once, not on every
+    // comparison. avgScore is already a precomputed field, so the score branch
+    // needs no such treatment.
+    return groups
+      .map((g) => ({ g, ts: latestPostedAt(g.items) }))
+      .sort((a, b) => b.ts - a.ts)
+      .map((d) => d.g);
   }
   groups.sort((a, b) => b.avgScore - a.avgScore);
   return groups;
@@ -91,14 +112,14 @@ function ColumnHeader({ sortBy }: { sortBy: SortBy }): React.JSX.Element {
 
 function InternshipListImpl({
   items,
-  groupByCompany,
+  groups,
   sortBy,
   pendingIds,
   onToggleApplied,
   onHide,
   isOwner,
 }: Props) {
-  if (!groupByCompany) {
+  if (groups === null) {
     return (
       <div className="flex flex-col gap-0.5">
         <ColumnHeader sortBy={sortBy} />
@@ -119,7 +140,7 @@ function InternshipListImpl({
   // Grouped mode — render company sections with collapsible role lists.
   return (
     <GroupedList
-      items={items}
+      groups={groups}
       sortBy={sortBy}
       pendingIds={pendingIds}
       onToggleApplied={onToggleApplied}
@@ -132,14 +153,13 @@ function InternshipListImpl({
 export const InternshipList = memo(InternshipListImpl);
 
 function GroupedList({
-  items,
+  groups,
   sortBy,
   pendingIds,
   onToggleApplied,
   onHide,
   isOwner,
-}: Omit<Props, "groupByCompany">): React.JSX.Element {
-  const groups = useMemo(() => groupItems(items), [items]);
+}: Omit<Props, "items"> & { groups: Group[] }): React.JSX.Element {
   // Every group renders a section header — including single-role companies —
   // and they all start expanded. User can collapse any of them via the header.
   const [closed, setClosed] = useState<Set<string>>(new Set());

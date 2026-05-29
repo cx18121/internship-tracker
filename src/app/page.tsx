@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 
 import { InternshipCard } from "./_components/InternshipCard";
-import { InternshipList } from "./_components/InternshipList";
+import { InternshipList, groupInternships } from "./_components/InternshipList";
 import { NotifModal } from "./_components/NotifModal";
 import { StatusPill } from "./_components/StatusPill";
 import { FilterRail } from "./_components/FilterRail";
@@ -42,7 +42,7 @@ import type {
   TierFilter,
   DateWindow,
 } from "./_lib/types";
-import { PAGE_SIZE, DATE_WINDOWS } from "./_lib/constants";
+import { PAGE_SIZE, GROUPS_PER_PAGE, DATE_WINDOWS } from "./_lib/constants";
 import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
 import { parseSeason, seasonSortKey } from "@/lib/seasons";
 import {
@@ -313,16 +313,34 @@ export default function InternshipsPage() {
     void fetchStatsAndSources();
   }, [fetchStatsAndSources]);
 
-  // Reset to page 1 when filters or sort change. Skip during initial hydration
-  // so a shared URL like ?page=3&sources=Indeed lands on page 3, not page 1.
+  // Grouped list view paginates by company (not by row) so a company's roles
+  // never split across pages. This flag gates both the page-reset below and the
+  // grouping/pagination math further down.
+  const isGroupedList = viewMode === "list" && groupByCompany;
+
+  // Reset to page 1 when filters or sort change — but NOT for the params that
+  // hydration applies from the URL, so a shared link like ?page=3&sources=Indeed
+  // lands on page 3. The hydrated:false→true transition fires this effect once
+  // with the URL's filters already applied; that first run is the baseline and
+  // must be skipped (a bare `if (!hydrated) return` doesn't, since hydrated is a
+  // dep). Every genuine user change after that resets the page.
+  // isGroupedList is a dep because it flips the pagination unit (rows vs
+  // companies); keying on the combined condition (not viewMode alone) avoids
+  // resetting on ordinary list↔card switches in ungrouped mode.
+  const pageResetArmedRef = useRef(false);
   useEffect(() => {
     if (!hydrated) return;
+    if (!pageResetArmedRef.current) {
+      pageResetArmedRef.current = true;
+      return;
+    }
     setCurrentPage(1);
   }, [
     hydrated,
     selectedSources, minScore, selectedLocations, locationText,
     includeKeywords, excludeKeywords, appliedFilter, tierFilter,
     selectedSeasons, selectedRoles, dateWindow, sortBy, debouncedSearch, showHidden,
+    isGroupedList,
   ]);
 
   // Functional `setAppliedDates` so rapid toggles on different rows compose
@@ -511,12 +529,26 @@ export default function InternshipsPage() {
     ],
   );
 
+  // Grouping runs over the full filtered set here (before the page slice below)
+  // so company order, per-company role lists, and the section counts are all
+  // whole-dataset correct.
+  const groups = useMemo(
+    () => (isGroupedList ? groupInternships(filtered, sortBy) : null),
+    [isGroupedList, filtered, sortBy],
+  );
+
   // Pagination
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageUnitCount = isGroupedList ? groups!.length : filtered.length;
+  const perPage = isGroupedList ? GROUPS_PER_PAGE : PAGE_SIZE;
+  const totalPages = Math.max(1, Math.ceil(pageUnitCount / perPage));
   const safePage = Math.min(currentPage, totalPages);
   const paginated = useMemo(
     () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
     [filtered, safePage],
+  );
+  const pagedGroups = useMemo(
+    () => (groups ? groups.slice((safePage - 1) * GROUPS_PER_PAGE, safePage * GROUPS_PER_PAGE) : null),
+    [groups, safePage],
   );
 
   const activeFilterCount =
@@ -871,7 +903,7 @@ export default function InternshipsPage() {
                 {viewMode === "list" ? (
                   <InternshipList
                     items={paginated}
-                    groupByCompany={groupByCompany}
+                    groups={isGroupedList ? pagedGroups : null}
                     sortBy={sortBy}
                     pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
@@ -910,12 +942,13 @@ export default function InternshipsPage() {
                     </Button>
                     <span className="text-[12px] text-white/55 tabular-nums whitespace-nowrap">
                       <span className="text-white/85">
-                        {((safePage - 1) * PAGE_SIZE + 1).toLocaleString()}
+                        {((safePage - 1) * perPage + 1).toLocaleString()}
                         {"–"}
-                        {Math.min(safePage * PAGE_SIZE, filtered.length).toLocaleString()}
+                        {Math.min(safePage * perPage, pageUnitCount).toLocaleString()}
                       </span>
                       {" of "}
-                      <span className="text-white/85">{filtered.length.toLocaleString()}</span>
+                      <span className="text-white/85">{pageUnitCount.toLocaleString()}</span>
+                      {isGroupedList ? " companies" : ""}
                     </span>
                     <Button
                       variant="outline"

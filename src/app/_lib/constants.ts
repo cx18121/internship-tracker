@@ -2,6 +2,11 @@ export const LOCATION_PRESETS = ["Remote", "NYC", "SF", "Seattle", "Boston", "Au
 
 export const PAGE_SIZE = 50;
 
+// In grouped (by-company) list view, pagination is by company rather than by
+// row, so a company's roles never split across pages. Each page shows up to
+// this many company sections.
+export const GROUPS_PER_PAGE = 25;
+
 // Time-window filter options. Days are converted to a millisecond delta at
 // filter time; `all` short-circuits the check.
 export const DATE_WINDOWS: { value: import("./types").DateWindow; label: string; days: number | null }[] = [
