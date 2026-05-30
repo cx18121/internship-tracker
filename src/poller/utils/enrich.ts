@@ -9,15 +9,23 @@
 
 import md5 from 'md5';
 import type { Internship } from '../../lib/types';
-import { stripUtm } from '../../lib/utils/normalize';
+import { stripUtm, stripEmojiPrefix } from '../../lib/utils/normalize';
 import { scoreInternship } from '../../lib/scorer';
 import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
+import { canonicalizeCompany } from '../../lib/canonicalize-company';
 import { buildInternshipRow } from './build-row';
 import { smartTrimDescription } from './description-trim';
 
 export function enrichForStorage(p: Partial<Internship>, now: string): Internship {
   const { score, scoreLabel, matchedKeywords } = scoreInternship(p);
+
+  // Canonicalize the company name ONCE here — the storage chokepoint where
+  // id, normalizedKey, and the stored company field are all set. Keeping them
+  // derived from the same value is what lets cross-source dedup (store.ts)
+  // collapse "NVIDIA" / "NVIDIA AI" and stops the by-company grouping from
+  // splitting one company across two sections.
+  const company = canonicalizeCompany(stripEmojiPrefix(p.company || ''));
 
   // Parse salary from title + description — the two fields most likely to
   // mention pay. Done against the pre-trim description so a salary line
@@ -27,14 +35,14 @@ export function enrichForStorage(p: Partial<Internship>, now: string): Internshi
   return {
     ...buildInternshipRow({
       title: p.title || '',
-      company: p.company || '',
+      company,
       location: p.location || '',
       link: p.link || '',
       source: p.source || 'Unknown',
       upstreamPostedAt: p.postedAt,
       seenAt: now,
     }),
-    id: md5(`${p.company || ''}${p.title || ''}${stripUtm(p.link || '')}`),
+    id: md5(`${company}${p.title || ''}${stripUtm(p.link || '')}`),
     description: smartTrimDescription(p.description) || undefined,
     // ATS provenance is set by github/portal-scanner pollers and required by
     // portal-scanner's archiveDisappeared() (closing detection). Forward it.
@@ -46,7 +54,7 @@ export function enrichForStorage(p: Partial<Internship>, now: string): Internshi
     scoreLabel,
     matchedKeywords,
     isNew: true,
-    normalizedKey: normalizeKey(p.company || '', p.title || ''),
+    normalizedKey: normalizeKey(company, p.title || ''),
     ...(salary.text ? {
       salaryText: salary.text,
       salaryMin: salary.min ?? undefined,

@@ -50,19 +50,38 @@ export interface Group {
 const latestPostedAt = (roles: Internship[]): number =>
   roles.reduce((max, r) => Math.max(max, new Date(r.postedAt ?? 0).getTime()), 0);
 
+// Display casing for a company whose roles may carry slightly different
+// casings ("Quadric" vs "QUADRIC" — ingestion canonicalizes legal suffixes but
+// not intentional caps). Most frequent casing wins; ties prefer the variant
+// with fewer uppercase letters (favours proper-case over a shouty ALL-CAPS
+// board listing), then lexicographic for determinism.
+function pickDisplayCasing(counts: Map<string, number>): string {
+  const upper = (s: string) => (s.match(/[A-Z]/g) ?? []).length;
+  return [...counts.entries()].sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1];
+    if (upper(a[0]) !== upper(b[0])) return upper(a[0]) - upper(b[0]);
+    return a[0] < b[0] ? -1 : 1;
+  })[0][0];
+}
+
 // Group internships by company, then order the company sections to match the
 // active sort: by most-recently-posted role under "posted", by average score
 // otherwise. Roles within a company keep their incoming order, which is already
-// sort-correct because callers pass an already-sorted list.
+// sort-correct because callers pass an already-sorted list. Grouping is
+// case-insensitive so case-only name variants land in one section.
 export function groupInternships(items: Internship[], sortBy: SortBy): Group[] {
-  const map = new Map<string, Internship[]>();
+  const map = new Map<string, { roles: Internship[]; casings: Map<string, number> }>();
   for (const i of items) {
-    const k = i.company || "Unknown";
-    if (!map.has(k)) map.set(k, []);
-    map.get(k)!.push(i);
+    const display = i.company || "Unknown";
+    const k = display.toLowerCase();
+    let entry = map.get(k);
+    if (!entry) { entry = { roles: [], casings: new Map() }; map.set(k, entry); }
+    entry.roles.push(i);
+    entry.casings.set(display, (entry.casings.get(display) ?? 0) + 1);
   }
   const groups: Group[] = [];
-  for (const [company, roles] of map.entries()) {
+  for (const { roles, casings } of map.values()) {
+    const company = pickDisplayCasing(casings);
     const totalScore = roles.reduce((s, r) => s + (r.score ?? 0), 0);
     groups.push({
       company,

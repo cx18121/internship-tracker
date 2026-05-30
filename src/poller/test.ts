@@ -10,6 +10,7 @@ import { extractInternFacets } from '../poller/pollers/ats';
 import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
+import { canonicalizeCompany } from '../lib/canonicalize-company';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 import { groupInternships } from '../app/_components/InternshipList';
@@ -848,6 +849,41 @@ test('buildInternshipRow: postedAt falls back to seenAt when upstream is null', 
 });
 
 // ==============================================================
+// 6.65. canonicalizeCompany tests
+// ==============================================================
+// WHY: the cross-source dedup key and by-company grouping both key off this
+// output. The same role posted as "NVIDIA" and "NVIDIA AI" by different
+// boards must collapse to one company, WITHOUT merging genuinely distinct
+// companies that happen to share a token ("Character AI" ≠ "Character").
+
+console.log('\n── canonicalizeCompany tests ─────────────────────────────');
+
+const canonEq = (input: string, expected: string) =>
+  assert.strictEqual(canonicalizeCompany(input), expected);
+
+test('canonicalize: strips ", Inc."', () => canonEq('Itron, Inc.', 'Itron'));
+test('canonicalize: strips " Inc" bare', () => canonEq('Synopsys Inc', 'Synopsys'));
+test('canonicalize: strips ", LLC"', () => canonEq('Persistent Systems, LLC', 'Persistent Systems'));
+test('canonicalize: strips " Corporation"', () => canonEq('Fortera Corporation', 'Fortera'));
+test('canonicalize: strips " Company"', () => canonEq('Base Power Company', 'Base Power'));
+test('canonicalize: strips chained "Company, Inc."', () => canonEq('Al Warren Oil Company, Inc.', 'Al Warren Oil'));
+test('canonicalize: strips ", N.A."', () => canonEq('The Bancorp Bank, N.A.', 'The Bancorp Bank'));
+test('canonicalize: strips trailing (SRA) tag', () => canonEq('Samsung Research America (SRA)', 'Samsung Research America'));
+test('canonicalize: alias NVIDIA AI -> NVIDIA', () => canonEq('NVIDIA AI', 'NVIDIA'));
+test('canonicalize: alias Perplexity AI -> Perplexity', () => canonEq('Perplexity AI', 'Perplexity'));
+test('canonicalize: alias Adobe Systems -> Adobe', () => canonEq('Adobe Systems', 'Adobe'));
+test('canonicalize: alias Amazon.com -> Amazon', () => canonEq('Amazon.com', 'Amazon'));
+test('canonicalize: alias CACI International -> CACI', () => canonEq('CACI International', 'CACI'));
+test('canonicalize: idempotent on alias output', () => canonEq(canonicalizeCompany('NVIDIA AI'), 'NVIDIA'));
+test('canonicalize: idempotent on suffix output', () => canonEq(canonicalizeCompany('TikTok Inc.'), 'TikTok'));
+test('canonicalize: Character AI NOT merged to Character', () => canonEq('Character AI', 'Character AI'));
+test('canonicalize: Palo Alto Networks keeps Networks', () => canonEq('Palo Alto Networks', 'Palo Alto Networks'));
+test('canonicalize: Costco not stripped (Co substring)', () => canonEq('Costco', 'Costco'));
+test('canonicalize: Smiths Detection not stripped to Smith', () => canonEq('Smiths Detection', 'Smiths Detection'));
+test('canonicalize: empty stays empty', () => canonEq('', ''));
+test('canonicalize: whitespace trimmed', () => canonEq('  NVIDIA  ', 'NVIDIA'));
+
+// ==============================================================
 // 6.7. pickListFields / LIST_FIELDS projection tests
 // ==============================================================
 
@@ -1177,6 +1213,23 @@ test('groupInternships: blank company → "Unknown"; null postedAt sorts last un
   // Empty company name buckets into "Unknown"; a null postedAt is treated as
   // epoch 0, so it ranks last under the posted sort.
   assert.deepStrictEqual(groupInternships(corpus, 'posted').map(g => g.company), ['Known', 'Unknown']);
+});
+
+test('groupInternships: case-only company variants merge into one section', () => {
+  // WHY: ingestion canonicalizes legal suffixes ("QUADRIC PTY LTD" → "QUADRIC")
+  // but can't normalize intentional casing, so "Quadric" and "QUADRIC" survive
+  // as distinct strings. Grouping must still treat them as ONE company, else
+  // the same company splits into two sections — the exact bug we're fixing.
+  const corpus = [
+    { id: 'q1', company: 'Quadric', score: 80, applied: false },
+    { id: 'q2', company: 'QUADRIC', score: 90, applied: true },
+  ] as any[];
+  const out = groupInternships(corpus, 'score');
+  assert.strictEqual(out.length, 1, 'casing variants must collapse to one group');
+  assert.strictEqual(out[0].items.length, 2);
+  assert.strictEqual(out[0].appliedCount, 1);
+  // Display picks the non-ALL-CAPS casing when counts tie.
+  assert.strictEqual(out[0].company, 'Quadric');
 });
 
 // ==============================================================
