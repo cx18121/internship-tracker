@@ -37,6 +37,7 @@ data/source-fetch-history.json
 *.bak.*
 *.utm-migration-backup
 data/backup-*/
+data/backups/
 
 # Logs
 logs/

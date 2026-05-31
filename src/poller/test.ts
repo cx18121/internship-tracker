@@ -11,6 +11,7 @@ import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
 import { canonicalizeCompany } from '../lib/canonicalize-company';
+import { stripUtm } from '../lib/utils/normalize';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 import { groupInternships } from '../app/_components/InternshipList';
@@ -882,6 +883,46 @@ test('canonicalize: Costco not stripped (Co substring)', () => canonEq('Costco',
 test('canonicalize: Smiths Detection not stripped to Smith', () => canonEq('Smiths Detection', 'Smiths Detection'));
 test('canonicalize: empty stays empty', () => canonEq('', ''));
 test('canonicalize: whitespace trimmed', () => canonEq('  NVIDIA  ', 'NVIDIA'));
+
+// ==============================================================
+// 6.65b. stripUtm tests
+// ==============================================================
+// WHY: apply links are shown to the user (and clicked through to the
+// employer) verbatim from the stored `link`. Tracking params like Simplify's
+// `?utm_source=Simplify&ref=Simplify` leak which aggregator the applicant
+// came from — strip them. The flip side matters just as much: params that are
+// the *job identifier* (Indeed `jk=`, Greenhouse `gh_jid=`) must survive, or
+// every posting on that board collapses to the same URL and dedup breaks.
+
+console.log('\n── stripUtm tests ────────────────────────────────────────');
+
+test('stripUtm: Simplify utm_source+ref removed', () =>
+  assert.strictEqual(
+    stripUtm('https://job-boards.greenhouse.io/planetlabs/jobs/7774031?utm_source=Simplify&ref=Simplify'),
+    'https://job-boards.greenhouse.io/planetlabs/jobs/7774031'));
+test('stripUtm: gh_src source token removed', () =>
+  assert.strictEqual(
+    stripUtm('https://cellinktechnologies.com/job-listing?gh_jid=4691297005&gh_src=Simplify'),
+    'https://cellinktechnologies.com/job-listing?gh_jid=4691297005'));
+// Exact-equality (not .includes) so a tracking param leaking through ALONGSIDE
+// the kept job id would still fail the test.
+test('stripUtm: gh_jid job id KEPT, surrounding tracking stripped', () =>
+  assert.strictEqual(
+    stripUtm('https://www.brex.com/careers/8434389002?gh_jid=8434389002&utm_source=Simplify&ref=Simplify'),
+    'https://www.brex.com/careers/8434389002?gh_jid=8434389002'));
+test('stripUtm: Indeed jk job id KEPT, surrounding tracking stripped', () =>
+  assert.strictEqual(
+    stripUtm('https://www.indeed.com/viewjob?jk=5672f4d7e4739c43&utm_source=Simplify'),
+    'https://www.indeed.com/viewjob?jk=5672f4d7e4739c43'));
+test('stripUtm: functional params (mobile/needsRedirect) survive, tracking stripped', () =>
+  assert.strictEqual(
+    stripUtm('https://careers-cotiviti.icims.com/jobs/18817/job?mobile=true&needsRedirect=false&utm_source=Simplify&ref=Simplify'),
+    'https://careers-cotiviti.icims.com/jobs/18817/job?mobile=true&needsRedirect=false'));
+test('stripUtm: clean link unchanged', () =>
+  assert.strictEqual(
+    stripUtm('https://jobs.lever.co/ivo/83b626de-53c8-4505-b0ea-253fdcb83680/apply'),
+    'https://jobs.lever.co/ivo/83b626de-53c8-4505-b0ea-253fdcb83680/apply'));
+test('stripUtm: empty string passes through', () => assert.strictEqual(stripUtm(''), ''));
 
 // ==============================================================
 // 6.7. pickListFields / LIST_FIELDS projection tests

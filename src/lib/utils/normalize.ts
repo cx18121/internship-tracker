@@ -8,10 +8,13 @@
  *   - Fragment identifiers used for tracking: #ref=, #utm-
  *   - LinkedIn's trk= parameters
  *   - Glassdoor's iorq= redirect param
+ *   - Greenhouse's gh_src= source token (Simplify appends ?utm_source=Simplify&
+ *     ref=Simplify, and some boards append gh_src=Simplify — all of which leak
+ *     to the employer where the applicant came from)
  *
- * NOTE: Indeed's `jk=` is the actual job identifier, not tracking — keep it.
- * Stripping it collapsed every Indeed posting to the same `viewjob` URL and
- * destroyed dedup keys for that source.
+ * NOTE: Indeed's `jk=` and Greenhouse's `gh_jid=` are the actual job
+ * identifiers, not tracking — keep them. Stripping `jk=` collapsed every Indeed
+ * posting to the same `viewjob` URL and destroyed dedup keys for that source.
  */
 /**
  * Strips emoji presentation characters from a string and collapses trailing
@@ -37,6 +40,7 @@ export function stripUtm(url: string): string {
       'utm_id', 'utm_cid', 'utm_reader', 'utm_viz_id',
       'ref', 'referrer', 'ref_', 'affiliated', 'affiliate', 'partner',
       'source', 'trk', 'trkInfo', 'trkCampaign',
+      'gh_src',   // Greenhouse source token (≠ gh_jid, the real job id)
       'ic',       // LinkedIn tracking
       'iorq',     // Glassdoor redirect
       'vnp', 'vnp_', // generic tracking
@@ -58,7 +62,7 @@ export function stripUtm(url: string): string {
   } catch {
     // Malformed URL — try to strip obvious tracking patterns via regex fallback
     return url
-      .replace(/[?#]&*(utm_|ref|trk|affiliated|affiliate|partner|source)=[^&#]*/gi, '')
+      .replace(/[?#]&*(utm_|ref|trk|affiliated|affiliate|partner|source|gh_src)=[^&#]*/gi, '')
       .replace(/\?$/, '');
   }
 }
