@@ -15,6 +15,7 @@ import { stripUtm } from '../lib/utils/normalize';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 import { groupInternships } from '../app/_components/InternshipList';
+import { parseSalary } from '../lib/salary';
 
 let passed = 0;
 let total = 0;
@@ -1271,6 +1272,37 @@ test('groupInternships: case-only company variants merge into one section', () =
   assert.strictEqual(out[0].appliedCount, 1);
   // Display picks the non-ALL-CAPS casing when counts tie.
   assert.strictEqual(out[0].company, 'Quadric');
+});
+
+// ==============================================================
+// Salary parser tests
+// ==============================================================
+
+console.log('\n── Salary parser tests ───────────────────────────────────');
+
+test('Unpaid role yields no salary even if description has a $ figure', () => {
+  const s = parseSalary('Full Stack Engineering Internship Unpaid. Our platform manages $120,000-$180,000 in assets.');
+  assert.strictEqual(s.text, null);
+  assert.strictEqual(s.unit, null);
+});
+
+test('Bare unit-less $ range is no longer treated as salary', () => {
+  const s = parseSalary('Software Engineer Intern. We raised $50,000-$75,000 in our seed round.');
+  assert.strictEqual(s.text, null);
+});
+
+test('Anchored hourly range still parses', () => {
+  const s = parseSalary('SWE Intern $25-30/hr');
+  assert.strictEqual(s.unit, 'hourly');
+  assert.strictEqual(s.min, 25);
+  assert.strictEqual(s.max, 30);
+});
+
+test('Anchored k-suffix yearly range still parses', () => {
+  const s = parseSalary('New Grad $120-180k');
+  assert.strictEqual(s.unit, 'yearly');
+  assert.strictEqual(s.min, 120000);
+  assert.strictEqual(s.max, 180000);
 });
 
 // ==============================================================

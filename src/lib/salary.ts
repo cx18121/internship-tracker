@@ -45,9 +45,6 @@ const PATTERNS: Array<{ re: RegExp; unit: Salary['unit']; multiplier?: number }>
   // Yearly single no k: $80,000/year, $80,000 annually
   { re: /\$\s*([\d,]+(?:\.\d+)?)\s*\/?\s*(?:yr|year|yearly|annual|annually|per\s+year)/i, unit: 'yearly' },
 
-  // Bare $X-$Y when nothing else matches — assume yearly if numbers look big
-  // ($10,000+) else hourly. This is the noisiest pattern; only used last.
-  { re: /\$\s*([\d,]+(?:\.\d+)?)\s*(?:-|to|–|—)\s*\$?\s*([\d,]+(?:\.\d+)?)/, unit: null },
 ];
 
 function num(s: string): number {
@@ -56,6 +53,8 @@ function num(s: string): number {
 
 export function parseSalary(input: string | null | undefined): Salary {
   if (!input) return EMPTY;
+  // Unpaid/volunteer roles must never inherit a stray $ figure from the body.
+  if (/\b(unpaid|no\s+compensation|volunteer|pro\s+bono)\b/i.test(input)) return EMPTY;
   const text = input.replace(/\s+/g, ' ');
 
   for (const { re, unit, multiplier } of PATTERNS) {
