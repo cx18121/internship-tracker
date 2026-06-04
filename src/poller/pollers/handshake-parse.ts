@@ -51,11 +51,14 @@ export function deriveRoleAndComp(company: string, ariaLabel: string): { role: s
   return { role, comp };
 }
 
-/** Location from the footer hook: split on ∙, drop a leading "Promoted" and
- *  the trailing "<n><unit> ago"/"New", keep the remainder. */
+/** Location from the footer hook: split on the bullet separator, drop a
+ *  leading "Promoted" and the trailing "<n><unit> ago"/"New", keep the rest.
+ *  Splits on both U+2219 (∙, the observed separator) and U+00B7 (·) so a
+ *  card that renders the middle-dot variant still parses instead of dumping
+ *  the whole footer into the location. */
 export function deriveLocation(footerText: string): string {
   const parts = (footerText || '')
-    .split('∙')
+    .split(/[∙·]/)
     .map((s) => s.trim())
     .filter(Boolean)
     .filter((s) => !TIME_AGO_RE.test(s));
