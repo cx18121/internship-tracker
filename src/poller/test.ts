@@ -1370,6 +1370,26 @@ test('deriveRoleAndComp falls back to cut at " · " when no pay/Unpaid token', (
   assert.strictEqual(r.comp, '');
 });
 
+test('deriveRoleAndComp chops the tail on a no-pay, no-separator card (uses location)', () => {
+  // Real shape seen live: "{Company} {Role} {Type} {Location} {time}" with no
+  // "$" and no " · " — the role must not swallow "Internship Remote 2wk ago".
+  const r = deriveRoleAndComp('Rubbl', 'Rubbl Software Engineering Intern Internship Remote 2wk ago', 'Remote');
+  assert.strictEqual(r.role, 'Software Engineering Intern');
+  assert.strictEqual(r.comp, '');
+});
+
+test('deriveRoleAndComp chops tail with a multi-word location', () => {
+  const r = deriveRoleAndComp('Novora Mgt.', 'Novora Mgt. AI Software Engineer Intern Internship Austin, TX 5d ago', 'Austin, TX');
+  assert.strictEqual(r.role, 'AI Software Engineer Intern');
+});
+
+test('deriveRoleAndComp does NOT chop a well-formed card even if location passed', () => {
+  // A card WITH a pay boundary must be untouched by the fallback cleanup.
+  const r = deriveRoleAndComp('Goalbound', 'Goalbound Software Engineering Internship $25/hr · Internship · Jun 14—Jul 30 Remote 3d ago', 'Remote');
+  assert.strictEqual(r.role, 'Software Engineering Internship');
+  assert.strictEqual(r.comp, '$25/hr');
+});
+
 test('deriveLocation parses footer, dropping Promoted and time-ago', () => {
   assert.strictEqual(deriveLocation('Promoted∙Melrose, MA∙3wk ago'), 'Melrose, MA');
   assert.strictEqual(deriveLocation('Remote∙3d ago'), 'Remote');

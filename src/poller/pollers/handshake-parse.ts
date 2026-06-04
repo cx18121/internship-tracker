@@ -9,6 +9,12 @@
 
 const PAY_TOKEN_RE = /\$\s*[\d,]+(?:\.\d+)?(?:\s*[-–—to]+\s*\$?\s*[\d,]+(?:\.\d+)?)?\s*[kK]?\s*\/?\s*(?:hr|hour|hourly|yr|year|mo|month|K\/yr|K\/mo)?/;
 const TIME_AGO_RE = /^\s*(?:new|promoted|\d+\s*(?:h|hr|hrs|hour|hours|d|day|days|wk|wks|week|weeks|mo|month|months|yr|yrs|year|years)\s+ago)\s*$/i;
+// Trailing relative-time on a role string (e.g. "... 2wk ago") — used only in
+// the no-separator fallback, where the role swallowed the card tail.
+const TRAILING_TIME_RE = /\s+\d+\s*(?:h|hr|hrs|hour|hours|d|day|days|wk|wks|week|weeks|mo|month|months|yr|yrs|year|years)\s+ago\s*$/i;
+// Trailing employment-type word (the card's type label glued onto the role
+// when no separator was rendered). Only stripped in the fallback path.
+const TRAILING_TYPE_RE = /\s+(Internship|Full-time|Part-time|Co-op|Contract|Temporary|Seasonal)\s*$/i;
 
 /** Company from the logo alt. Returns null when absent — the caller is
  *  responsible for the detail-page fallback and, failing that, dropping the
@@ -20,8 +26,15 @@ export function deriveCompany(logoAlt: string, _ariaLabel: string): string | nul
 
 /** Split the aria-label into role + comp token. Strips the known company
  *  prefix, then cuts at the first of: a $-pay token, the word "Unpaid"
- *  (or "Unspecified"), or " · " (the type separator). */
-export function deriveRoleAndComp(company: string, ariaLabel: string): { role: string; comp: string } {
+ *  (or "Unspecified"), or " · " (the type separator).
+ *
+ *  Some cards render with no pay AND no " · " separator — the aria-label is
+ *  just "{Company} {Role} {Type} {Location} {time}". With no boundary token,
+ *  the role would swallow that tail. For that case the caller passes the
+ *  footer-derived `location`, and we chop the role at the location, then drop
+ *  a trailing type word / relative-time. This cleanup runs ONLY when no
+ *  primary boundary was found, so well-formed cards are never touched. */
+export function deriveRoleAndComp(company: string, ariaLabel: string, location = ''): { role: string; comp: string } {
   let rest = (ariaLabel || '').trim();
   const co = (company || '').trim();
   if (co && rest.toLowerCase().startsWith(co.toLowerCase())) {
@@ -41,9 +54,20 @@ export function deriveRoleAndComp(company: string, ariaLabel: string): { role: s
     unpaidMatch ? unpaidMatch.index ?? -1 : -1,
     sepIdx,
   ].filter((i) => i >= 0);
-  const cut = candidates.length ? Math.min(...candidates) : rest.length;
+  const cutFound = candidates.length > 0;
+  const cut = cutFound ? Math.min(...candidates) : rest.length;
 
-  const role = rest.slice(0, cut).trim();
+  let role = rest.slice(0, cut).trim();
+  if (!cutFound) {
+    // No pay/Unpaid/separator boundary — the role ran into the
+    // "{Type} {Location} {time}" tail. Chop at the footer-derived location,
+    // then drop a trailing relative-time and a trailing employment-type word.
+    if (location) {
+      const li = role.indexOf(location);
+      if (li > 0) role = role.slice(0, li).trim();
+    }
+    role = role.replace(TRAILING_TIME_RE, '').replace(TRAILING_TYPE_RE, '').trim();
+  }
   const after = rest.slice(cut).trim();
   const beforeSep = after.split(' · ')[0].trim();
   const payInComp = beforeSep.match(PAY_TOKEN_RE);
