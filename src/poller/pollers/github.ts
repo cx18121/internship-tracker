@@ -2,6 +2,7 @@ import axios from 'axios';
 import { Internship } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { stripHtml } from '../utils/html';
+import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import { fetchDescriptionByUrl } from '../utils/description-fetchers';
 import { buildInternshipRow } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
@@ -114,7 +115,7 @@ function parseRows(html: string): { company: string; title: string; location: st
     if (cells.length < 4) continue;
 
     const company = stripHtml(cells[0]);
-    const title = stripHtml(cells[1]);
+    const title = stripEmojiPrefix(stripHtml(cells[1])).trim();
     const locationRaw = cells[2];
 
     // Detect multi-location cells (contain <details>) — when present, use
