@@ -18,6 +18,7 @@ import { groupInternships } from '../app/_components/InternshipList';
 import { parseSalary } from '../lib/salary';
 import { enrichForStorage } from './utils/enrich';
 import { deriveCompany, deriveRoleAndComp, deriveLocation } from './pollers/handshake-parse';
+import { stripHtml } from './utils/html';
 
 let passed = 0;
 let total = 0;
@@ -1396,6 +1397,12 @@ test('deriveLocation also splits the U+00B7 middle-dot footer variant', () => {
   // Defensive: if a card renders "·" (U+00B7) instead of "∙" (U+2219), the
   // footer must still split rather than dumping the whole string as location.
   assert.strictEqual(deriveLocation('Promoted·San Francisco, CA·2 days ago'), 'San Francisco, CA');
+});
+
+console.log('\n── HTML decode tests ─────────────────────────────────────');
+
+test('stripHtml decodes entities in a Greenhouse-style title', () => {
+  assert.strictEqual(stripHtml('Data Science Intern &#8211; Summer 2026 &amp; Beyond'), 'Data Science Intern – Summer 2026 & Beyond');
 });
 
 // ==============================================================
