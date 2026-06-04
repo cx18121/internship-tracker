@@ -6,6 +6,8 @@ import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-di
 import { buildInternshipRow } from '../utils/build-row';
 import { HANDSHAKE_PROMO_BANNER_SOURCE } from '../utils/description-trim';
 import { pool } from '../../lib/concurrency';
+import { deriveCompany, deriveRoleAndComp, deriveLocation } from './handshake-parse';
+import { parseSalary } from '../../lib/salary';
 
 function alertAuthExpired(): void {
   console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');
@@ -47,108 +49,52 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
     const MAX_PAGES = 20;
 
     while (pageNum <= MAX_PAGES) {
-      const jobs = await page.evaluate(() => {
+      const rawCards = await page.evaluate(() => {
         const cards = document.querySelectorAll('[data-hook^="job-result-card"]:not([data-hook*="footer"]):not([data-hook*="hide"])');
-        return Array.from(cards).map(card => {
-          // Job ID from data-hook="job-result-card | 12345"
+        return Array.from(cards).map((card) => {
           const hook = card.getAttribute('data-hook') || '';
-          const jobId = hook.split('|')[1]?.trim();
-
-          // Title is in aria-label on the anchor ("View <title>")
+          const jobId = hook.split('|')[1]?.trim() || '';
           const anchor = card.querySelector('a[aria-label]');
-          const ariaLabel = anchor?.getAttribute('aria-label') || '';
-          const title = ariaLabel.replace(/^View\s+/i, '').replace(/^Loading\.*\s*/i, '').trim();
-
-          // Link from anchor href (strip query params)
+          const ariaLabel = (anchor?.getAttribute('aria-label') || '').replace(/^View\s+/i, '').replace(/^Loading\.*\s*/i, '').trim();
           const href = anchor?.getAttribute('href') || '';
           const link = href
             ? `https://app.joinhandshake.com${href.split('?')[0]}`
             : jobId ? `https://app.joinhandshake.com/job-search/${jobId}` : '';
-
-          const fullText = card.textContent || '';
-          const parts = fullText.split(/[·∙•|]/).map(s => s.trim()).filter(Boolean);
-          // Strip "Loading..." prefixes (ASCII dots or Unicode ellipsis) from
-          // lazy-loaded text content.
-          const stripLoading = (s: string) => s.replace(/Loading[.\u2026\s]*/gi, '').trim();
-
-          // Company name extraction. Verified against 25 live cards via a
-          // throwaway probe (probe-handshake-card.ts, removed after this
-          // commit). Tries cheap structural signals first; falls back to
-          // text parsing only when both fail:
-          //
-          //   1. img[alt]: employer logo's alt text. Hits ~88% of cards;
-          //      misses when the employer has no logo (rendered as an SVG
-          //      placeholder instead).
-          //   2. Title-anchored DOM walk: every card has a title element
-          //      with both `id` and `aria-label="View {title}"` nested
-          //      inside a `<div role="region" aria-labelledby="{uuid}">`.
-          //      Within that region, the first <span> outside the title's
-          //      container is the company name. Hit rate: 25/25 in probe.
-          //   3. Legacy text-parts heuristic -- defensive last resort if
-          //      Handshake reshuffles the DOM and breaks #2.
-          let company: string | null = null;
-
           const logoAlt = (card.querySelector('img[alt]') as HTMLImageElement | null)?.alt?.trim() || '';
-          if (logoAlt) company = stripLoading(logoAlt);
-
-          if (!company) {
-            const titleDiv = card.querySelector('[aria-label^="View " i][id]') as HTMLElement | null;
-            const region = titleDiv?.closest('[role="region"]') as HTMLElement | null;
-            if (titleDiv && region) {
-              const titleContainer = titleDiv.parentElement;
-              const spans = Array.from(region.querySelectorAll('span')) as HTMLElement[];
-              for (const sp of spans) {
-                if (titleContainer && titleContainer.contains(sp)) continue;
-                const txt = stripLoading((sp.textContent || '').trim());
-                if (txt && txt.length > 0 && txt.length <= 80) { company = txt; break; }
-              }
-            }
-          }
-
-          if (!company) {
-            const rawCompany = stripLoading(parts[0] || '');
-            const titleIdx = rawCompany.indexOf(title);
-            company = titleIdx > 0
-              ? rawCompany.slice(0, titleIdx).replace(/[_\s]+$/, '').trim()
-              : stripLoading(parts.find(p => p !== title && p.length > 1 && p.length < 60) || '') || 'Unknown';
-          }
-          // Pre-strip date ranges (e.g. "May 24—Aug 9"), salary tokens, and school
-          // collection labels so they don't bleed into the location match. Date ranges and
-          // collection tags (e.g. "Cornell collection") concatenate directly with city names
-          // (e.g. "Aug 9New York", "collectionNew York") with no space separator, so a simple
-          // \b word-boundary check on the month name will fail — drop the leading \b.
-          // Handshake's employment-type label "Internship" likewise glues directly onto
-          // the city ("InternshipSan Jose, CA"), which the case-insensitive [a-z]+ in
-          // the location regex would otherwise swallow as one proper-noun run.
-          const cleanedText = fullText
-            .replace(/[A-Z][a-z]{2}\s+\d{1,2}[—–\-][A-Z][a-z]{2}\s+\d{1,2}/g, ' ')
-            .replace(/\$[\d,]+(?:[-–][\d,]+)?\/hr/gi, ' ')
-            .replace(/\b\w+\s+collection/gi, ' ')
-            .replace(/\+\s*\d+\b/g, ' ')
-            .replace(/Internship(?=[A-Z])/g, ' ');
-          // Match city/state — multi-word cities (e.g. "New York, NY") supported via inner group
-          const locationMatch = cleanedText.match(
-            /\b(remote|hybrid|on.?site|new york|san francisco|los angeles|nyc|boston|seattle|austin|chicago|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z]{2})\b/i
-          );
-          const location = locationMatch ? locationMatch[1].trim() : 'United States';
-
-          return { title, company, location, link, jobId };
-        }).filter(j => j.title && j.jobId);
+          const footerEl = card.querySelector('[data-hook="job-result-card-footer"]');
+          const footerText = (footerEl?.textContent || '').replace(/\s+/g, ' ').trim();
+          return { jobId, ariaLabel, link, logoAlt, footerText };
+        }).filter((c) => c.jobId && c.ariaLabel);
       });
 
       const now = new Date().toISOString();
-      for (const job of jobs) {
-        results.push(buildInternshipRow({
-          title: job.title,
-          company: job.company,
-          location: job.location,
-          link: job.link,
+      let needCompanyBackfill = 0;
+      for (const raw of rawCards) {
+        const company = deriveCompany(raw.logoAlt, raw.ariaLabel);
+        const { role, comp } = deriveRoleAndComp(company ?? '', raw.ariaLabel);
+        if (!role) continue; // nothing usable
+        const location = deriveLocation(raw.footerText);
+        const sal = comp ? parseSalary(comp) : { text: null, min: null, max: null, unit: null };
+        const row = buildInternshipRow({
+          title: role,
+          company: company ?? '',
+          location,
+          link: raw.link,
           source: 'Handshake',
           seenAt: now,
-        }));
+        });
+        if (sal.text) {
+          row.salaryText = sal.text;
+          row.salaryMin = sal.min ?? undefined;
+          row.salaryMax = sal.max ?? undefined;
+          row.salaryUnit = sal.unit ?? undefined;
+        }
+        if (!company) needCompanyBackfill++;
+        // Carry jobId so the detail-page pass can backfill company by id.
+        (row as Partial<Internship> & { _jobId?: string })._jobId = raw.jobId;
+        results.push(row);
       }
-
-      console.log(`[handshake poller] Page ${pageNum}: ${jobs.length} jobs`);
+      console.log(`[handshake poller] Page ${pageNum}: ${rawCards.length} cards (${needCompanyBackfill} need company backfill)`);
 
       // Paginate — update URL query param
       pageNum++;
@@ -281,7 +227,14 @@ async function enrichWithDetailLinks(
         // Memory floor; smartTrimDescription in agent.ts caps for storage.
         description = description.slice(0, 20_000);
 
-        return { externalLink, description, descSelectorHit };
+        // Employer name fallback for logoless cards: the detail page's
+        // employer logo alt is "{Company} logo" (recon 2026-06-04). Strip the
+        // trailing " logo". Scoped to the details root to avoid similar-jobs.
+        let employerName = '';
+        const detailImg = (document.querySelector('[data-hook="job-details-page"] img[alt]') as HTMLImageElement | null);
+        if (detailImg?.alt) employerName = detailImg.alt.replace(/\s*logo\s*$/i, '').trim();
+
+        return { externalLink, description, descSelectorHit, employerName };
       }, { patterns: EXTERNAL_ATS_PATTERNS, bannerSource: HANDSHAKE_PROMO_BANNER_SOURCE });
 
       if (detail.externalLink) {
@@ -293,6 +246,9 @@ async function enrichWithDetailLinks(
         descFound++;
       } else {
         descMissed++;
+      }
+      if (!job.company && detail.employerName) {
+        job.company = detail.employerName;
       }
     } catch {
       // Keep original Handshake URL on error
@@ -342,8 +298,19 @@ export async function pollHandshake(): Promise<Partial<Internship>[]> {
 
     await context.close();
 
+    // Drop any row that still lacks a company (logoless card not in the
+    // enriched batch, or detail-page fallback also missed) — never store
+    // garbage. Strip the temp _jobId so it never reaches storage.
+    const beforeDrop = results.length;
+    const cleaned = results.filter((r) => (r.company || '').trim().length > 0);
+    const droppedNoCompany = beforeDrop - cleaned.length;
+    if (droppedNoCompany > 0) {
+      console.warn(`[handshake poller] Dropped ${droppedNoCompany} card(s) with no resolvable company`);
+    }
+    cleaned.forEach((r) => { delete (r as Partial<Internship> & { _jobId?: string })._jobId; });
+
     // Auto-discover new ATS targets from extracted links
-    const discovered = results
+    const discovered = cleaned
       .map(job => discoverATSTarget(job.link || '', job.company || ''))
       .filter((t): t is NonNullable<typeof t> => t !== null);
     const added = saveDiscoveredTargets(discovered);
@@ -351,8 +318,8 @@ export async function pollHandshake(): Promise<Partial<Internship>[]> {
       console.log(`[handshake poller] Auto-discovered ${added} new ATS target(s)`);
     }
 
-    console.log(`[handshake poller] Total: ${results.length}`);
-    return results;
+    console.log(`[handshake poller] Total: ${cleaned.length}`);
+    return cleaned;
   } catch (err: any) {
     console.error(`[handshake poller] Browser error: ${err.message}`);
     return [];
