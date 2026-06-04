@@ -27,10 +27,16 @@ export function enrichForStorage(p: Partial<Internship>, now: string): Internshi
   // splitting one company across two sections.
   const company = canonicalizeCompany(stripEmojiPrefix(p.company || ''));
 
-  // Parse salary from title + description — the two fields most likely to
-  // mention pay. Done against the pre-trim description so a salary line
-  // buried in benefits boilerplate isn't lost.
-  const salary = parseSalary(`${p.title || ''} ${p.description || ''}`);
+  // Salary precedence: a scraper that reports authoritative comp (e.g.
+  // Handshake's card pay token) wins. Handshake always states comp on the
+  // card ($… or "Unpaid"), so we NEVER re-parse its description — that's
+  // what used to invent salaries for unpaid roles. Other sources fall back
+  // to parsing title + description (pre-trim, so a buried pay line survives).
+  const salary = p.salaryText
+    ? { text: p.salaryText, min: p.salaryMin ?? null, max: p.salaryMax ?? null, unit: p.salaryUnit ?? null }
+    : p.source === 'Handshake'
+      ? { text: null, min: null, max: null, unit: null }
+      : parseSalary(`${p.title || ''} ${p.description || ''}`);
 
   return {
     ...buildInternshipRow({

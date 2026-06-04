@@ -16,6 +16,7 @@ import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 import { groupInternships } from '../app/_components/InternshipList';
 import { parseSalary } from '../lib/salary';
+import { enrichForStorage } from './utils/enrich';
 
 let passed = 0;
 let total = 0;
@@ -1303,6 +1304,37 @@ test('Anchored k-suffix yearly range still parses', () => {
   assert.strictEqual(s.unit, 'yearly');
   assert.strictEqual(s.min, 120000);
   assert.strictEqual(s.max, 180000);
+});
+
+// ==============================================================
+// Enrich salary-precedence tests
+// ==============================================================
+
+console.log('\n── Enrich salary-precedence tests ────────────────────────');
+
+test('Scraper-provided salary is forwarded, not overwritten by description parse', () => {
+  const row = enrichForStorage({
+    title: 'SWE Intern', company: 'Acme', link: 'https://x.com/a', source: 'Handshake',
+    salaryText: '$25/hr', salaryMin: 25, salaryMax: 25, salaryUnit: 'hourly',
+    description: 'We manage $200,000-$300,000/yr portfolios.',
+  }, '2026-06-04T00:00:00.000Z');
+  assert.strictEqual(row.salaryText, '$25/hr');
+  assert.strictEqual(row.salaryUnit, 'hourly');
+});
+
+test('Handshake row with no scraper salary does not invent one from description', () => {
+  const row = enrichForStorage({
+    title: 'AI Specialist', company: 'A Free Bird', link: 'https://x.com/b', source: 'Handshake',
+    description: 'Stipend pool of $100,000-$150,000/yr shared across the cohort.',
+  }, '2026-06-04T00:00:00.000Z');
+  assert.strictEqual(row.salaryText, undefined);
+});
+
+test('Non-Handshake row still parses salary from description', () => {
+  const row = enrichForStorage({
+    title: 'SWE Intern $30/hr', company: 'Acme', link: 'https://x.com/c', source: 'Greenhouse',
+  }, '2026-06-04T00:00:00.000Z');
+  assert.strictEqual(row.salaryUnit, 'hourly');
 });
 
 // ==============================================================
