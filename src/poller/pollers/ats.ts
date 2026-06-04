@@ -29,7 +29,7 @@ async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<I
   return (data.jobs || [])
     .filter((j: any) => INTERN_SIGNAL_RE.test(j.title || ''))
     .map((j: any) => buildInternshipRow({
-      title: j.title || '',
+      title: stripHtml(j.title || ''),
       company,
       location: j.location?.name,
       link: j.absolute_url || `https://boards.greenhouse.io/${target.slug}/jobs/${j.id}`,
