@@ -56,7 +56,11 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
     .map((j) => buildInternshipRow({
       title: j.text || '',
       company,
-      location: j.categories?.location || j.workplaceType,
+      // Lever workplaceType is an internal enum ("remote"/"onsite"/"hybrid"/
+      // "unspecified"). Only "remote" is a meaningful display location; the
+      // rest are not place names, so fall back to empty rather than show
+      // "onsite"/"unspecified".
+      location: j.categories?.location || (String(j.workplaceType).toLowerCase() === 'remote' ? 'Remote' : ''),
       link: j.hostedUrl || j.applyUrl || '',
       source: 'Lever',
       upstreamPostedAt: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
