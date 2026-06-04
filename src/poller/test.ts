@@ -1392,6 +1392,12 @@ test('deriveLocation strips verbose relative-time variants', () => {
   assert.strictEqual(deriveLocation('Austin, TX∙1 week ago'), 'Austin, TX');
 });
 
+test('deriveLocation also splits the U+00B7 middle-dot footer variant', () => {
+  // Defensive: if a card renders "·" (U+00B7) instead of "∙" (U+2219), the
+  // footer must still split rather than dumping the whole string as location.
+  assert.strictEqual(deriveLocation('Promoted·San Francisco, CA·2 days ago'), 'San Francisco, CA');
+});
+
 // ==============================================================
 // Run and report
 // ==============================================================
