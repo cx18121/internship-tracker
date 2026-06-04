@@ -71,9 +71,11 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
       let needCompanyBackfill = 0;
       for (const raw of rawCards) {
         const company = deriveCompany(raw.logoAlt, raw.ariaLabel);
-        const { role, comp } = deriveRoleAndComp(company ?? '', raw.ariaLabel);
-        if (!role) continue; // nothing usable
+        // Location first — deriveRoleAndComp uses it to chop the tail on cards
+        // that render with no pay/separator boundary.
         const location = deriveLocation(raw.footerText);
+        const { role, comp } = deriveRoleAndComp(company ?? '', raw.ariaLabel, location);
+        if (!role) continue; // nothing usable
         const sal = comp ? parseSalary(comp) : { text: null, min: null, max: null, unit: null };
         const row = buildInternshipRow({
           title: role,
