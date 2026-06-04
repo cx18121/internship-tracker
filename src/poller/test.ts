@@ -17,6 +17,7 @@ import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/fil
 import { groupInternships } from '../app/_components/InternshipList';
 import { parseSalary } from '../lib/salary';
 import { enrichForStorage } from './utils/enrich';
+import { deriveCompany, deriveRoleAndComp, deriveLocation } from './pollers/handshake-parse';
 
 let passed = 0;
 let total = 0;
@@ -1335,6 +1336,47 @@ test('Non-Handshake row still parses salary from description', () => {
     title: 'SWE Intern $30/hr', company: 'Acme', link: 'https://x.com/c', source: 'Greenhouse',
   }, '2026-06-04T00:00:00.000Z');
   assert.strictEqual(row.salaryUnit, 'hourly');
+});
+
+console.log('\n── Handshake card parser tests ───────────────────────────');
+
+test('deriveCompany prefers logo alt', () => {
+  assert.strictEqual(
+    deriveCompany('Goalbound', 'Goalbound Software Engineering Internship $25/hr · Internship · Jun 14—Jul 30 Remote 3d ago'),
+    'Goalbound'
+  );
+});
+
+test('deriveCompany returns null when no logo (caller falls back / drops)', () => {
+  assert.strictEqual(deriveCompany('', 'CGTech Software Engineer (UX) Intern $32/hr · Internship · Jun 23—Aug 27 Irvine, CA New'), null);
+});
+
+test('deriveRoleAndComp strips company prefix and cuts at pay token', () => {
+  const r = deriveRoleAndComp('Goalbound', 'Goalbound Software Engineering Internship $25/hr · Internship · Jun 14—Jul 30 Remote 3d ago');
+  assert.strictEqual(r.role, 'Software Engineering Internship');
+  assert.strictEqual(r.comp, '$25/hr');
+});
+
+test('deriveRoleAndComp handles Unpaid token (comp empty)', () => {
+  const r = deriveRoleAndComp('A Free Bird Corporation', 'A Free Bird Corporation AI Specialist Unpaid · Internship Remote 2wk ago');
+  assert.strictEqual(r.role, 'AI Specialist');
+  assert.strictEqual(r.comp, '');
+});
+
+test('deriveRoleAndComp falls back to cut at " · " when no pay/Unpaid token', () => {
+  const r = deriveRoleAndComp('Acme', 'Acme Data Intern · Internship · Jun 1—Aug 1 Remote 1d ago');
+  assert.strictEqual(r.role, 'Data Intern');
+  assert.strictEqual(r.comp, '');
+});
+
+test('deriveLocation parses footer, dropping Promoted and time-ago', () => {
+  assert.strictEqual(deriveLocation('Promoted∙Melrose, MA∙3wk ago'), 'Melrose, MA');
+  assert.strictEqual(deriveLocation('Remote∙3d ago'), 'Remote');
+  assert.strictEqual(deriveLocation('Remote or San Jose, CA∙2mo ago'), 'Remote or San Jose, CA');
+});
+
+test('deriveLocation returns empty string when footer yields nothing usable', () => {
+  assert.strictEqual(deriveLocation('5d ago'), '');
 });
 
 // ==============================================================
