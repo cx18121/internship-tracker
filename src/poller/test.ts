@@ -1379,6 +1379,19 @@ test('deriveLocation returns empty string when footer yields nothing usable', ()
   assert.strictEqual(deriveLocation('5d ago'), '');
 });
 
+test('deriveRoleAndComp does not strip a mid-word company prefix (word boundary)', () => {
+  // logo-alt "Fenix Commerc" is a mid-word prefix of "Fenix Commerce ..." —
+  // must NOT slice, or the role would start with a stray "e".
+  const r = deriveRoleAndComp('Fenix Commerc', 'Fenix Commerce Software Engineer Intern $20/hr · Internship · Remote 1d ago');
+  assert.ok(!r.role.startsWith('e '), `role should not start with a fragment: ${r.role}`);
+});
+
+test('deriveLocation strips verbose relative-time variants', () => {
+  assert.strictEqual(deriveLocation('New York, NY∙3 days ago'), 'New York, NY');
+  assert.strictEqual(deriveLocation('Boston, MA∙2 hr ago'), 'Boston, MA');
+  assert.strictEqual(deriveLocation('Austin, TX∙1 week ago'), 'Austin, TX');
+});
+
 // ==============================================================
 // Run and report
 // ==============================================================

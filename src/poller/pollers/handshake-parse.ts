@@ -8,7 +8,7 @@
 //   footer    = "[Promoted∙]{Location}∙{time-ago}"   (∙ = U+2219)
 
 const PAY_TOKEN_RE = /\$\s*[\d,]+(?:\.\d+)?(?:\s*[-–—to]+\s*\$?\s*[\d,]+(?:\.\d+)?)?\s*[kK]?\s*\/?\s*(?:hr|hour|hourly|yr|year|mo|month|K\/yr|K\/mo)?/;
-const TIME_AGO_RE = /^\s*(?:new|\d+\s*(?:h|d|wk|mo|yr)\s+ago|promoted)\s*$/i;
+const TIME_AGO_RE = /^\s*(?:new|promoted|\d+\s*(?:h|hr|hrs|hour|hours|d|day|days|wk|wks|week|weeks|mo|month|months|yr|yrs|year|years)\s+ago)\s*$/i;
 
 /** Company from the logo alt. Returns null when absent — the caller is
  *  responsible for the detail-page fallback and, failing that, dropping the
@@ -25,7 +25,13 @@ export function deriveRoleAndComp(company: string, ariaLabel: string): { role: s
   let rest = (ariaLabel || '').trim();
   const co = (company || '').trim();
   if (co && rest.toLowerCase().startsWith(co.toLowerCase())) {
-    rest = rest.slice(co.length).trim();
+    const afterCo = rest.slice(co.length);
+    // Only strip when the prefix ends on a word boundary — guards against a
+    // logo-alt that is a mid-word prefix of the aria-label company, which
+    // would otherwise leave a fragment glued to the role.
+    if (afterCo === '' || /^\s/.test(afterCo)) {
+      rest = afterCo.trim();
+    }
   }
   const payMatch = rest.match(/\$\s*[\d,]/);
   const unpaidMatch = rest.match(/\b(Unpaid|Unspecified)\b/i);
