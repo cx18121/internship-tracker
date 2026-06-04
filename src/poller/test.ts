@@ -11,7 +11,7 @@ import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
 import { canonicalizeCompany } from '../lib/canonicalize-company';
-import { stripUtm } from '../lib/utils/normalize';
+import { stripUtm, stripEmojiPrefix } from '../lib/utils/normalize';
 import { pickListFields, LIST_FIELDS } from '../app/_lib/list-item';
 import { passesLocalPredicates, filterAndSortInternships } from '../app/_lib/filter-pipeline';
 import { groupInternships } from '../app/_components/InternshipList';
@@ -1403,6 +1403,13 @@ console.log('\n── HTML decode tests ─────────────�
 
 test('stripHtml decodes entities in a Greenhouse-style title', () => {
   assert.strictEqual(stripHtml('Data Science Intern &#8211; Summer 2026 &amp; Beyond'), 'Data Science Intern – Summer 2026 & Beyond');
+});
+
+console.log('\n── SimplifyJobs title emoji tests ────────────────────────');
+
+test('Emoji badges are stripped from SimplifyJobs titles', () => {
+  assert.strictEqual(stripEmojiPrefix('Research Intern - SDN Traffic Intelligence & Control 🎓').trim(), 'Research Intern - SDN Traffic Intelligence & Control');
+  assert.strictEqual(stripEmojiPrefix('Software Engineer Intern 🛂🇺🇸').trim(), 'Software Engineer Intern');
 });
 
 // ==============================================================
