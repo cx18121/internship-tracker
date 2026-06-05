@@ -10,6 +10,11 @@ import { jsonStore } from '../../lib/sidecar';
 
 const README_URL =
   'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
+// Same repo, same HTML-table format, but lists off-cycle roles (Winter/Fall,
+// off-season Summer). Without it, off-cycle postings — e.g. Winter 2027
+// internships — are invisible even though SimplifyJobs tracks them here.
+const OFF_SEASON_README_URL =
+  'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README-Off-Season.md';
 
 // Persistent cache of resolved simplify.jobs apply URLs so we don't re-hit
 // the click endpoint for the same posting every cycle. Keyed by posting uuid.
@@ -142,10 +147,18 @@ function parseRows(html: string): { company: string; title: string; location: st
 }
 
 export async function pollGitHub(): Promise<Partial<Internship>[]> {
-  const response = await axios.get<string>(README_URL, { responseType: 'text', timeout: 15000 });
-  const readme = response.data;
-
-  const rows = parseRows(readme);
+  // Fetch the main (Summer) and off-season (Winter/Fall) lists in parallel.
+  // allSettled so one list 404'ing or timing out still yields the other.
+  const [main, off] = await Promise.allSettled([
+    axios.get<string>(README_URL, { responseType: 'text', timeout: 15000 }),
+    axios.get<string>(OFF_SEASON_README_URL, { responseType: 'text', timeout: 15000 }),
+  ]);
+  const rows: ReturnType<typeof parseRows> = [];
+  if (main.status === 'fulfilled') rows.push(...parseRows(main.value.data));
+  else console.error('[github poller] main README fetch failed:', main.reason?.message);
+  if (off.status === 'fulfilled') rows.push(...parseRows(off.value.data));
+  else console.error('[github poller] off-season README fetch failed:', off.reason?.message);
+  if (rows.length === 0) return [];
 
   // Upgrade simplify.jobs fallback links to the real ATS apply URL. The
   // README only has a simplify.jobs link when no direct ATS link was
