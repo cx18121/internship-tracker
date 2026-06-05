@@ -135,6 +135,14 @@ function enrichWithPortalMeta(
             if (linkHost.startsWith(`${t.slug}.`)) return true;
             return pathSegments[0] === 'recruiting' && pathSegments[1] === t.slug;
           }
+          // Rippling: ats.rippling.com/[locale/]{slug}/jobs/{uuid} — slug is the
+          // first non-locale path segment (mirrors the registry's extractTarget).
+          if (atsSource === 'Rippling') {
+            const slugSeg = pathSegments.find((s) => !/^[a-z]{2}[-_][A-Z]{2}$/.test(s)) ?? '';
+            return slugSeg === t.slug;
+          }
+          // Workable: apply.workable.com/{slug}/j/{shortcode}
+          if (atsSource === 'Workable') return firstPath === t.slug;
           return false;
         });
         atsTarget = matched?.slug ?? '';
@@ -206,6 +214,8 @@ export async function scanPortals(): Promise<PortalScanOutput> {
     workday: 'Workday',
     icims: 'iCIMS',
     smartrecruiters: 'SmartRecruiters',
+    rippling: 'Rippling',
+    workable: 'Workable',
   };
 
   for (const [targetSlug, currentIds] of currentByTarget) {

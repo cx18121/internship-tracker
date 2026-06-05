@@ -8,6 +8,7 @@ import { deduplicateAndStore, archiveStalePostings, getInternships, patchInterns
 import type { Internship } from '../lib/types';
 import { extractInternFacets } from '../poller/pollers/ats';
 import { discoverATSTarget } from '../lib/utils/ats-discovery';
+import { extractJobIdFromLink } from '../lib/ats-registry';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
 import { buildInternshipRow } from './utils/build-row';
 import { canonicalizeCompany } from '../lib/canonicalize-company';
@@ -627,6 +628,53 @@ test('ats-discovery: Greenhouse URL extracts slug correctly', () => {
   assert.ok(target, 'Should return target for Greenhouse URL');
   assert.strictEqual(target!.slug, 'anthropic');
   assert.strictEqual(target!.ats, 'greenhouse');
+});
+
+test('ats-discovery: Rippling URL extracts slug + ats', () => {
+  const target = discoverATSTarget(
+    'https://ats.rippling.com/rippling/jobs/35b3ba25-ff2e-4b68-a2d7-61be26f2b24a',
+    'Rippling'
+  );
+  assert.ok(target, 'Should return a target for Rippling URL');
+  assert.strictEqual(target!.slug, 'rippling');
+  assert.strictEqual(target!.ats, 'rippling');
+});
+
+test('ats-discovery: Rippling URL with locale prefix skips locale segment', () => {
+  // ats.rippling.com/en-US/{slug}/jobs/{uuid} — the locale must not be read as the slug
+  const target = discoverATSTarget(
+    'https://ats.rippling.com/en-US/inspectoriocareers/jobs/89ffbf49-5811-4258-a170-4223720eda86',
+    'Inspectorio'
+  );
+  assert.ok(target, 'Should return a target');
+  assert.strictEqual(target!.slug, 'inspectoriocareers', `Expected slug=inspectoriocareers, got ${target!.slug}`);
+  assert.strictEqual(target!.ats, 'rippling');
+});
+
+test('ats-registry: Rippling job id is the uuid after /jobs/ (incl. /apply suffix)', () => {
+  assert.strictEqual(
+    extractJobIdFromLink('https://ats.rippling.com/rippling/jobs/35b3ba25-ff2e-4b68-a2d7-61be26f2b24a'),
+    '35b3ba25-ff2e-4b68-a2d7-61be26f2b24a'
+  );
+  // Apply-step URLs carry a trailing /apply — the id is still the uuid.
+  assert.strictEqual(
+    extractJobIdFromLink('https://ats.rippling.com/etg/jobs/d34b3e22-3172-4db1-9d70-b1441b785f5d/apply?step=application'),
+    'd34b3e22-3172-4db1-9d70-b1441b785f5d'
+  );
+});
+
+test('ats-discovery: Workable URL extracts slug + ats and job shortcode', () => {
+  const target = discoverATSTarget(
+    'https://apply.workable.com/quadric-dot-i-o-inc/j/52EA39411C/apply',
+    'Quadric'
+  );
+  assert.ok(target, 'Should return a target for Workable URL');
+  assert.strictEqual(target!.slug, 'quadric-dot-i-o-inc');
+  assert.strictEqual(target!.ats, 'workable');
+  assert.strictEqual(
+    extractJobIdFromLink('https://apply.workable.com/quadric-dot-i-o-inc/j/52EA39411C/apply'),
+    '52EA39411C'
+  );
 });
 
 test('ats-discovery: deny-list shape is valid + includes the 4 audited dead slugs', () => {

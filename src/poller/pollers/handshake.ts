@@ -125,7 +125,8 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
 
 const EXTERNAL_ATS_PATTERNS = [
   'greenhouse.io', 'lever.co', 'ashbyhq.com', 'myworkdayjobs.com', 'icims.com',
-  'smartrecruiters.com', 'workday.com', 'taleo.net', 'successfactors',
+  'smartrecruiters.com', 'workday.com', 'taleo.net', 'successfactors', 'ats.rippling.com',
+  'apply.workable.com',
 ];
 
 /**

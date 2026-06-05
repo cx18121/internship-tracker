@@ -148,6 +148,41 @@ export const ATS_ADAPTERS: Record<ATSKind, AtsAdapter> = {
       return parts.length >= 2 ? parts[parts.length - 1] : null;
     },
   },
+
+  // Rippling's own multi-tenant ATS. Board URL: ats.rippling.com/{slug}/jobs/{uuid},
+  // optionally with a /{locale}/ prefix (e.g. /en-US/). The first non-locale path
+  // segment is the board slug and doubles as the API board id:
+  //   https://api.rippling.com/platform/api/ats/v1/board/{slug}/jobs
+  rippling: {
+    matchUrl: (h) => h === 'ats.rippling.com',
+    extractTarget: (_h, p) => {
+      const slug = p.split('/').filter(Boolean).find((seg) => !LOCALE_RE.test(seg));
+      return slug ? { slug, ats: 'rippling' } : null;
+    },
+    // ats.rippling.com/{slug}/jobs/{uuid}[/apply] — id is the segment after 'jobs'
+    extractJobId: (_h, p) => {
+      const parts = p.split('/').filter(Boolean).filter((seg) => !LOCALE_RE.test(seg));
+      const i = parts.indexOf('jobs');
+      return i >= 0 && i + 1 < parts.length ? parts[i + 1] : null;
+    },
+  },
+
+  // Workable. Apply URL: apply.workable.com/{slug}/j/{shortcode}[/apply]. The
+  // first path segment is the account slug, used directly against the public
+  // list API: POST https://apply.workable.com/api/v3/accounts/{slug}/jobs
+  workable: {
+    matchUrl: (h) => h === 'apply.workable.com',
+    extractTarget: (_h, p) => {
+      const slug = p.split('/').filter(Boolean)[0];
+      return slug ? { slug, ats: 'workable' } : null;
+    },
+    // apply.workable.com/{slug}/j/{shortcode}[/apply] — id is the segment after 'j'
+    extractJobId: (_h, p) => {
+      const parts = p.split('/').filter(Boolean);
+      const i = parts.indexOf('j');
+      return i >= 0 && i + 1 < parts.length ? parts[i + 1] : null;
+    },
+  },
 };
 
 /** Parse a URL and dispatch to the matching adapter, returning the ATS

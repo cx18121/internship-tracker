@@ -134,6 +134,26 @@ export async function fetchSmartRecruitersDescription(slug: string, jobId: strin
   }
 }
 
+export async function fetchRipplingDescription(slug: string, jobId: string): Promise<string> {
+  try {
+    const { data } = await axios.get(
+      `https://api.rippling.com/platform/api/ats/v1/board/${slug}/jobs/${jobId}`,
+      {
+        timeout: TIMEOUT_MS,
+        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+      },
+    );
+    // description is { company, role } HTML — `role` is the job-specific body;
+    // `company` is shared boilerplate. Keep role first so the scorer sees
+    // role-specific keywords before the company blurb.
+    const d = data?.description ?? {};
+    const parts = [d.role, d.company].filter(Boolean);
+    return stripHtml(parts.join(' ')).slice(0, MAX_DESC_LEN);
+  } catch {
+    return '';
+  }
+}
+
 // ── URL dispatcher ─────────────────────────────────────────────────────────
 
 /**
@@ -153,6 +173,10 @@ export async function fetchDescriptionByUrl(url: string): Promise<string> {
 
   m = url.match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([^/?#]+)/);
   if (m) return fetchAshbyDescription(m[1], m[2]);
+
+  // ats.rippling.com/[locale/]{slug}/jobs/{uuid}
+  m = url.match(/ats\.rippling\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([^/?#]+)\/jobs\/([0-9a-f-]+)/i);
+  if (m) return fetchRipplingDescription(m[1], m[2]);
 
   return '';
 }

@@ -7,6 +7,7 @@ import {
   extractLeverDescription,
   fetchAshbyDescription,
   fetchSmartRecruitersDescription,
+  fetchRipplingDescription,
 } from '../utils/description-fetchers';
 import { buildInternshipRow } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
@@ -322,6 +323,85 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
   return results;
 }
 
+async function pollRippling(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+  const url = `https://api.rippling.com/platform/api/ats/v1/board/${target.slug}/jobs`;
+  const { data } = await axios.get(url, {
+    timeout: REQUEST_TIMEOUT,
+    headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+  });
+  const postings: any[] = Array.isArray(data) ? data : [];
+  const company = target.name || target.slug;
+
+  // Rippling lists a role once per location, all sharing one uuid. Group by
+  // uuid so a 3-location posting becomes a single multi-location row — emitting
+  // three rows would just collapse to an arbitrary one on link-dedup (all three
+  // carry the same job.url) and lose the other locations.
+  const byUuid = new Map<string, { job: any; locations: string[] }>();
+  for (const j of postings) {
+    if (!isInternTitle(j.name || '')) continue;
+    const loc = j.workLocation?.label;
+    const entry = byUuid.get(j.uuid);
+    if (entry) {
+      if (loc && !entry.locations.includes(loc)) entry.locations.push(loc);
+    } else {
+      byUuid.set(j.uuid, { job: j, locations: loc ? [loc] : [] });
+    }
+  }
+  const grouped = [...byUuid.values()];
+
+  // Descriptions live only on the per-job detail endpoint (like Workday). Fetch
+  // concurrently, cap 5, so a board with many interns stays bounded.
+  const descriptions = new Map<string, string>();
+  await pool(grouped, 5, async ({ job }) => {
+    descriptions.set(job.uuid, await fetchRipplingDescription(target.slug, job.uuid));
+  });
+
+  return grouped.map(({ job, locations }) => ({
+    ...buildInternshipRow({
+      title: job.name || '',
+      company,
+      location: locations[0] || '',
+      link: job.url || `https://ats.rippling.com/${target.slug}/jobs/${job.uuid}`,
+      source: 'Rippling',
+      seenAt: now,
+      description: descriptions.get(job.uuid),
+    }),
+    ...(locations.length > 1 ? { multiLocation: locations } : {}),
+  }));
+}
+
+async function pollWorkable(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+  // Public job-list endpoint is a POST with an empty filter body.
+  const url = `https://apply.workable.com/api/v3/accounts/${target.slug}/jobs`;
+  const { data } = await axios.post(url, {}, {
+    timeout: REQUEST_TIMEOUT,
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' },
+  });
+  const postings: any[] = data?.results || [];
+  const company = target.name || target.slug;
+  // Title-only match: Workable's `type` for interns is "temporary", which also
+  // covers non-intern contract roles — too broad to use as a signal. The list
+  // endpoint carries no description, so (like iCIMS) rows ship without one.
+  return postings
+    .filter((j) => isInternTitle(j.title || ''))
+    .map((j) => {
+      const loc = j.location || {};
+      const isRemote = j.remote === true || String(j.workplace).toLowerCase() === 'remote';
+      const location = loc.city
+        ? [loc.city, loc.region, loc.country].filter(Boolean).join(', ')
+        : (isRemote ? 'Remote' : (loc.country || ''));
+      return buildInternshipRow({
+        title: j.title || '',
+        company,
+        location,
+        link: `https://apply.workable.com/${target.slug}/j/${j.shortcode}/`,
+        source: 'Workable',
+        upstreamPostedAt: j.published,
+        seenAt: now,
+      });
+    });
+}
+
 async function pollWorkdayPlaywright(
   csrfTargets: ATSTarget[],
   now: string,
@@ -567,6 +647,8 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
       else if (target.ats === 'workday') jobs = await pollWorkday(target, now, facetDiscoveries);
       else if (target.ats === 'icims') jobs = await pollICIMS(target, now);
       else if (target.ats === 'smartrecruiters') jobs = await pollSmartRecruiters(target, now);
+      else if (target.ats === 'rippling') jobs = await pollRippling(target, now);
+      else if (target.ats === 'workable') jobs = await pollWorkable(target, now);
       if (jobs.length > 0) {
         console.log(`[ats] ${target.name || target.slug}: ${jobs.length} internships`);
         results.push(...jobs);

@@ -75,7 +75,7 @@ export interface CycleStats {
  */
 export interface ATSTarget {
   slug: string;
-  ats: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'icims' | 'smartrecruiters';
+  ats: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'icims' | 'smartrecruiters' | 'rippling' | 'workable';
   name?: string;
   board?: string;             // Workday: job board path (e.g. 'NVIDIAExternalCareerSite')
   wdInstance?: string;        // Workday: wd1 (default), wd3, wd5, etc.
