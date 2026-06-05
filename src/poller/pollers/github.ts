@@ -99,7 +99,7 @@ function extractHref(html: string): string {
   return hrefMatches[0]?.[1] || '';
 }
 
-function parseRows(html: string): { company: string; title: string; location: string; link: string; multiLocation?: string[] }[] {
+export function parseRows(html: string): { company: string; title: string; location: string; link: string; multiLocation?: string[] }[] {
   const results = [];
 
   // Match all <tr> blocks
