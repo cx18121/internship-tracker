@@ -149,10 +149,13 @@ def main():
                 country_indeed="USA",
                 is_remote=is_remote,
                 verbose=0,
-                # Pull full descriptions for LinkedIn results. Adds one page-fetch per result,
-                # so the LinkedIn portion of the cycle takes 3-5x longer. Trade-off accepted for
-                # description-aware scoring.
-                linkedin_fetch_description=True,
+                # LinkedIn description-fetch OFF: it adds a page-fetch per result (3-5x
+                # slower), which against the 5-min runner timeout capped how many results
+                # got through. Descriptions are hidden from the UI and only feed scoring,
+                # and JobSpy is the weakest source — so we trade per-LinkedIn-row
+                # descriptions for far more LinkedIn results within the budget. Indeed/
+                # Glassdoor still return descriptions from the main scrape (no extra fetch).
+                linkedin_fetch_description=False,
                 # HTML, not markdown — JobSpy's markdown converter escapes
                 # punctuation (`\$4,582\.93`, `\-`) and emits literal `**bold**`
                 # / `### heading` markers that render as text in the UI's

@@ -4,42 +4,33 @@
     {
       "keywords": "software engineer intern",
       "location": "United States",
-      "results_wanted": 60,
-      "hours_old": 120
+      "results_wanted": 75,
+      "hours_old": 72
     },
     {
       "keywords": "machine learning intern",
       "location": "United States",
-      "results_wanted": 40,
-      "hours_old": 120
+      "results_wanted": 50,
+      "hours_old": 72
     },
     {
-      "keywords": "software engineering internship",
+      "keywords": "data scientist intern",
       "location": "United States",
       "results_wanted": 40,
-      "hours_old": 120,
-      "remote": true
-    },
-    {
-      "keywords": "data engineer intern",
-      "location": "United States",
-      "results_wanted": 60,
-      "hours_old": 120,
-      "sites": ["indeed"]
+      "hours_old": 72
     },
     {
       "keywords": "full stack developer intern",
       "location": "United States",
-      "results_wanted": 60,
-      "hours_old": 120,
-      "sites": ["indeed"]
+      "results_wanted": 40,
+      "hours_old": 72
     },
     {
-      "keywords": "software developer intern",
+      "keywords": "software engineering internship",
       "location": "United States",
-      "results_wanted": 60,
-      "hours_old": 120,
-      "sites": ["indeed"]
+      "results_wanted": 50,
+      "hours_old": 72,
+      "remote": true
     }
   ]
 }
