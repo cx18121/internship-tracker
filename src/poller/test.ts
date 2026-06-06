@@ -996,7 +996,7 @@ test('pickListFields keeps UI/consumer fields and drops heavy unused ones', () =
     salaryUnit: 'hourly', isNew: true,
   };
   const out = pickListFields(full as any);
-  // Required by ATS consumer (find-ats-links-daily.ts) + the list/card UI.
+  // Required by the list/card UI.
   for (const f of ['id', 'title', 'company', 'link', 'source', 'score',
                    'scoreLabel', 'postedAt', 'seenAt', 'location',
                    'matchedKeywords', 'applied', 'hidden', 'salaryText', 'season']) {
