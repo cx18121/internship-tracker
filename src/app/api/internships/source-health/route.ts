@@ -2,6 +2,13 @@ import { getInternships, getStats } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
+// Sources whose pollers were removed. Their historical rows linger and get
+// their seenAt bumped by cross-source dedup rediscovery, so the last7d>0
+// heuristic alone keeps re-surfacing them as permanent "down" entries. Exclude
+// them explicitly. (Rows still render in the list view via their source badge;
+// this only hides them from the source-health panel.)
+const RETIRED_SOURCES = new Set(["Google", "Inhouse"]);
+
 export async function GET() {
   const [internships, stats] = await Promise.all([
     getInternships({ includeArchived: true }),
@@ -61,11 +68,10 @@ export async function GET() {
 
   const sources = Array.from(sourceMap.entries())
     .map(([name, counts]) => ({ name, ...counts }))
-    // Hide retired sources — pollers that no longer exist still leave historical
-    // rows behind, which would otherwise show up as permanent "down" entries
-    // (e.g. Inhouse, Google). A source is considered live if it either polled
-    // anything in the last cycle or contributed a row within the last 7 days.
-    .filter((s) => s.last7d > 0 || s.lastCycleRaw > 0)
+    // Hide retired sources (see RETIRED_SOURCES) outright, plus any source
+    // that's neither polled this cycle nor contributed a row in the last 7
+    // days — historical-only rows shouldn't read as a live, down source.
+    .filter((s) => !RETIRED_SOURCES.has(s.name) && (s.last7d > 0 || s.lastCycleRaw > 0))
     .sort((a, b) => b.total - a.total);
   return Response.json({ sources });
 }
