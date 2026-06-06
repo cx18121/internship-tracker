@@ -4,27 +4,42 @@
     {
       "keywords": "software engineer intern",
       "location": "United States",
-      "results_wanted": 50,
-      "hours_old": 72
+      "results_wanted": 60,
+      "hours_old": 120
     },
     {
       "keywords": "machine learning intern",
       "location": "United States",
-      "results_wanted": 30,
-      "hours_old": 72
-    },
-    {
-      "keywords": "backend engineer internship",
-      "location": "United States",
-      "results_wanted": 30,
-      "hours_old": 72
+      "results_wanted": 40,
+      "hours_old": 120
     },
     {
       "keywords": "software engineering internship",
       "location": "United States",
-      "results_wanted": 30,
-      "hours_old": 72,
+      "results_wanted": 40,
+      "hours_old": 120,
       "remote": true
+    },
+    {
+      "keywords": "data engineer intern",
+      "location": "United States",
+      "results_wanted": 60,
+      "hours_old": 120,
+      "sites": ["indeed"]
+    },
+    {
+      "keywords": "full stack developer intern",
+      "location": "United States",
+      "results_wanted": 60,
+      "hours_old": 120,
+      "sites": ["indeed"]
+    },
+    {
+      "keywords": "software developer intern",
+      "location": "United States",
+      "results_wanted": 60,
+      "hours_old": 120,
+      "sites": ["indeed"]
     }
   ]
 }
