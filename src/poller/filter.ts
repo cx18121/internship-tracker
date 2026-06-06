@@ -1,6 +1,7 @@
 import { Internship } from '../lib/types';
 import { classifyLocation } from './iso-locations';
 import { INTERN_SIGNAL_RE } from './utils/intern-signal';
+import { isExpiredSeasonTitle } from '../lib/seasons';
 
 const PHD_MASTERS_PATTERNS = [
   '🎓', 'phd', 'ph.d', 'doctoral', 'masters required', 'ms required',
@@ -67,7 +68,7 @@ const RESEARCH_INTERN_PATTERNS = [
   'research assistant',   // "Research Assistant Intern" (not a coding role)
 ];
 
-export type ExclusionReason = 'non_us' | 'phd_required' | 'closed' | 'non_swe' | 'not_intern';
+export type ExclusionReason = 'non_us' | 'phd_required' | 'closed' | 'non_swe' | 'not_intern' | 'expired_season';
 
 export interface FilterResult {
   passed: boolean;
@@ -109,6 +110,10 @@ const RULES: readonly Rule[] = [
       !CS_SIGNAL_STEMS.some((s) => titleLower.includes(s)) &&
       !CS_SIGNAL_EXACT_RE.test(internship.title || '') },
   { reason: 'closed',       rejects: ({ combined }) => CLOSED_PATTERNS.some((p) => combined.includes(p.toLowerCase())) },
+  // Runs last: only an otherwise-valid SWE intern role gets tagged 'expired_season',
+  // so the count reflects genuinely-missed roles rather than e.g. expired non-SWE.
+  // The off-season list carries many past cycles (Summer 2024, Winter 2026, …).
+  { reason: 'expired_season', rejects: ({ internship }) => isExpiredSeasonTitle(internship.title) },
 ];
 
 export function applyHardFilters(internship: Partial<Internship>): FilterResult {
@@ -131,6 +136,7 @@ export interface FilterCounts {
   excludedClosed: number;
   excludedNonSWE: number;
   excludedNotIntern: number;
+  excludedExpiredSeason: number;
 }
 
 export function filterInternships(
@@ -142,6 +148,7 @@ export function filterInternships(
     excludedClosed: 0,
     excludedNonSWE: 0,
     excludedNotIntern: 0,
+    excludedExpiredSeason: 0,
   };
 
   const passed: Partial<Internship>[] = [];
@@ -156,6 +163,7 @@ export function filterInternships(
       if (result.reason === 'closed') counts.excludedClosed++;
       if (result.reason === 'non_swe') counts.excludedNonSWE++;
       if (result.reason === 'not_intern') counts.excludedNotIntern++;
+      if (result.reason === 'expired_season') counts.excludedExpiredSeason++;
     }
   }
 

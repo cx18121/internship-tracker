@@ -200,6 +200,7 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
       'closed':         counts.excludedClosed,
       'non-swe':        counts.excludedNonSWE,
       'not-intern':     counts.excludedNotIntern,
+      'expired-season': counts.excludedExpiredSeason,
     },
   });
 

@@ -3,6 +3,7 @@ import assert from 'assert';
 import * as fs from 'fs';
 import * as path from 'path';
 import { applyHardFilters } from './filter';
+import { isExpiredSeasonTitle, parseSeason } from '../lib/seasons';
 import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, archiveStalePostings, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store';
 import type { Internship } from '../lib/types';
@@ -1512,6 +1513,48 @@ test('parseRows: skips the header row and multi-location continuation (↳) rows
 <tr><td>Company</td><td>Role</td><td>Location</td><td>Application</td></tr>
 <tr><td><strong><a href="https://x">↳</a></strong></td><td>Extra Loc Intern</td><td>Austin, TX</td><td><a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a></td></tr>`;
   assert.strictEqual(parseRows(html).length, 0, 'header + ↳ continuation rows must be dropped');
+});
+
+console.log('\n── Season expiry tests ───────────────────────────────────');
+
+test('parseSeason: distributes a shared year across an adjacent season run', () => {
+  // The year binds to every season in the run, not just the nearest — otherwise
+  // "Fall / Winter 2026" looks like winter-2026-only and gets wrongly expired.
+  assert.deepStrictEqual(parseSeason('Intern (Fall / Winter 2026)').sort(), ['fall-2026', 'winter-2026']);
+  assert.deepStrictEqual(parseSeason('Co-op (Summer/Fall 2026)').sort(), ['fall-2026', 'summer-2026']);
+  // Single-season titles are unchanged.
+  assert.deepStrictEqual(parseSeason('Intern - Summer 2026'), ['summer-2026']);
+  // Separate season-year pairs each keep their own year.
+  assert.deepStrictEqual(parseSeason('Fall 2026 / Spring 2027').sort(), ['fall-2026', 'spring-2027']);
+});
+
+test('isExpiredSeasonTitle: drops past cycles, keeps current + future', () => {
+  // Pin "now" to 2026-06-05 (summer-2026 cycle) so the test is deterministic.
+  const now = new Date('2026-06-05T00:00:00Z');
+  const exp = (t: string) => isExpiredSeasonTitle(t, now);
+  // Exactly the stale chips that appeared after pulling in the off-season list.
+  assert.strictEqual(exp('SWE Intern - Summer 2023'), true);
+  assert.strictEqual(exp('SWE Intern - Summer 2025'), true);
+  assert.strictEqual(exp('Intern - Embedded Software Engineer (Fall 2025)'), true);
+  assert.strictEqual(exp('Software Engineering Intern - Winter 2026'), true);
+  assert.strictEqual(exp('Network Software Intern - Spring 2026'), true);
+  // Current + future must survive — incl. the Rippling Winter-2027 role that started this.
+  assert.strictEqual(exp('Software Engineer Intern - Summer 2026'), false, 'current summer cycle');
+  assert.strictEqual(exp('Software Engineer Intern - Fall 2026'), false);
+  assert.strictEqual(exp('Full Stack Software Engineer Intern - Winter 2027'), false);
+  // No season info → resolves to current default cycle → never expired.
+  assert.strictEqual(exp('Software Engineer Intern'), false);
+  // Multi-season posting survives if ANY token is current/future.
+  assert.strictEqual(exp('Co-op - Fall 2025 / Spring 2027'), false);
+});
+
+test('applyHardFilters: rejects expired-season SWE roles, keeps far-future ones', () => {
+  // Ancient/far-future years keep this independent of when the test runs.
+  const expired = applyHardFilters({ title: 'Software Engineer Intern - Summer 2020', location: 'Remote in USA' });
+  assert.strictEqual(expired.passed, false);
+  assert.strictEqual(expired.reason, 'expired_season');
+  const future = applyHardFilters({ title: 'Software Engineer Intern - Summer 2099', location: 'Remote in USA' });
+  assert.strictEqual(future.passed, true, 'a far-future SWE intern role must pass');
 });
 
 // ==============================================================
