@@ -207,7 +207,12 @@ def main():
                     try:
                         posted_at = pd.Timestamp(date_val).isoformat()
                     except Exception:
-                        posted_at = str(date_val)
+                        # JobSpy sometimes returns relative strings ("5 days ago",
+                        # "Just posted"). Emit "" rather than the raw string — the
+                        # TS row builder falls back to seenAt. Passing the raw
+                        # string through used to crash the posted_at timestamptz
+                        # insert and abort the whole poll batch.
+                        posted_at = ""
 
                 desc_val = row.get("description")
                 # Slice generously on the HTML side — tags inflate length 2-3x

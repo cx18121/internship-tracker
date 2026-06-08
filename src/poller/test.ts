@@ -903,6 +903,32 @@ test('buildInternshipRow: postedAt falls back to seenAt when upstream is null', 
   assert.strictEqual(row.postedAt, ROW_DEFAULTS.seenAt);
 });
 
+// WHY: JobSpy (Indeed/LinkedIn) reports date_posted as a relative string
+// ("5 days ago", "Just posted") that pandas can't parse, so the runner emitted
+// it verbatim. It then flowed into the posted_at timestamptz column and threw
+// Postgres 22007, aborting the ENTIRE poll batch's transaction — no rows stored,
+// no Discord alerts, for 3 days. postedAt must always be a value Postgres can
+// store as a timestamp; an unparseable upstream date falls back to seenAt.
+test('buildInternshipRow: unparseable upstream date falls back to seenAt', () => {
+  for (const junk of ['5 days ago', 'Just posted', 'yesterday', '30+ days ago', 'not a date']) {
+    const row = buildInternshipRow({ ...ROW_DEFAULTS, upstreamPostedAt: junk });
+    assert.strictEqual(
+      row.postedAt,
+      ROW_DEFAULTS.seenAt,
+      `unparseable upstream "${junk}" should fall back to seenAt, got ${row.postedAt}`,
+    );
+    assert.ok(
+      !Number.isNaN(new Date(row.postedAt!).getTime()),
+      `postedAt must be a parseable timestamp for "${junk}", got ${row.postedAt}`,
+    );
+  }
+});
+
+test('buildInternshipRow: valid upstream date is preserved', () => {
+  const row = buildInternshipRow({ ...ROW_DEFAULTS, upstreamPostedAt: '2026-04-01T00:00:00.000Z' });
+  assert.strictEqual(row.postedAt, '2026-04-01T00:00:00.000Z');
+});
+
 // ==============================================================
 // 6.65. canonicalizeCompany tests
 // ==============================================================

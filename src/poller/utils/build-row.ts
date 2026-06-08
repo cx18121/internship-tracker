@@ -24,8 +24,11 @@ export interface RowSeed {
   location?: string | null;
   source: string;
   /** ISO timestamp the upstream ATS reports for publication. Falls back
-   *  to `seenAt` when null/empty — keeps the "freshness" floor honest
-   *  for sources that don't expose a real date. */
+   *  to `seenAt` when null/empty OR unparseable — keeps the "freshness"
+   *  floor honest for sources that don't expose a real date, and guards
+   *  the posted_at timestamptz column from non-date strings (JobSpy/Indeed
+   *  reports relative dates like "5 days ago" that Postgres can't store —
+   *  one such row used to abort the whole poll batch's transaction). */
   upstreamPostedAt?: string | null;
   /** ISO timestamp the poller is using as "now". Threaded from the
    *  caller so an entire poll batch shares one timestamp. */
@@ -41,6 +44,13 @@ export interface RowSeed {
   descriptionHtml?: string | null;
 }
 
+/** True when `v` is a string a database timestamp column can store. Rejects
+ *  null/empty and relative/free-text dates ("5 days ago", "Just posted") that
+ *  upstream sources emit and Postgres rejects with a 22007 parse error. */
+function isStorableDate(v: string | null | undefined): boolean {
+  return !!v && !Number.isNaN(Date.parse(v));
+}
+
 export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
   const rawDesc = seed.descriptionHtml
     ? stripHtml(seed.descriptionHtml)
@@ -54,7 +64,7 @@ export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
     location: seed.location ?? '',
     link: seed.link,
     source: seed.source,
-    postedAt: seed.upstreamPostedAt || seed.seenAt,
+    postedAt: isStorableDate(seed.upstreamPostedAt) ? seed.upstreamPostedAt! : seed.seenAt,
     seenAt: seed.seenAt,
     applied: false,
     description: rawDesc.trim() || undefined,
