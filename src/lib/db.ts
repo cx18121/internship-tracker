@@ -16,6 +16,15 @@ export function getPool(): Pool {
     connectionString: process.env.DATABASE_URL,
     max: 5,
     idleTimeoutMillis: 30000,
+    // Without these, a stuck pool acquire or a hung query waits FOREVER — and if
+    // it happens inside the store's withLock mutex (store.ts), every subsequent
+    // poll cycle's write deadlocks behind it. Bound all three so a stall
+    // surfaces as a thrown error the cycle can recover from, not a silent hang.
+    // Limits sit well above any real query here (largest is a net-new batch
+    // insert, well under a second in practice).
+    connectionTimeoutMillis: 10000, // fail an acquire after 10s instead of hanging
+    statement_timeout: 60000,       // server cancels any single query running >60s
+    query_timeout: 60000,           // client-side guard for the same
   });
   return _pool;
 }

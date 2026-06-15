@@ -22,6 +22,7 @@ import { parseSalary } from '../lib/salary';
 import { enrichForStorage } from './utils/enrich';
 import { deriveCompany, deriveRoleAndComp, deriveLocation } from './pollers/handshake-parse';
 import { stripHtml } from './utils/html';
+import { withTimeout } from './utils/with-timeout';
 
 let passed = 0;
 let total = 0;
@@ -1584,10 +1585,55 @@ test('applyHardFilters: rejects expired-season SWE roles, keeps far-future ones'
 });
 
 // ==============================================================
+// Cycle watchdog (withTimeout)
+// ==============================================================
+// WHY this matters: a poll cycle that hangs on an upstream op with no internal
+// timeout (a wedged headless browser, a stuck page.evaluate) used to deadlock
+// the slow-tier in-flight lock forever — the poller stayed "up" but stopped
+// polling every source but SimplifyJobs until a manual redeploy. withTimeout is
+// the guarantee that a never-settling cycle is forced to reject so the watchdog
+// can act on it. If this test can't fail, that guarantee isn't real.
+async function runWatchdogTests(): Promise<void> {
+  console.log('\n── Cycle watchdog tests ──────────────────────────────────');
+
+  await testAsync('withTimeout rejects a never-settling promise past the deadline', async () => {
+    const hung = new Promise<void>(() => {}); // models a wedged cycle — never settles
+    let message = '';
+    try {
+      await withTimeout(hung, 50, 'slow cycle');
+      assert.fail('expected withTimeout to reject');
+    } catch (e: any) {
+      message = e.message;
+    }
+    assert.match(message, /^slow cycle exceeded 50ms/, 'must reject with a labelled watchdog error');
+  });
+
+  await testAsync('withTimeout passes a value through when it settles in time', async () => {
+    const v = await withTimeout(Promise.resolve(42), 1000, 'fast cycle');
+    assert.strictEqual(v, 42);
+  });
+
+  await testAsync('withTimeout propagates the wrapped promise\'s own rejection unchanged', async () => {
+    const boom = Promise.reject(new Error('upstream 500'));
+    let message = '';
+    try {
+      await withTimeout(boom, 1000, 'slow cycle');
+      assert.fail('expected rejection');
+    } catch (e: any) {
+      message = e.message;
+    }
+    // An ordinary failure must NOT be reported as a watchdog trip — index.ts
+    // distinguishes the two by the 'exceeded' prefix to decide whether to exit.
+    assert.strictEqual(message, 'upstream 500');
+  });
+}
+
+// ==============================================================
 // Run and report
 // ==============================================================
 
 (async () => {
+  await runWatchdogTests();
   await runDedupTests();
   await runArchiveTests();
   await runApplicationTrackingTests();

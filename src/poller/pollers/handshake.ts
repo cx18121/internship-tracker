@@ -8,6 +8,14 @@ import { HANDSHAKE_PROMO_BANNER_SOURCE } from '../utils/description-trim';
 import { pool } from '../../lib/concurrency';
 import { deriveCompany, deriveRoleAndComp, deriveLocation } from './handshake-parse';
 import { parseSalary } from '../../lib/salary';
+import { withTimeout } from '../utils/with-timeout';
+import { closeBrowserSafely, closeContextSafely } from '../utils/browser';
+
+// page.evaluate is the one Playwright op with no built-in timeout (launch/goto/
+// waitForSelector all default to ~30s). A wedged page renderer would otherwise
+// hang the whole slow cycle here, so cap every evaluate. 30s is ~1000x a
+// healthy DOM read — it only trips on a genuinely stuck page.
+const evalGuard = <T>(p: Promise<T>): Promise<T> => withTimeout(p, 30_000, 'handshake page.evaluate');
 
 function alertAuthExpired(): void {
   console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');
@@ -49,7 +57,7 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
     const MAX_PAGES = 20;
 
     while (pageNum <= MAX_PAGES) {
-      const rawCards = await page.evaluate(() => {
+      const rawCards = await evalGuard(page.evaluate(() => {
         const cards = document.querySelectorAll('[data-hook^="job-result-card"]:not([data-hook*="footer"]):not([data-hook*="hide"])');
         return Array.from(cards).map((card) => {
           const hook = card.getAttribute('data-hook') || '';
@@ -65,7 +73,7 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
           const footerText = (footerEl?.textContent || '').replace(/\s+/g, ' ').trim();
           return { jobId, ariaLabel, link, logoAlt, footerText };
         }).filter((c) => c.jobId && c.ariaLabel);
-      });
+      }));
 
       const now = new Date().toISOString();
       let needCompanyBackfill = 0;
@@ -106,9 +114,9 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
       await page.waitForTimeout(1500);
 
       // Stop if no cards on this page
-      const cardCount = await page.evaluate(() =>
+      const cardCount = await evalGuard(page.evaluate(() =>
         document.querySelectorAll('[data-hook^="job-result-card"]:not([data-hook*="footer"]):not([data-hook*="hide"])').length
-      );
+      ));
       if (cardCount === 0) break;
 
       if (pageNum > MAX_PAGES) {
@@ -158,7 +166,7 @@ async function enrichWithDetailLinks(
       // an XHR that takes ~2-3s to settle.
       await page.waitForTimeout(3000);
 
-      const detail = await page.evaluate(({ patterns, bannerSource }: { patterns: string[]; bannerSource: string }) => {
+      const detail = await evalGuard(page.evaluate(({ patterns, bannerSource }: { patterns: string[]; bannerSource: string }) => {
         const anchors = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
 
         // Priority 1: any link directly matching a known ATS platform
@@ -238,7 +246,7 @@ async function enrichWithDetailLinks(
         if (detailImg?.alt) employerName = detailImg.alt.replace(/\s*logo\s*$/i, '').trim();
 
         return { externalLink, description, descSelectorHit, employerName };
-      }, { patterns: EXTERNAL_ATS_PATTERNS, bannerSource: HANDSHAKE_PROMO_BANNER_SOURCE });
+      }, { patterns: EXTERNAL_ATS_PATTERNS, bannerSource: HANDSHAKE_PROMO_BANNER_SOURCE }));
 
       if (detail.externalLink) {
         job.link = detail.externalLink;
@@ -299,7 +307,7 @@ export async function pollHandshake(): Promise<Partial<Internship>[]> {
     // Enrich top 100 jobs with direct ATS links from detail pages
     await enrichWithDetailLinks(context, results);
 
-    await context.close();
+    await closeContextSafely(context, 'handshake');
 
     // Drop any row that still lacks a company (logoless card not in the
     // enriched batch, or detail-page fallback also missed) — never store
@@ -327,6 +335,6 @@ export async function pollHandshake(): Promise<Partial<Internship>[]> {
     console.error(`[handshake poller] Browser error: ${err.message}`);
     return [];
   } finally {
-    await browser?.close();
+    await closeBrowserSafely(browser, 'handshake');
   }
 }

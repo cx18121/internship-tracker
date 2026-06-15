@@ -5,6 +5,13 @@
 import { firefox } from 'playwright';
 import { Internship } from '../../lib/types';
 import { buildInternshipRow } from '../utils/build-row';
+import { withTimeout } from '../utils/with-timeout';
+import { closeBrowserSafely } from '../utils/browser';
+
+// page.evaluate is the one Playwright op with no built-in timeout (launch/goto
+// default to ~30s/POLL_TIMEOUT). A wedged page renderer would otherwise hang the
+// slow cycle here, so cap every evaluate — 30s only trips on a genuinely stuck page.
+const evalGuard = <T>(p: Promise<T>): Promise<T> => withTimeout(p, 30_000, 'yc-waas page.evaluate');
 
 const BASE_URL = 'https://www.workatastartup.com';
 const POLL_TIMEOUT = 60_000;
@@ -75,10 +82,10 @@ async function enrichDescription(
     if (!j.link) continue;
     try {
       await page.goto(j.link, { waitUntil: 'networkidle', timeout: POLL_TIMEOUT });
-      const html = await page.evaluate(() => {
+      const html = await evalGuard(page.evaluate(() => {
         const div = document.querySelector('[data-page]');
         return div?.getAttribute('data-page') || '';
-      });
+      }));
       const decoded = html
         .replace(/&amp;/g, '&').replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>').replace(/&quot;/g, '"');
@@ -141,10 +148,10 @@ async function fetchViaPlaywright(now: string): Promise<Partial<Internship>[]> {
           waitUntil: 'networkidle',
           timeout: POLL_TIMEOUT,
         });
-        const rawAttr = await page.evaluate(() => {
+        const rawAttr = await evalGuard(page.evaluate(() => {
           const div = document.querySelector('[data-page]');
           return div?.getAttribute('data-page') || '';
-        });
+        }));
         const interns = extractInterns(rawAttr, now);
         for (const j of interns) {
           if (j.link) found.set(j.link, j);
@@ -157,7 +164,7 @@ async function fetchViaPlaywright(now: string): Promise<Partial<Internship>[]> {
     await enrichDescription(page, collected);
     return collected;
   } finally {
-    await browser.close();
+    await closeBrowserSafely(browser, 'yc-waas');
   }
 }
 

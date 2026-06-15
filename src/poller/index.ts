@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { runCycle } from './agent';
 import { revalidateLinks, closeDb } from '../lib/store';
 import { revalidateLinkedIn } from './linkedin-revalidate';
+import { withTimeout } from './utils/with-timeout';
 
 // Two-tier polling:
 //   Fast tier (default 15 min) — SimplifyJobs RSS only. Quick to fetch, high
@@ -21,6 +22,17 @@ const POLL_INTERVAL_MS_SLOW = parseInt(
 );
 const REVALIDATE_INTERVAL_MS = parseInt(process.env.REVALIDATE_INTERVAL_MS || String(24 * 60 * 60 * 1000), 10);
 
+// Per-cycle watchdog deadlines. A healthy slow cycle runs in minutes (JobSpy
+// alone can take up to 5); these sit well above worst-case so they only trip on
+// a genuine wedge — an upstream op that hangs with no internal timeout. The
+// per-op timeouts inside the pollers (Playwright's ~30s defaults, axios
+// timeouts, JobSpy's subprocess kill, our page.evaluate wrappers) should catch
+// hangs first; this is the coarse backstop for anything that slips through.
+const WATCHDOG_MS_FAST = parseInt(process.env.WATCHDOG_MS_FAST || String(5 * 60 * 1000), 10);
+const WATCHDOG_MS_SLOW = parseInt(process.env.WATCHDOG_MS_SLOW || String(20 * 60 * 1000), 10);
+const WATCHDOG_MS_INITIAL = parseInt(process.env.WATCHDOG_MS_INITIAL || String(25 * 60 * 1000), 10);
+const WATCHDOG_MS_REVALIDATE = parseInt(process.env.WATCHDOG_MS_REVALIDATE || String(30 * 60 * 1000), 10);
+
 function msUntilNextBoundary(intervalMs: number): number {
   const now = Date.now();
   return Math.ceil(now / intervalMs) * intervalMs - now;
@@ -31,6 +43,31 @@ function msUntilNextBoundary(intervalMs: number): number {
 // they hit different sources and the store has its own write lock.
 let slowRunning = false;
 
+// Run `work` under a watchdog. An ordinary failure propagates to the caller's
+// own try/catch as before. But if `work` blows its (generous) deadline,
+// something hung with no internal timeout — a wedged headless browser, a stuck
+// page.evaluate, an unresponsive socket. We can't safely release the in-flight
+// lock and carry on: the hung op may still hold a Firefox process, and stacking
+// another cycle on top leaks browsers until the container OOMs. So we exit
+// non-zero and let the supervisor restart the process clean. Before this, such
+// a hang wedged the slow tier silently — the poller stayed "up" but stopped
+// polling every source but SimplifyJobs until a manual redeploy.
+async function withWatchdog<T>(label: string, ms: number, work: Promise<T>): Promise<T> {
+  try {
+    return await withTimeout(work, ms, label);
+  } catch (err: any) {
+    if (err instanceof Error && err.message.startsWith(`${label} exceeded`)) {
+      console.error(
+        `[internship-tracker] WATCHDOG: ${err.message} — cycle wedged with no ` +
+        `internal timeout; exiting for a clean supervisor restart`,
+      );
+      try { await closeDb(); } catch {}
+      process.exit(1);
+    }
+    throw err;
+  }
+}
+
 async function safeSlow(): Promise<void> {
   if (slowRunning) {
     console.log('[internship-tracker] Slow cycle already in flight — skipping this tick');
@@ -38,7 +75,7 @@ async function safeSlow(): Promise<void> {
   }
   slowRunning = true;
   try {
-    await runCycle({ tier: 'slow' });
+    await withWatchdog('slow cycle', WATCHDOG_MS_SLOW, runCycle({ tier: 'slow' }));
   } catch (err) {
     // Never let a single bad cycle propagate out of setInterval — that would
     // raise an unhandledRejection and (on newer Node) kill the process.
@@ -50,7 +87,7 @@ async function safeSlow(): Promise<void> {
 
 async function safeFast(): Promise<void> {
   try {
-    await runCycle({ tier: 'fast' });
+    await withWatchdog('fast cycle', WATCHDOG_MS_FAST, runCycle({ tier: 'fast' }));
   } catch (err) {
     console.error('[internship-tracker] Fast cycle threw:', err);
   }
@@ -58,7 +95,7 @@ async function safeFast(): Promise<void> {
 
 async function safeRevalidate(): Promise<void> {
   try {
-    await revalidateLinks();
+    await withWatchdog('link revalidation', WATCHDOG_MS_REVALIDATE, revalidateLinks());
   } catch (err) {
     console.error('[internship-tracker] Link revalidation threw:', err);
   }
@@ -66,7 +103,7 @@ async function safeRevalidate(): Promise<void> {
   // pass above. Run the content-based sweep on the same daily cadence to keep
   // the LinkedIn corpus from accumulating stale entries.
   try {
-    await revalidateLinkedIn();
+    await withWatchdog('linkedin revalidation', WATCHDOG_MS_REVALIDATE, revalidateLinkedIn());
   } catch (err) {
     console.error('[internship-tracker] LinkedIn revalidation threw:', err);
   }
@@ -82,7 +119,7 @@ async function main(): Promise<void> {
   // etc.) just logs and continues to the interval setup, rather than killing
   // the supervisor before any poll cycle is ever scheduled.
   try {
-    await runCycle({ tier: 'all' });
+    await withWatchdog('initial cycle', WATCHDOG_MS_INITIAL, runCycle({ tier: 'all' }));
   } catch (err) {
     console.error('[internship-tracker] Initial cycle threw:', err);
   }

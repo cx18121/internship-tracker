@@ -12,6 +12,7 @@ import {
 import { buildInternshipRow } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
 import { jsonStore } from '../../lib/sidecar';
+import { closeBrowserSafely } from '../utils/browser';
 
 // Upper-bound safety on raw description size — descriptions feed the scorer
 // pre-truncation, so a verbose 50KB Workday posting would otherwise blow up
@@ -523,10 +524,13 @@ async function pollWorkdayPlaywright(
     }
   }
 
-  await pool(csrfTargets, CONCURRENCY, async (target) => {
-    await pollOnePw(target);
-  });
-  await browser.close();
+  try {
+    await pool(csrfTargets, CONCURRENCY, async (target) => {
+      await pollOnePw(target);
+    });
+  } finally {
+    await closeBrowserSafely(browser, 'workday-pw');
+  }
   return { jobs, csrfConfirmedSlugs, csrfFailedSlugs };
 }
 

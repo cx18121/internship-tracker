@@ -23,6 +23,20 @@ const sourceFetchHistoryStore = jsonStore<Record<string, string>>(
   {},
 );
 
+// Bracket each source with started/finished+elapsed logs. If a source hangs,
+// the logs show a "started" with no matching "finished" — naming the culprit,
+// which is otherwise invisible (a hang produces no error). Pairs with the cycle
+// watchdog in index.ts, which bounds the wedge; this says which source caused it.
+async function timedSource<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const startedAt = Date.now();
+  console.log(`[agent] ${label}: started`);
+  try {
+    return await fn();
+  } finally {
+    console.log(`[agent] ${label}: finished in ${((Date.now() - startedAt) / 1000).toFixed(1)}s`);
+  }
+}
+
 async function pollFastSources(
   stats: CycleStats,
   allRaw: Partial<Internship>[],
@@ -31,7 +45,7 @@ async function pollFastSources(
   // Fast tier — sources that finish in seconds and refresh often.
   // SimplifyJobs RSS is the only one in this tier today (~10s total).
   try {
-    const githubResults = await pollGitHub();
+    const githubResults = await timedSource('SimplifyJobs', () => pollGitHub());
     allRaw.push(...githubResults);
     stats.sourcesPolled.push('SimplifyJobs');
     fetched.add('SimplifyJobs');
@@ -57,7 +71,7 @@ async function pollSlowSources(
     await Promise.allSettled([
       (async () => {
         try {
-          const { listings, archivedByTarget } = await scanPortals();
+          const { listings, archivedByTarget } = await timedSource('ATS portals', () => scanPortals());
           allRaw.push(...listings);
           const srcs = [...new Set(listings.map(r => r.source).filter(Boolean))] as string[];
           stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));
@@ -81,7 +95,7 @@ async function pollSlowSources(
     // Strictly serial — each poller opens its own Chromium/Firefox instance and
     // running two browsers at once will OOM the Railway container (~500MB-1GB each).
     try {
-      const r = await pollHandshake();
+      const r = await timedSource('Handshake', () => pollHandshake());
       allRaw.push(...r);
       if (r.length > 0) stats.sourcesPolled.push('Handshake');
       fetched.add('Handshake');
@@ -89,7 +103,7 @@ async function pollSlowSources(
       console.error('[agent] Handshake poller failed:', err.message);
     }
     try {
-      const r = await pollYCWaaS();
+      const r = await timedSource('YC WaaS', () => pollYCWaaS());
       allRaw.push(...r);
       if (r.length > 0) stats.sourcesPolled.push('YC WaaS');
       fetched.add('YC WaaS');
@@ -100,7 +114,7 @@ async function pollSlowSources(
 
   const jobspyLane = async (): Promise<void> => {
     try {
-      const r = await pollJobSpy();
+      const r = await timedSource('JobSpy', () => pollJobSpy());
       allRaw.push(...r);
       const srcs = [...new Set(r.map(j => j.source).filter(Boolean))] as string[];
       stats.sourcesPolled.push(...srcs.filter(s => !stats.sourcesPolled.includes(s)));

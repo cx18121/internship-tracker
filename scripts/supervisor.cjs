@@ -43,10 +43,22 @@ const children = [
   },
 ];
 
-let shuttingDown = false;
+let shuttingDown = false; // graceful shutdown (SIGTERM) OR escalation in progress
+let escalating = false;   // a child crash-looped — bring the whole container down
 let exited = false;
-let exitedCount = 0;
 let firstFailureCode = 0;
+
+// A crashed child is restarted IN PLACE rather than taking the whole container
+// down with it, so the poller tripping its watchdog (or any one component
+// crashing) doesn't kill the web server or burn Railway's container-restart
+// budget. We only escalate to a full-container exit if a child crash-loops
+// (too many failures faster than HEALTHY_MS apart).
+const MAX_RESTARTS = parseInt(process.env.SUPERVISOR_MAX_RESTARTS || '5', 10);
+const HEALTHY_MS = parseInt(process.env.SUPERVISOR_HEALTHY_MS || '60000', 10);
+const RESTART_BACKOFF_MS = [0, 1000, 5000, 15000, 30000, 60000];
+function backoffFor(n) {
+  return RESTART_BACKOFF_MS[Math.min(n, RESTART_BACKOFF_MS.length - 1)];
+}
 
 function logLine(child, line, isErr) {
   if (!line) return;
@@ -70,40 +82,72 @@ function pipePrefixed(stream, child, isErr) {
   });
 }
 
-function killOthers(except, signal) {
+// Last resort: a child crash-looped. Bring the whole container down so Railway's
+// ON_FAILURE policy restarts it from a clean slate.
+function escalate() {
+  if (escalating) return;
+  escalating = true;
+  shuttingDown = true; // cancels any pending in-place respawns
   for (const c of children) {
-    if (c === except) continue;
-    if (c.proc && c.proc.exitCode === null && !c.killed) {
-      logLine(c, `sending ${signal} (kill-others-on-fail)`);
-      c.killed = true;
-      c.proc.kill(signal);
+    if (c.proc && c.proc.exitCode === null) {
+      logLine(c, 'sending SIGTERM (escalating to full container restart)');
+      c.proc.kill('SIGTERM');
     }
   }
+  // If everything is already down, exit now; otherwise wait for the SIGTERM'd
+  // children, with a hard fallback if one ignores SIGTERM.
+  if (children.every((c) => c.exited)) {
+    process.exit(firstFailureCode || 1);
+  }
+  setTimeout(() => process.exit(firstFailureCode || 1), 30000).unref();
 }
 
 function onChildExit(child, code, signal) {
   child.exited = true;
-  exitedCount++;
   logLine(child, `exited (code=${code}, signal=${signal})`);
 
-  // If a child failed without a parent-level shutdown signal first, treat as
-  // crash: kill the other and remember the code so we exit non-zero at the end.
-  if (!shuttingDown && code !== 0 && code !== null) {
-    if (firstFailureCode === 0) firstFailureCode = code;
-    killOthers(child, 'SIGTERM');
-  }
-
-  if (exitedCount === children.length && !exited) {
-    exited = true;
-    if (shuttingDown) {
-      // Graceful shutdown — signal-induced exits (Next.js's 143, anything
-      // killed via SIGTERM/SIGKILL by us) all become 0.
+  // During a graceful shutdown or an escalation, a child exit is terminal. Once
+  // every child is down, exit: 0 for a clean shutdown, the failure code for an
+  // escalation.
+  if (shuttingDown) {
+    if (children.every((c) => c.exited) && !exited) {
+      exited = true;
+      if (escalating) {
+        console.log(`[supervisor] all children down after escalation, exiting ${firstFailureCode || 1}`);
+        process.exit(firstFailureCode || 1);
+      }
       console.log('[supervisor] all children exited, shutting down clean (0)');
       process.exit(0);
     }
-    console.log(`[supervisor] all children exited, propagating failure code ${firstFailureCode}`);
-    process.exit(firstFailureCode);
+    return;
   }
+
+  // Otherwise this child crashed on its own. Restart it in place so one crashed
+  // component doesn't take down the other (or the whole container). Escalate
+  // only if it's crash-looping.
+  const ranForMs = Date.now() - (child.startedAt || Date.now());
+  if (ranForMs > HEALTHY_MS) child.restarts = 0; // ran healthy, then died — not a loop
+  child.restarts = (child.restarts || 0) + 1;
+
+  if (child.restarts > MAX_RESTARTS) {
+    console.error(
+      `[supervisor] ${child.name} crashed ${child.restarts}x within ${HEALTHY_MS / 1000}s windows — ` +
+      `escalating to a full container restart`,
+    );
+    firstFailureCode = code && code !== 0 ? code : 1;
+    escalate();
+    return;
+  }
+
+  const delay = backoffFor(child.restarts - 1);
+  console.warn(
+    `[supervisor] ${child.name} exited (code=${code}); restarting in ${Math.round(delay / 1000)}s ` +
+    `(attempt ${child.restarts}/${MAX_RESTARTS})`,
+  );
+  // NOT unref'd: if every child is briefly down (all crashed at once), this
+  // pending respawn must keep the event loop alive — otherwise Node would exit 0
+  // and Railway's ON_FAILURE policy would NOT restart us, causing a full outage.
+  setTimeout(() => { if (!shuttingDown) spawnChild(child); }, delay);
 }
 
 function spawnChild(child) {
@@ -113,11 +157,21 @@ function spawnChild(child) {
     env: process.env,
   });
   child.proc = proc;
+  child.exited = false;
+  child.startedAt = Date.now();
   pipePrefixed(proc.stdout, child, false);
   pipePrefixed(proc.stderr, child, true);
-  proc.on('exit', (code, signal) => onChildExit(child, code, signal));
+  // 'error' and 'exit' can both fire for one spawn; _handled dedupes per-process
+  // so a single failure isn't counted (or restarted) twice.
+  proc.on('exit', (code, signal) => {
+    if (proc._handled) return;
+    proc._handled = true;
+    onChildExit(child, code, signal);
+  });
   proc.on('error', (err) => {
     console.error(`[supervisor] ${child.name} spawn error:`, err.message);
+    if (proc._handled) return;
+    proc._handled = true;
     if (firstFailureCode === 0) firstFailureCode = 1;
     onChildExit(child, 1, null);
   });
