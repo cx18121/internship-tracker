@@ -197,6 +197,10 @@ async function pollWorkday(
     'User-Agent': 'Mozilla/5.0',
   };
 
+  const WD_PAGE = 20;
+  const WD_MAX_POSTINGS = 2000;
+  const company = target.name || target.slug;
+
   const discoverFacets = async (): Promise<{ [k: string]: string[] }> => {
     const { data } = await axios.post(
       url,
@@ -205,34 +209,39 @@ async function pollWorkday(
     );
     return extractInternFacets(data);
   };
-  const filteredBody = (f: { [k: string]: string[] }) => ({ appliedFacets: f, limit: 100, offset: 0, searchText: '' });
-  const searchTextBody = { appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' };
-  const post = (body: object) => axios.post(url, body, { timeout: REQUEST_TIMEOUT, headers: wdHeaders });
+  const fetchAllPostings = async (appliedFacets: { [k: string]: string[] }): Promise<any[]> => {
+    const all: any[] = [];
+    for (let offset = 0; offset < WD_MAX_POSTINGS; offset += WD_PAGE) {
+      const { data } = await axios.post(
+        url,
+        { appliedFacets, limit: WD_PAGE, offset, searchText: '' },
+        { timeout: REQUEST_TIMEOUT, headers: wdHeaders },
+      );
+      const batch: any[] = data.jobPostings || [];
+      all.push(...batch);
+      if (batch.length < WD_PAGE || all.length >= (data.total ?? all.length)) return all;
+    }
+    console.warn(`[ats] ${company} (workday): hit ${WD_MAX_POSTINGS}-posting cap; results may be incomplete`);
+    return all;
+  };
 
   let facets = target.wdInternFacets;
-  if (facets === undefined) {
+  if (facets == null) {
     facets = await discoverFacets();
     facetDiscoveries?.set(tenant, facets);
   }
+  const internFacets = (): { [k: string]: string[] } =>
+    facets && Object.keys(facets).length > 0 ? facets : {};
 
-  let data: any;
-  if (facets && Object.keys(facets).length > 0) {
-    try {
-      ({ data } = await post(filteredBody(facets)));
-    } catch (e: any) {
-      if (e?.response?.status !== 400) throw e;
-      const rediscoveredFacets = await discoverFacets();
-      facetDiscoveries?.set(tenant, rediscoveredFacets);
-      const retryBody = Object.keys(rediscoveredFacets).length > 0
-        ? filteredBody(rediscoveredFacets)
-        : searchTextBody;
-      ({ data } = await post(retryBody));
-    }
-  } else {
-    ({ data } = await post(searchTextBody));
+  let postings: any[];
+  try {
+    postings = await fetchAllPostings(internFacets());
+  } catch (e: any) {
+    if (e?.response?.status !== 400) throw e;
+    facets = await discoverFacets();
+    facetDiscoveries?.set(tenant, facets);
+    postings = await fetchAllPostings(internFacets());
   }
-  const postings: any[] = data.jobPostings || [];
-  const company = target.name || target.slug;
   const interns = postings.filter((j) => isInternTitle(j.title || ''));
 
   // Concurrent description fetches (cap 5) so a tenant with 20 interns adds
