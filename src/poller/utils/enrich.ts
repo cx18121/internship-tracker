@@ -18,14 +18,14 @@ import { buildInternshipRow } from './build-row';
 import { smartTrimDescription } from './description-trim';
 
 export function enrichForStorage(p: Partial<Internship>, now: string): Internship {
-  const { score, scoreLabel, matchedKeywords } = scoreInternship(p);
-
   // Canonicalize the company name ONCE here — the storage chokepoint where
   // id, normalizedKey, and the stored company field are all set. Keeping them
   // derived from the same value is what lets cross-source dedup (store.ts)
   // collapse "NVIDIA" / "NVIDIA AI" and stops the by-company grouping from
   // splitting one company across two sections.
   const company = canonicalizeCompany(stripEmojiPrefix(p.company || ''));
+
+  const { score, scoreLabel, matchedKeywords } = scoreInternship({ ...p, company });
 
   // Salary precedence: a scraper that reports authoritative comp (e.g.
   // Handshake's card pay token) wins. Handshake always states comp on the

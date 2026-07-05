@@ -76,18 +76,12 @@ export function parseSalary(input: string | null | undefined): Salary {
     // Sanity: if min > max (shouldn't happen but defensively), swap
     if (min > max) [min, max] = [max, min];
 
-    // Resolve unit for the bare-pattern case
-    let resolvedUnit = unit;
-    if (!resolvedUnit) {
-      resolvedUnit = min >= 10_000 ? 'yearly' : 'hourly';
-    }
-
     // Plausibility filter — drop obvious junk matches like "$5" or "$10,000,000"
-    if (resolvedUnit === 'hourly' && (min < 5 || max > 500)) continue;
-    if (resolvedUnit === 'monthly' && (min < 500 || max > 50_000)) continue;
-    if (resolvedUnit === 'yearly' && (min < 20_000 || max > 1_000_000)) continue;
+    if (unit === 'hourly' && (min < 5 || max > 500)) continue;
+    if (unit === 'monthly' && (min < 500 || max > 50_000)) continue;
+    if (unit === 'yearly' && (min < 20_000 || max > 1_000_000)) continue;
 
-    return { text: m[0].trim(), min, max, unit: resolvedUnit };
+    return { text: m[0].trim(), min, max, unit };
   }
 
   return EMPTY;

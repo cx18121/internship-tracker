@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 // heuristic alone keeps re-surfacing them as permanent "down" entries. Exclude
 // them explicitly. (Rows still render in the list view via their source badge;
 // this only hides them from the source-health panel.)
-const RETIRED_SOURCES = new Set(["Google", "Inhouse", "Workable"]);
+const RETIRED_SOURCES = new Set(["Google", "Inhouse", "Workable", "Rippling"]);
 
 export async function GET() {
   const [internships, stats] = await Promise.all([

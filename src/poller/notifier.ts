@@ -256,9 +256,10 @@ export async function checkAndAlertSourceHealth(): Promise<void> {
     // Down only if quiet for 24h but had a successful fetch in the last 7d.
     // Anything stale > 7d → don't alert (probably retired/disabled source).
     const isDown = age > DAY_MS && age <= WEEK_MS;
+    const isHealthy = age <= DAY_MS;
     const alreadyAlerted = !!state.alertedSources[source];
     if (isDown && !alreadyAlerted) downNow.push(source);
-    else if (!isDown && alreadyAlerted) recoveredNow.push(source);
+    else if (isHealthy && alreadyAlerted) recoveredNow.push(source);
   }
 
   if (downNow.length === 0 && recoveredNow.length === 0) return;

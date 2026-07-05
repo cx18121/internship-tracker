@@ -602,9 +602,10 @@ export async function getInternships(filters?: {
   if (filters?.search) {
     // Push the LIKE pattern once and reuse the same $N for all three columns —
     // pg accepts a placeholder repeated in a single statement.
-    params.push(`%${filters.search.toLowerCase()}%`);
+    const escaped = filters.search.toLowerCase().replace(/[\\%_]/g, '\\$&');
+    params.push(`%${escaped}%`);
     const q = p();
-    where.push(`(LOWER(title) LIKE ${q} OR LOWER(company) LIKE ${q} OR LOWER(location) LIKE ${q})`);
+    where.push(`(LOWER(title) LIKE ${q} ESCAPE '\\' OR LOWER(company) LIKE ${q} ESCAPE '\\' OR LOWER(location) LIKE ${q} ESCAPE '\\')`);
   }
 
   const orderBy = filters?.sort === 'newest'
