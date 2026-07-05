@@ -9,6 +9,9 @@ import { deduplicateAndStore, archiveStalePostings, getInternships, patchInterns
 import type { Internship } from '../lib/types';
 import { extractInternFacets } from '../poller/pollers/ats';
 import { parseRows } from '../poller/pollers/github';
+import { normalizeKey } from '../lib/normalize-key';
+import { archiveDisappeared } from '../poller/pollers/portal-scanner';
+import { applyFilterSpec } from '../lib/filter-spec';
 import { discoverATSTarget } from '../lib/utils/ats-discovery';
 import { extractJobIdFromLink } from '../lib/ats-registry';
 import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './utils/description-trim';
@@ -1562,6 +1565,66 @@ test('parseRows: skips the header row and multi-location continuation (↳) rows
 <tr><td>Company</td><td>Role</td><td>Location</td><td>Application</td></tr>
 <tr><td><strong><a href="https://x">↳</a></strong></td><td>Extra Loc Intern</td><td>Austin, TX</td><td><a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a></td></tr>`;
   assert.strictEqual(parseRows(html).length, 0, 'header + ↳ continuation rows must be dropped');
+});
+
+test('normalizeKey: collapses cross-source noise but keeps distinguishing terms', () => {
+  const decorated = normalizeKey('Stripe', 'Software Engineer Intern, Summer 2025 (Remote)');
+  assert.strictEqual(decorated, 'stripe::software engineer', 'season/location/parenthetical/intern noise must be stripped');
+  assert.strictEqual(
+    normalizeKey('Stripe', 'Software Engineer Intern'),
+    decorated,
+    'the same role from a cleaner source must produce the same key so cross-source dedup merges them',
+  );
+  assert.notStrictEqual(
+    normalizeKey('Stripe', 'Backend Engineer Intern'),
+    decorated,
+    'a genuinely different role at the same company must NOT collapse into the same key',
+  );
+  assert.notStrictEqual(
+    normalizeKey('Stripe', 'Frontend Engineer Intern'),
+    normalizeKey('Stripe', 'Backend Engineer Intern'),
+    'Frontend vs Backend are distinct roles and must stay distinct',
+  );
+});
+
+test('archiveDisappeared: archives only same-source+target rows absent from the current scan', () => {
+  const mk = (over: Partial<Internship>): Internship => ({
+    id: over.id!, title: 'SWE Intern', company: 'Acme', location: 'NYC', link: 'x',
+    source: 'Greenhouse', score: 50, applied: false, matchedKeywords: [],
+    atsSource: 'Greenhouse', atsTarget: 'acme', ...over,
+  } as Internship);
+  const rows = [
+    mk({ id: 'gone', atsJobId: '1' }),
+    mk({ id: 'present', atsJobId: '2' }),
+    mk({ id: 'other-target', atsJobId: '1', atsTarget: 'globex' }),
+    mk({ id: 'other-source', atsJobId: '1', atsSource: 'Lever' }),
+    mk({ id: 'already-archived', atsJobId: '9', archived: true }),
+  ];
+  const { archived } = archiveDisappeared(rows, new Set(['2']), 'Greenhouse', 'acme');
+  assert.deepStrictEqual(archived, ['gone'], 'only the acme/Greenhouse row whose id vanished from the scan may be archived');
+  assert.strictEqual(rows.find(r => r.id === 'gone')!.archived, true, 'the disappeared row is marked archived in place');
+  assert.strictEqual(rows.find(r => r.id === 'other-target')!.archived, undefined, 'a different target must not be touched by this target scan');
+});
+
+test('applyFilterSpec: season gate honors the i.season token, falling back to the title', () => {
+  const base = { id: 'a', title: 'SWE Intern', company: 'Acme', source: 'Greenhouse', score: 90, applied: false };
+  assert.strictEqual(
+    applyFilterSpec({ ...base, season: ['fall-2026'] }, { seasons: ['fall-2026'] }), true,
+    'explicit season token in the allowlist passes',
+  );
+  assert.strictEqual(
+    applyFilterSpec({ ...base, season: ['fall-2026'] }, { seasons: ['summer-2027'] }), false,
+    'explicit season token outside the allowlist fails',
+  );
+  assert.strictEqual(
+    applyFilterSpec({ ...base, title: 'SWE Intern Summer 2027' }, { seasons: ['summer-2027'] }), true,
+    'with no i.season the gate must fall back to parsing the title',
+  );
+  assert.strictEqual(applyFilterSpec(base, { appliedFilter: 'applied' }), false, 'unapplied posting fails an applied-only gate');
+  assert.strictEqual(applyFilterSpec(base, { excludeSources: ['Greenhouse'] }), false, 'excluded source fails');
+  assert.strictEqual(applyFilterSpec(base, { includeSources: ['Lever'] }), false, 'source not in the include list fails');
+  assert.strictEqual(applyFilterSpec(base, { minScore: 95 }), false, 'score below minScore fails');
+  assert.strictEqual(applyFilterSpec(base, {}), true, 'an empty spec gates nothing');
 });
 
 console.log('\n── Season expiry tests ───────────────────────────────────');
