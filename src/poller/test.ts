@@ -1550,6 +1550,7 @@ test('parseRows: off-season 6-column layout puts Application after the Season co
   const rows = parseRows(html);
   assert.strictEqual(rows.length, 1, 'should parse exactly one row');
   assert.strictEqual(rows[0].location, 'NYC', 'location must not absorb the season column');
+  assert.strictEqual(rows[0].season, 'Fall 2026', 'must capture the season column so the row is not mis-defaulted');
   assert.ok(
     rows[0].link.startsWith('https://job-boards.greenhouse.io/sevenresearch/jobs/4895047008'),
     `expected the apply link from the second-to-last cell, got "${rows[0].link}"`,

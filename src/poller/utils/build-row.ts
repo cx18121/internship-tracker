@@ -42,6 +42,7 @@ export interface RowSeed {
    *  here and buildInternshipRow strips. Mutually exclusive with
    *  `description` — if both are set, `descriptionHtml` wins. */
   descriptionHtml?: string | null;
+  season?: string[];
 }
 
 /** True when `v` is a string a database timestamp column can store. Rejects
@@ -68,5 +69,6 @@ export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
     seenAt: seed.seenAt,
     applied: false,
     description: rawDesc.trim() || undefined,
+    ...(seed.season && seed.season.length > 0 ? { season: seed.season } : {}),
   };
 }

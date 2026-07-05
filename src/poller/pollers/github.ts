@@ -5,6 +5,7 @@ import { stripHtml } from '../utils/html';
 import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import { fetchDescriptionByUrl } from '../utils/description-fetchers';
 import { buildInternshipRow } from '../utils/build-row';
+import { parseSeason } from '../../lib/seasons';
 import { pool } from '../../lib/concurrency';
 import { jsonStore } from '../../lib/sidecar';
 
@@ -99,7 +100,7 @@ function extractHref(html: string): string {
   return hrefMatches[0]?.[1] || '';
 }
 
-export function parseRows(html: string): { company: string; title: string; location: string; link: string; multiLocation?: string[] }[] {
+export function parseRows(html: string): { company: string; title: string; location: string; link: string; season?: string; multiLocation?: string[] }[] {
   const results = [];
 
   // Match all <tr> blocks
@@ -133,13 +134,16 @@ export function parseRows(html: string): { company: string; title: string; locat
     const location = multiLoc?.locations[0] || stripHtml(locationRaw);
     const applicationCell = cells[cells.length - 2];
     const link = extractHref(applicationCell);
+    const seasonCell = cells.length >= 6 ? stripHtml(cells[3]) : '';
 
     if (company === '↳') continue; // continuation row for multi-location, skip
     if (!company || !title || company.toLowerCase() === 'company') continue;
 
-    const row = { company, title, location, link };
+    const row: { company: string; title: string; location: string; link: string; season?: string; multiLocation?: string[] } =
+      { company, title, location, link };
+    if (seasonCell) row.season = seasonCell;
     if (multiLoc) {
-      (row as any).multiLocation = multiLoc.locations;
+      row.multiLocation = multiLoc.locations;
     }
     results.push(row);
   }
@@ -184,6 +188,7 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
   const now = new Date().toISOString();
   const results: Partial<Internship>[] = rows.map(row => {
     const atsTarget = discoverATSTarget(row.link, row.company);
+    const seasonTokens = row.season ? parseSeason(row.season) : [];
     const entry: Partial<Internship> = {
       ...buildInternshipRow({
         title: row.title,
@@ -192,6 +197,7 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
         link: row.link,
         source: 'SimplifyJobs',
         seenAt: now,
+        season: seasonTokens.length > 0 ? seasonTokens : undefined,
       }),
       atsSource: atsTarget ? atsTarget.ats : 'unknown',
     };
