@@ -217,12 +217,17 @@ async function pollWorkday(
         { appliedFacets, limit: WD_PAGE, offset, searchText: '' },
         { timeout: REQUEST_TIMEOUT, headers: wdHeaders },
       );
+      const total: number | null = data.total ?? null;
+      if (offset === 0 && total != null && total > WD_MAX_POSTINGS) {
+        console.warn(`[ats] ${company} (workday): ${total} postings exceeds the ${WD_MAX_POSTINGS} scan budget and has no intern facet — skipping, since a partial scan would archive live roles`);
+        return [];
+      }
       const batch: any[] = data.jobPostings || [];
       all.push(...batch);
       if (batch.length < WD_PAGE) return all;
-      if (data.total != null && all.length >= data.total) return all;
+      if (total != null && all.length >= total) return all;
     }
-    console.warn(`[ats] ${company} (workday): hit ${WD_MAX_POSTINGS}-posting cap; results may be incomplete`);
+    console.warn(`[ats] ${company} (workday): hit ${WD_MAX_POSTINGS}-posting cap without a total; results may be incomplete`);
     return all;
   };
 
