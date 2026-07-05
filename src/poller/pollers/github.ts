@@ -131,7 +131,8 @@ export function parseRows(html: string): { company: string; title: string; locat
     // The full list is preserved in multiLocation for the UI.
     const multiLoc = parseMultiLocation(locationRaw);
     const location = multiLoc?.locations[0] || stripHtml(locationRaw);
-    const link = extractHref(cells[3]);
+    const applicationCell = cells[cells.length - 2];
+    const link = extractHref(applicationCell);
 
     if (company === '↳') continue; // continuation row for multi-location, skip
     if (!company || !title || company.toLowerCase() === 'company') continue;

@@ -1512,10 +1512,9 @@ test('Emoji badges are stripped from SimplifyJobs titles', () => {
 console.log('\n── SimplifyJobs row parser tests ─────────────────────────');
 
 test('parseRows: extracts a row and prefers the direct ATS link over the simplify fallback', () => {
-  // Mirrors the exact cell shape used in both README.md and README-Off-Season.md:
-  // the Apply cell holds the direct ATS link first, then a simplify.jobs fallback.
-  // The off-season fix relies on parseRows picking the direct link so the ATS
-  // adapter (here Rippling) can discover + poll the board — this is that contract.
+  // Mirrors the 5-column README.md layout: the Apply cell holds the direct ATS
+  // link first, then a simplify.jobs fallback. parseRows must pick the direct
+  // link so the ATS adapter (here Rippling) can discover + poll the board.
   const html = `
 <tr>
 <td><strong><a href="https://rippling.com">Rippling</a></strong></td>
@@ -1532,6 +1531,28 @@ test('parseRows: extracts a row and prefers the direct ATS link over the simplif
   assert.ok(
     rows[0].link.startsWith('https://ats.rippling.com/rippling/jobs/35b3ba25'),
     `expected the direct ATS link, got ${rows[0].link}`,
+  );
+});
+
+test('parseRows: off-season 6-column layout puts Application after the Season column', () => {
+  // README-Off-Season.md inserts a Season column that README.md lacks:
+  // Company | Role | Location | Season | Application | Age. A parser hardcoding
+  // cell 3 reads the season text and returns a blank apply link.
+  const html = `
+<tr>
+<td><strong><a href="https://simplify.jobs/c/Seven-Research?utm_source=GHList&utm_medium=company">Seven Research</a></strong></td>
+<td>Core Developer Intern</td>
+<td>NYC</td>
+<td>Fall 2026</td>
+<td><div align="center"><a href="https://job-boards.greenhouse.io/sevenresearch/jobs/4895047008?utm_source=Simplify&ref=Simplify"><img src="x.png" width="50" alt="Apply"></a> <a href="https://simplify.jobs/p/abc?utm_source=GHList"><img src="y.png" width="26" alt="Simplify"></a></div></td>
+<td>3d</td>
+</tr>`;
+  const rows = parseRows(html);
+  assert.strictEqual(rows.length, 1, 'should parse exactly one row');
+  assert.strictEqual(rows[0].location, 'NYC', 'location must not absorb the season column');
+  assert.ok(
+    rows[0].link.startsWith('https://job-boards.greenhouse.io/sevenresearch/jobs/4895047008'),
+    `expected the apply link from the second-to-last cell, got "${rows[0].link}"`,
   );
 });
 
