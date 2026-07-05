@@ -197,33 +197,40 @@ async function pollWorkday(
     'User-Agent': 'Mozilla/5.0',
   };
 
-  // Two query modes:
-  //   Facet-filtered: server returns ONLY intern roles. Used when wdInternFacets
-  //     has been discovered and is non-empty. Bumped limit since results are
-  //     guaranteed intern-only (rare to have >100).
-  //   SearchText:    server returns up to 20 jobs whose title/desc mentions
-  //     "intern" — mostly false positives (senior eng JDs mentioning interns).
-  //     Used as fallback for tenants whose facets don't include an intern bucket.
-  //
-  // When facets haven't been discovered yet (undefined), we kick a one-time
-  // discovery call here. Subsequent cycles read facets from the sidecar cache.
-  let facets = target.wdInternFacets;
-  if (facets === undefined) {
-    const { data: discoData } = await axios.post(
+  const discoverFacets = async (): Promise<{ [k: string]: string[] }> => {
+    const { data } = await axios.post(
       url,
       { appliedFacets: {}, limit: 1, offset: 0, searchText: '' },
       { timeout: REQUEST_TIMEOUT, headers: wdHeaders },
     );
-    facets = extractInternFacets(discoData);
-    if (facetDiscoveries) facetDiscoveries.set(tenant, facets);
+    return extractInternFacets(data);
+  };
+  const filteredBody = (f: { [k: string]: string[] }) => ({ appliedFacets: f, limit: 100, offset: 0, searchText: '' });
+  const searchTextBody = { appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' };
+  const post = (body: object) => axios.post(url, body, { timeout: REQUEST_TIMEOUT, headers: wdHeaders });
+
+  let facets = target.wdInternFacets;
+  if (facets === undefined) {
+    facets = await discoverFacets();
+    facetDiscoveries?.set(tenant, facets);
   }
-  const hasInternFacets = facets && Object.keys(facets).length > 0;
 
-  const body = hasInternFacets
-    ? { appliedFacets: facets, limit: 100, offset: 0, searchText: '' }
-    : { appliedFacets: {}, limit: 20, offset: 0, searchText: 'intern' };
-
-  const { data } = await axios.post(url, body, { timeout: REQUEST_TIMEOUT, headers: wdHeaders });
+  let data: any;
+  if (facets && Object.keys(facets).length > 0) {
+    try {
+      ({ data } = await post(filteredBody(facets)));
+    } catch (e: any) {
+      if (e?.response?.status !== 400) throw e;
+      const rediscoveredFacets = await discoverFacets();
+      facetDiscoveries?.set(tenant, rediscoveredFacets);
+      const retryBody = Object.keys(rediscoveredFacets).length > 0
+        ? filteredBody(rediscoveredFacets)
+        : searchTextBody;
+      ({ data } = await post(retryBody));
+    }
+  } else {
+    ({ data } = await post(searchTextBody));
+  }
   const postings: any[] = data.jobPostings || [];
   const company = target.name || target.slug;
   const interns = postings.filter((j) => isInternTitle(j.title || ''));
