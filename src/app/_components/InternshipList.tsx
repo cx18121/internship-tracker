@@ -117,7 +117,7 @@ function ColumnHeader({ sortBy }: { sortBy: SortBy }): React.JSX.Element {
         return (
           <span
             key={i}
-            className={`inline-flex items-center gap-0.5 ${mobileHidden ? "hidden md:inline-flex" : ""} ${
+            className={`items-center gap-0.5 ${mobileHidden ? "hidden md:inline-flex" : "inline-flex"} ${
               i === COL_HEADERS.length - 1 ? "justify-self-end" : ""
             } ${active ? "text-white/75" : ""}`}
           >

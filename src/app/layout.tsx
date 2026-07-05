@@ -29,7 +29,7 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <main className="min-h-full overflow-x-hidden overflow-y-auto">{children}</main>
-        <footer className="px-4 py-3 text-right text-xs text-white/25">
+        <footer className="px-4 py-3 text-right text-xs text-white/45">
           built by{" "}
           <a
             href="https://charliexue.com"

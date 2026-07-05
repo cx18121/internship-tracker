@@ -116,7 +116,7 @@ function InternshipRowImpl({
         return (
           <span
             className={`text-[11px] tabular-nums flex items-center gap-1 truncate ${
-              stale ? "text-amber-300/60" : "text-white/45"
+              stale ? "text-amber-300/60" : "text-white/55"
             }`}
             title={stale ? "Posted >30 days ago — may be stale" : undefined}
           >
@@ -129,7 +129,7 @@ function InternshipRowImpl({
           still listed. Desktop-only; mobile already shows Posted in the
           tight 4-col layout. */}
       <span
-        className="hidden md:flex text-[11px] tabular-nums text-white/40 truncate"
+        className="hidden md:flex text-[11px] tabular-nums text-white/55 truncate"
         title={
           item.seenAt
             ? `Last confirmed by poller ${timeAgo(item.seenAt)}`
@@ -140,13 +140,13 @@ function InternshipRowImpl({
       </span>
 
       {/* Actions */}
-      <div className="flex items-center gap-1 justify-self-end">
+      <div className="flex items-center gap-2 md:gap-1 justify-self-end">
         <a
           href={item.link}
           target="_blank"
           rel="noopener noreferrer"
           aria-label={`Apply to ${item.title} at ${item.company}`}
-          className="inline-flex items-center gap-1 h-6 px-2 rounded text-[11px] font-medium bg-white/10 hover:bg-white/20 text-white/85 transition-colors"
+          className="inline-flex items-center gap-1 h-8 md:h-6 px-2 rounded text-[11px] font-medium bg-white/10 hover:bg-white/20 text-white/85 transition-colors"
         >
           <ExternalLink className="h-3 w-3" />
           <span className="hidden md:inline">Apply</span>
@@ -159,7 +159,7 @@ function InternshipRowImpl({
               aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
               aria-pressed={item.applied}
               aria-busy={pending}
-              className={`h-6 w-6 inline-flex items-center justify-center rounded transition-colors disabled:opacity-50 disabled:cursor-wait ${
+              className={`h-8 w-8 md:h-6 md:w-6 inline-flex items-center justify-center rounded transition-colors disabled:opacity-50 disabled:cursor-wait ${
                 item.applied
                   ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
                   : "bg-transparent text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
@@ -176,7 +176,7 @@ function InternshipRowImpl({
               disabled={pending}
               aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
               aria-pressed={item.hidden ?? false}
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-white/30 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
+              className="inline-flex h-8 w-8 md:h-6 md:w-6 items-center justify-center rounded text-white/45 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
               title={item.hidden ? "Unhide this posting" : "Hide this posting"}
             >
               {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}

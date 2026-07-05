@@ -605,7 +605,7 @@ export default function InternshipsPage() {
         <div className="flex items-center justify-between gap-3 px-5 py-2.5">
           <div className="flex items-center gap-3 min-w-0">
             <Briefcase className="h-4 w-4 text-white/60 shrink-0" />
-            <h1 className="text-[13px] font-semibold text-white tracking-tight truncate">
+            <h1 className="text-[13px] font-semibold text-white tracking-tight shrink-0">
               Internships
             </h1>
             <StatusPill
@@ -757,7 +757,7 @@ export default function InternshipsPage() {
                   }}
                   placeholder="Search company, title, location…"
                   aria-label="Search postings"
-                  className="w-full h-7 pl-7 pr-7 rounded-md bg-white/[0.04] border border-white/10 text-[12px] text-white/85 placeholder:text-white/35 focus:outline-none focus:border-white/25 focus:bg-white/[0.06] transition-colors"
+                  className="w-full h-7 pl-7 pr-7 rounded-md bg-white/[0.04] border border-white/10 text-[12px] text-white/85 placeholder:text-white/50 focus:outline-none focus:border-white/25 focus:bg-white/[0.06] transition-colors"
                 />
                 {searchText ? (
                   <button
@@ -787,13 +787,13 @@ export default function InternshipsPage() {
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] transition-colors ${
                         active
                           ? "bg-white/15 text-white"
-                          : "text-white/45 hover:text-white/70"
+                          : "text-white/55 hover:text-white/70"
                       }`}
                     >
                       <span>{tab === "not-applied" ? "Open" : tab === "applied" ? "Applied" : "All"}</span>
                       <span
                         className={`tabular-nums text-[10px] ${
-                          active ? "text-white/65" : "text-white/35"
+                          active ? "text-white/65" : "text-white/55"
                         }`}
                       >
                         {count.toLocaleString()}
@@ -811,7 +811,7 @@ export default function InternshipsPage() {
                     className={`px-2.5 py-1 rounded text-[11px] transition-colors ${
                       dateWindow === w.value
                         ? "bg-white/15 text-white"
-                        : "text-white/45 hover:text-white/70"
+                        : "text-white/55 hover:text-white/70"
                     }`}
                   >
                     {w.label}
@@ -820,7 +820,7 @@ export default function InternshipsPage() {
               </div>
 
               <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-white/40">Sort</span>
+                <span className="text-[10px] uppercase tracking-[0.08em] text-white/55">Sort</span>
                 <Select value={sortBy} onValueChange={(v) => v && setSortBy(v as SortBy)}>
                   <SelectTrigger
                     size="sm"
@@ -835,14 +835,14 @@ export default function InternshipsPage() {
                 </Select>
               </div>
 
-              <span className="ml-auto text-[11px] text-white/45 tabular-nums">
+              <span className="ml-auto text-[11px] text-white/55 tabular-nums">
                 {loading ? "…" : `${filtered.length.toLocaleString()} listing${filtered.length !== 1 ? "s" : ""}`}
                 {activeFilterCount > 0 && !loading && (
-                  <span className="text-white/45"> · filtered</span>
+                  <span className="text-white/55"> · filtered</span>
                 )}
                 {hiddenCount > 0 && !loading && (
                   <>
-                    <span className="text-white/30"> · </span>
+                    <span className="text-white/45"> · </span>
                     <button
                       onClick={() => setShowHidden((v) => !v)}
                       className="inline-flex items-center gap-1 text-white/55 hover:text-white/85 transition-colors normal-nums underline-offset-4 hover:underline"

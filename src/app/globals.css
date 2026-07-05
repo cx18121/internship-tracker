@@ -71,7 +71,7 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0.005 260 / 10%);
   --input: oklch(1 0.005 260 / 15%);
-  --ring: oklch(0.50 0.02 260);
+  --ring: oklch(0.72 0.05 260);
 
   /* DESIGN.md semantic tokens. Use these for new code; shadcn vars above
      stay for legacy components until they're touched. */

@@ -139,7 +139,7 @@ export function EmptyState({
         <p className="text-[14px] text-white/70 font-medium">
           {hasActiveFilters ? "Nothing matches these filters." : "No postings yet."}
         </p>
-        <p className="text-[12px] text-white/45 max-w-sm">
+        <p className="text-[12px] text-white/55 max-w-sm">
           {hasActiveFilters
             ? "Try widening the time window, lowering the min-score, or clearing a chip you forgot."
             : "The tracker polls every 15 minutes. Postings will appear here as sources return data."}
