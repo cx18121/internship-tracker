@@ -1627,6 +1627,22 @@ test('applyFilterSpec: season gate honors the i.season token, falling back to th
   assert.strictEqual(applyFilterSpec(base, {}), true, 'an empty spec gates nothing');
 });
 
+test('enrichForStorage forwards an explicit season instead of defaulting from the title', () => {
+  const row = enrichForStorage(
+    { title: 'Core Developer Intern', company: 'Seven Research', link: 'https://x/1', source: 'SimplifyJobs', season: ['fall-2026'] },
+    '2026-07-05T00:00:00.000Z',
+  );
+  assert.deepStrictEqual(row.season, ['fall-2026'], 'the off-season Season column must survive ingestion, not fall to the title default');
+});
+
+test('applyHardFilters uses the explicit season token for expiry, not just the title', () => {
+  const expired = applyHardFilters({ title: 'Software Engineer Intern', location: 'NYC', season: ['winter-2024'] });
+  assert.strictEqual(expired.passed, false, 'a past-season token must be dropped even when the title carries no season');
+  assert.strictEqual(expired.reason, 'expired_season');
+  const live = applyHardFilters({ title: 'Software Engineer Intern', location: 'NYC', season: ['fall-2027'] });
+  assert.strictEqual(live.passed, true, 'a future-season token must pass');
+});
+
 console.log('\n── Season expiry tests ───────────────────────────────────');
 
 test('parseSeason: distributes a shared year across an adjacent season run', () => {

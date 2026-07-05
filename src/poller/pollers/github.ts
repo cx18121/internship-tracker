@@ -118,7 +118,7 @@ export function parseRows(html: string): { company: string; title: string; locat
       cells.push(tdMatch[1].trim());
     }
 
-    if (cells.length < 4) continue;
+    if (cells.length < 5) continue;
 
     const company = stripHtml(cells[0]);
     const title = stripEmojiPrefix(stripHtml(cells[1])).trim();

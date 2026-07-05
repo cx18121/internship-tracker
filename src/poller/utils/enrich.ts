@@ -47,6 +47,7 @@ export function enrichForStorage(p: Partial<Internship>, now: string): Internshi
       source: p.source || 'Unknown',
       upstreamPostedAt: p.postedAt,
       seenAt: now,
+      season: p.season,
     }),
     id: md5(`${company}${p.title || ''}${stripUtm(p.link || '')}`),
     description: smartTrimDescription(p.description) || undefined,

@@ -219,7 +219,8 @@ async function pollWorkday(
       );
       const batch: any[] = data.jobPostings || [];
       all.push(...batch);
-      if (batch.length < WD_PAGE || all.length >= (data.total ?? all.length)) return all;
+      if (batch.length < WD_PAGE) return all;
+      if (data.total != null && all.length >= data.total) return all;
     }
     console.warn(`[ats] ${company} (workday): hit ${WD_MAX_POSTINGS}-posting cap; results may be incomplete`);
     return all;

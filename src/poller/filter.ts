@@ -1,7 +1,7 @@
 import { Internship } from '../lib/types';
 import { classifyLocation } from './iso-locations';
 import { INTERN_SIGNAL_RE } from './utils/intern-signal';
-import { isExpiredSeasonTitle } from '../lib/seasons';
+import { isExpiredSeasonTokens, deriveSeasonWithDefault } from '../lib/seasons';
 
 const PHD_MASTERS_PATTERNS = [
   '🎓', 'phd', 'ph.d', 'doctoral', 'masters required', 'ms required',
@@ -113,7 +113,7 @@ const RULES: readonly Rule[] = [
   // Runs last: only an otherwise-valid SWE intern role gets tagged 'expired_season',
   // so the count reflects genuinely-missed roles rather than e.g. expired non-SWE.
   // The off-season list carries many past cycles (Summer 2024, Winter 2026, …).
-  { reason: 'expired_season', rejects: ({ internship }) => isExpiredSeasonTitle(internship.title) },
+  { reason: 'expired_season', rejects: ({ internship }) => isExpiredSeasonTokens(internship.season ?? deriveSeasonWithDefault(internship.title)) },
 ];
 
 export function applyHardFilters(internship: Partial<Internship>): FilterResult {
