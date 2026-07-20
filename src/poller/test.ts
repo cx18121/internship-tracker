@@ -7,7 +7,7 @@ import { isExpiredSeasonTitle, parseSeason } from '../lib/seasons';
 import { scoreInternship } from '../lib/scorer';
 import { deduplicateAndStore, archiveStalePostings, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store';
 import type { Internship } from '../lib/types';
-import { extractInternFacets } from '../poller/pollers/ats';
+import { extractInternFacets, workdayBoardUrl } from '../poller/pollers/ats';
 import { parseRows } from '../poller/pollers/github';
 import { normalizeKey } from '../lib/normalize-key';
 import { archiveDisappeared } from '../poller/pollers/portal-scanner';
@@ -544,6 +544,24 @@ test('extractInternFacets matches "Co-op" and "Internship" variants', () => {
   };
   const r = extractInternFacets(response);
   assert.deepStrictEqual(r, { jobFamilyGroup: ['1', '2'] });
+});
+
+test('workdayBoardUrl roots jobs-variant links at the board, not the host', () => {
+  const url = workdayBoardUrl('capitalone.wd12.myworkdayjobs.com', 'capitalone', 'Capital_One', false);
+  assert.strictEqual(url, 'https://capitalone.wd12.myworkdayjobs.com/Capital_One');
+  assert.strictEqual(
+    `${url}/job/McLean-VA/Data-Analyst-Intern---Summer-2027_R244317-1`,
+    'https://capitalone.wd12.myworkdayjobs.com/Capital_One/job/McLean-VA/Data-Analyst-Intern---Summer-2027_R244317-1',
+  );
+});
+
+test('workdayBoardUrl keeps the /recruiting prefix for site-variant links', () => {
+  const url = workdayBoardUrl('wd3.myworkdaysite.com', 'magna', 'Magna', true);
+  assert.strictEqual(url, 'https://wd3.myworkdaysite.com/recruiting/magna/Magna');
+  assert.strictEqual(
+    `${url}/job/Southfield-Michigan-US/Intern---Engineering_R00235414`,
+    'https://wd3.myworkdaysite.com/recruiting/magna/Magna/job/Southfield-Michigan-US/Intern---Engineering_R00235414',
+  );
 });
 
 test('extractInternFacets ignores facet parameters outside the allowlist', () => {

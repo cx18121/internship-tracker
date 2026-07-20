@@ -120,6 +120,19 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
   return results;
 }
 
+// Public job URLs are rooted at the board, not the host: externalPath ("/job/…")
+// is relative to it. Site-variant boards additionally sit under /recruiting/.
+export function workdayBoardUrl(
+  baseHost: string,
+  tenant: string,
+  board: string,
+  isSiteVariant: boolean,
+): string {
+  return isSiteVariant
+    ? `https://${baseHost}/recruiting/${tenant}/${board}`
+    : `https://${baseHost}/${board}`;
+}
+
 async function fetchWorkdayDescription(
   baseHost: string,
   tenant: string,
@@ -267,7 +280,7 @@ async function pollWorkday(
       title: j.title || '',
       company,
       location,
-      link: `https://${baseHost}${j.externalPath}`,
+      link: `${workdayBoardUrl(baseHost, tenant, board, isSiteVariant)}${j.externalPath}`,
       source: 'Workday',
       seenAt: now,
       description: descriptions.get(j.externalPath),
@@ -453,9 +466,7 @@ async function pollWorkdayPlaywright(
     // Site-variant board pages require the /recruiting/ prefix; without it
     // the page 404s and no CSRF cookie is provisioned. The direct CXS API
     // path (apiPath) does NOT need that prefix.
-    const boardUrl = isSiteVariant
-      ? `https://${baseHost}/recruiting/${tenant}/${board}`
-      : `https://${baseHost}/${board}`;
+    const boardUrl = workdayBoardUrl(baseHost, tenant, board, isSiteVariant);
     const apiPath = `/wday/cxs/${tenant}/${board}/jobs`;
 
     const page = await browser.newPage();
@@ -529,7 +540,7 @@ async function pollWorkdayPlaywright(
           title: j.title || '',
           company,
           location,
-          link: `https://${baseHost}${j.externalPath}`,
+          link: `${boardUrl}${j.externalPath}`,
           source: 'Workday',
           seenAt: now,
           description: descriptions.get(j.externalPath),
