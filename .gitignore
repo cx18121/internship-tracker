@@ -22,6 +22,7 @@ next-env.d.ts.bak
 data/handshake-auth.json
 data/notif-settings.json
 data/source-alerts.json
+data/resume.pdf
 
 # Poller runtime artifacts (drift every cycle, not source of truth)
 data/internships.json
