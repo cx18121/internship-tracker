@@ -1,11 +1,7 @@
 import type { Internship } from "@/lib/types";
 
-// Allowlist of fields the list view + its external consumer
-// (src/poller/scripts/find-ats-links-daily.ts: id/title/company/link)
-// actually read. Everything else — notably `description` (multi-KB per
-// row, hidden from the UI), the numeric salary fields, and `isNew` — is
-// dropped from the list payload to keep transfer/parse cheap as the
-// corpus grows.
+// Fields the list view reads. `description` is multi-KB per row and hidden
+// from the UI, so it and the other unused fields are dropped from the payload.
 export const LIST_FIELDS = [
   "id", "title", "company", "location", "link", "source",
   "postedAt", "seenAt", "score", "scoreLabel", "matchedKeywords",
@@ -14,11 +10,10 @@ export const LIST_FIELDS = [
 
 export type ListItem = Pick<Internship, (typeof LIST_FIELDS)[number]>;
 
-/** Project a storage Internship down to the list-view allowlist. */
 export function pickListFields(i: Internship): ListItem {
-  const out = {} as Record<string, unknown>;
+  const out: Partial<ListItem> = {};
   for (const f of LIST_FIELDS) {
-    if (i[f] !== undefined) out[f] = i[f];
+    if (i[f] !== undefined) (out as Record<string, unknown>)[f] = i[f];
   }
   return out as ListItem;
 }

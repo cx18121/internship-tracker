@@ -1,20 +1,6 @@
-// Shared filter chain — applied by both the app's table filter
-// (page.tsx) and the notifier's Discord push gate (poller/notifier.ts).
-// Before this module each side had its own inline chain of ~8 predicates
-// (tier / seasons / applied / hidden / sources / keywords / roles); a
-// change to the tier semantic on one side never reached the other.
-//
-// FilterSpec declares every shared predicate as an optional field; each
-// caller passes the subset it cares about. Predicates that are genuinely
-// caller-specific (the app's free-text search and substring location;
-// the notifier's classifyLocation-based non-US gate) stay inline at the
-// call site — they aren't worth widening the shared interface for.
-//
-// Supersedes ADR-0002, which deferred this extraction. The trigger that
-// flipped the call: the notifier grew its own chain that mirrored the
-// app's, so the "page.tsx is the most-edited file" risk argument no
-// longer applied — two call sites now share the maintenance burden, not
-// one.
+// Shared filter chain applied by both the app's table filter and the
+// notifier's Discord gate. FilterSpec declares every shared predicate as an
+// optional field; each caller passes the subset it cares about.
 
 import { isElite, isTopOrBetter, isSolidOrBetter } from './tiers';
 import { parseSeason } from './seasons';

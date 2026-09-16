@@ -54,13 +54,9 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
 
 export async function sendBatchAlert(
   newInternships: Internship[],
-  scoreThresholdFallback: number
 ): Promise<{ ok: boolean; sentCount: number }> {
-  // notif-settings.json is the user-editable source of truth for all four
-  // notification gates (score, tier, seasons, source-down). The caller's
-  // `scoreThresholdFallback` is used only when the file is missing/invalid.
   const settings = loadNotifSettings();
-  const effectiveMinScore = settings.minScore ?? scoreThresholdFallback;
+  const effectiveMinScore = settings.minScore;
 
   const eligible = newInternships
     .filter(i => (i.score ?? 0) >= effectiveMinScore)
@@ -99,9 +95,6 @@ export async function sendBatchAlert(
     channels.sms ? sendSmsAlert(live, settings.phoneNumbers ?? []) : Promise.resolve(false),
   ]);
 
-  // sentCount = postings that actually went out via at least one channel.
-  // (Pre-fix: caller computed "rows above scoreThreshold" which overreports
-  // because tier/season/dead-link drops happen after that.)
   return { ok: channelResults.some(Boolean), sentCount: channelResults.some(Boolean) ? live.length : 0 };
 }
 

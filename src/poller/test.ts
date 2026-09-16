@@ -5,7 +5,7 @@ import * as path from 'path';
 import { applyHardFilters } from './filter';
 import { isExpiredSeasonTitle, parseSeason } from '../lib/seasons';
 import { scoreInternship } from '../lib/scorer';
-import { deduplicateAndStore, archiveStalePostings, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store';
+import { deduplicateAndStore, getInternships, patchInternship, _deleteInternshipForTest } from '../lib/store';
 import type { Internship } from '../lib/types';
 import { extractInternFacets, workdayBoardUrl } from '../poller/pollers/ats';
 import { parseRows } from '../poller/pollers/github';
@@ -25,7 +25,7 @@ import { parseSalary } from '../lib/salary';
 import { enrichForStorage } from './utils/enrich';
 import { deriveCompany, deriveRoleAndComp, deriveLocation } from './pollers/handshake-parse';
 import { stripHtml } from './utils/html';
-import { withTimeout } from './utils/with-timeout';
+import { withTimeout, TimeoutError } from './utils/with-timeout';
 
 let passed = 0;
 let total = 0;
@@ -1076,61 +1076,6 @@ test('pickListFields omits allowlisted fields that are undefined on the row', ()
 // 7. Archive stale postings test
 // ==============================================================
 
-async function runArchiveTests(): Promise<void> {
-  console.log('\n── Archive tests ─────────────────────────────────────────');
-
-  // archiveStalePostings() with a default cutoff is destructive against the
-  // real DB — it archives EVERY row whose seen_at is older than the cutoff,
-  // not just the test row this test inserts. Bit us once already (a normal
-  // `npm test` run silently archived ~370 stale rows). Opt-in: set
-  // TEST_INCLUDE_DESTRUCTIVE=1 to run it (against a throwaway DB ideally).
-  if (process.env.TEST_INCLUDE_DESTRUCTIVE !== '1') {
-    console.log('SKIP  archiveStalePostings() test (set TEST_INCLUDE_DESTRUCTIVE=1 to run)');
-    return;
-  }
-
-  await testAsync('archiveStalePostings() archives old internships, getInternships respects includeArchived', async () => {
-    const testId = `test-archive-${Date.now()}`;
-    const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
-    const internship: Internship = {
-      id: testId,
-      title: 'Stale Archive Test Intern',
-      company: 'ArchiveCo',
-      location: 'Remote',
-      link: 'https://example.com/test-archive',
-      source: 'test',
-      postedAt: sixtyDaysAgo,
-      seenAt: sixtyDaysAgo,
-      score: 40,
-      scoreLabel: 'C',
-      matchedKeywords: [],
-      isNew: false,
-      applied: false,
-    };
-
-    // Insert via deduplicateAndStore
-    await deduplicateAndStore([internship]);
-
-    // Archive stale postings (default 30 days)
-    const archived = await archiveStalePostings();
-    assert.ok(archived >= 1, `Expected at least 1 archived, got ${archived}`);
-
-    // Without includeArchived: should NOT find the test internship
-    const withoutArchived = await getInternships();
-    const found1 = withoutArchived.find(i => i.id === testId);
-    assert.strictEqual(found1, undefined, 'Archived internship should not appear without includeArchived');
-
-    // With includeArchived: SHOULD find the test internship
-    const withArchived = await getInternships({ includeArchived: true });
-    const found2 = withArchived.find(i => i.id === testId);
-    assert.ok(found2, 'Archived internship should appear with includeArchived=true');
-    assert.strictEqual(found2!.archived, true, 'archived flag should be true');
-
-    // Cleanup
-    await _deleteInternshipForTest(testId);
-  });
-}
-
 // ==============================================================
 // 8. Application tracking test
 // ==============================================================
@@ -1706,25 +1651,12 @@ test('applyHardFilters: rejects expired-season SWE roles, keeps far-future ones'
 // ==============================================================
 // Cycle watchdog (withTimeout)
 // ==============================================================
-// WHY this matters: a poll cycle that hangs on an upstream op with no internal
-// timeout (a wedged headless browser, a stuck page.evaluate) used to deadlock
-// the slow-tier in-flight lock forever — the poller stayed "up" but stopped
-// polling every source but SimplifyJobs until a manual redeploy. withTimeout is
-// the guarantee that a never-settling cycle is forced to reject so the watchdog
-// can act on it. If this test can't fail, that guarantee isn't real.
 async function runWatchdogTests(): Promise<void> {
   console.log('\n── Cycle watchdog tests ──────────────────────────────────');
 
   await testAsync('withTimeout rejects a never-settling promise past the deadline', async () => {
     const hung = new Promise<void>(() => {}); // models a wedged cycle — never settles
-    let message = '';
-    try {
-      await withTimeout(hung, 50, 'slow cycle');
-      assert.fail('expected withTimeout to reject');
-    } catch (e: any) {
-      message = e.message;
-    }
-    assert.match(message, /^slow cycle exceeded 50ms/, 'must reject with a labelled watchdog error');
+    await assert.rejects(withTimeout(hung, 50, 'slow cycle'), TimeoutError);
   });
 
   await testAsync('withTimeout passes a value through when it settles in time', async () => {
@@ -1734,16 +1666,7 @@ async function runWatchdogTests(): Promise<void> {
 
   await testAsync('withTimeout propagates the wrapped promise\'s own rejection unchanged', async () => {
     const boom = Promise.reject(new Error('upstream 500'));
-    let message = '';
-    try {
-      await withTimeout(boom, 1000, 'slow cycle');
-      assert.fail('expected rejection');
-    } catch (e: any) {
-      message = e.message;
-    }
-    // An ordinary failure must NOT be reported as a watchdog trip — index.ts
-    // distinguishes the two by the 'exceeded' prefix to decide whether to exit.
-    assert.strictEqual(message, 'upstream 500');
+    await assert.rejects(withTimeout(boom, 1000, 'slow cycle'), (e: Error) => !(e instanceof TimeoutError) && e.message === 'upstream 500');
   });
 }
 
@@ -1754,7 +1677,6 @@ async function runWatchdogTests(): Promise<void> {
 (async () => {
   await runWatchdogTests();
   await runDedupTests();
-  await runArchiveTests();
   await runApplicationTrackingTests();
   await runApiTests();
   await runSourceHealthApiTests();

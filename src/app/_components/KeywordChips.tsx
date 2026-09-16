@@ -5,11 +5,8 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-// Shared chip-input control for the include/exclude keyword filters that
-// appear in both the FilterRail (advanced section) and the NotifModal
-// (notification gates). Before this both surfaces carried near-identical
-// inline copies of the input + add-button + chip-row + amber-dim-unknowns
-// pattern; behavior drift between them was a real risk.
+// Chip-input control for the include/exclude keyword filters in FilterRail
+// and NotifModal.
 //
 // Input state is owned internally — consumers only manage the committed
 // `values` array. Enter or the Add button promotes the input into a chip;

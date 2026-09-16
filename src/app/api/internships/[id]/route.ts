@@ -4,39 +4,16 @@ import type { Internship } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-// Whitelist of fields a PATCH may set. Anything not listed here is silently
-// dropped — extend deliberately. `archivedLink` is intentionally NOT here:
-// it has no column in the store; the daily ATS-link script sends it as a
-// hint but we don't persist it.
-const ALLOWED = [
-  "applied",
-  "isNew",
-  "appliedAt",
-  "applicationUrl",
-  "applicationStatus",
-  "hidden",
-  "link",
-] as const;
+// Fields a PATCH may set. `link` is kept for external tooling that repairs
+// apply URLs. Each validator returns the coerced value or INVALID.
+const ALLOWED = ["applied", "appliedAt", "hidden", "link"] as const;
 
-// Per-field validators. Each returns the coerced value on success or the
-// `INVALID` sentinel on failure so the route can return 400 with the
-// offending field name. Centralised here (not in the store) because input
-// validation is an API-layer concern — internal callers of patchInternship
-// already provide typed values.
 const INVALID = Symbol("invalid");
+const MAX_URL_LEN = 2048;
 
 function isISODateString(v: string): boolean {
-  // Accept full ISO 8601 (with or without ms) — what new Date().toISOString() produces.
-  if (typeof v !== "string") return false;
-  const d = new Date(v);
-  return !Number.isNaN(d.getTime()) && /^\d{4}-\d{2}-\d{2}T/.test(v);
+  return /^\d{4}-\d{2}-\d{2}T/.test(v) && !Number.isNaN(new Date(v).getTime());
 }
-
-// Length caps so a malformed/malicious client (even an owner one) can't
-// silently bloat a row with megabytes of text. URLs above 2KB are well past
-// what any real ATS produces; statuses are short freeform strings.
-const MAX_URL_LEN = 2048;
-const MAX_STATUS_LEN = 200;
 
 function isHttpUrl(v: string): boolean {
   try {
@@ -49,21 +26,10 @@ function isHttpUrl(v: string): boolean {
 
 const validators: Record<(typeof ALLOWED)[number], (v: unknown) => unknown | typeof INVALID> = {
   applied: (v) => (typeof v === "boolean" ? v : INVALID),
-  isNew: (v) => (typeof v === "boolean" ? v : INVALID),
   hidden: (v) => (typeof v === "boolean" ? v : INVALID),
   appliedAt: (v) => {
     if (v === null) return undefined;
     return typeof v === "string" && isISODateString(v) ? v : INVALID;
-  },
-  applicationUrl: (v) => {
-    if (v === null) return undefined;
-    if (typeof v !== "string" || v.length > MAX_URL_LEN || !isHttpUrl(v)) return INVALID;
-    return v;
-  },
-  applicationStatus: (v) => {
-    if (v === null) return undefined;
-    if (typeof v !== "string" || v.length > MAX_STATUS_LEN) return INVALID;
-    return v;
   },
   link: (v) => {
     if (typeof v !== "string" || v.length === 0 || v.length > MAX_URL_LEN || !isHttpUrl(v)) return INVALID;

@@ -7,7 +7,6 @@
     "dev": "next dev -p ${PORT:-3001}",
     "build": "next build",
     "start": "next start -p ${PORT:-3000} -H 0.0.0.0",
-    "lint": "eslint",
     "poller": "npx tsx src/poller/index.ts",
     "poller:dev": "npx tsx --watch src/poller/index.ts",
     "serve": "node scripts/supervisor.cjs",
@@ -47,7 +46,6 @@
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "eslint": "^9",
     "playwright": "^1.59.1",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.7.3"

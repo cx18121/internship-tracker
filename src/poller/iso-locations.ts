@@ -56,8 +56,7 @@ const US_STATE_NAMES = new Set<string>([
 // type into job postings ("United Kingdom", "Russia", "South Korea",
 // "Ivory Coast") is the `common` name; alt spellings carry historical
 // and variant forms ("Burma" for Myanmar, "Holy See" for Vatican City,
-// "Great Britain" for the UK). Pulling all three eliminates the
-// hand-maintained alias list this module used to carry.
+// "Great Britain" for the UK).
 function canonicalize(s: string): string {
   return s
     .replace(/\s*\([^)]*\)/g, '') // strip parentheticals like "Taiwan (Province of China)"

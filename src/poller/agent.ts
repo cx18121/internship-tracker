@@ -218,14 +218,8 @@ export async function runCycle(opts: { tier?: CycleTier } = {}): Promise<CycleSt
     },
   });
 
-  // Send notifications. notif-settings.json (user-edited in the UI) is the
-  // source of truth for minScore; SCORE_THRESHOLD env is the legacy fallback.
-  const envThreshold = parseInt(process.env.SCORE_THRESHOLD || '50', 10);
   if (newInternships.length > 0) {
-    // stats.sent now reflects postings that actually went out — the notifier
-    // also drops on tier/season/dead-link filters, so the old caller-side
-    // "rows above scoreThreshold" overreported.
-    const { sentCount } = await sendBatchAlert(newInternships, envThreshold);
+    const { sentCount } = await sendBatchAlert(newInternships);
     stats.sent = sentCount;
   }
 

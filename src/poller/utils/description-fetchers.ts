@@ -1,10 +1,5 @@
-// Description fetching by ATS — used both by ats.ts (when polling an ATS
-// board directly and following up for the per-posting description) and by
-// github.ts (when only an apply link is known and we need to dispatch to
-// the right ATS based on URL pattern). Before this module, both files
-// carried independent copies of the per-ATS extraction logic; the Ashby
-// `__appData` regex was duplicated verbatim, the Lever `descriptionPlain`
-// fallback was duplicated, and a fix to one would silently miss the other.
+// Description fetching by ATS, used by ats.ts (polling a board directly) and
+// github.ts (dispatching on an apply link's URL pattern).
 //
 // Exported in two layers:
 //   - `extract*` helpers — pure transforms over an already-fetched response,

@@ -31,11 +31,6 @@ export function containsPhrase(haystack: string[], needle: string[]): boolean {
   return false;
 }
 
-/** Convenience wrapper — tokenize+stem both sides, then phrase match. */
-export function matchesKeyword(text: string, keyword: string): boolean {
-  return containsPhrase(tokenize(text), tokenize(keyword));
-}
-
 /**
  * Company-name match: single-token entries anchor to the start of the
  * company name; multi-token entries match anywhere as a phrase. Stops

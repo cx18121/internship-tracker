@@ -1,12 +1,6 @@
-// HTML-to-plain-text helpers used by every poller that pulls a description
-// from an upstream ATS (Greenhouse/Lever/Ashby/Workday/SmartRecruiters) or
-// from a scraped README cell. Two divergent copies lived in github.ts and
-// ats.ts before this; the github copy handled numeric entities but lost the
-// whitespace-collapse, the ats copy collapsed whitespace but ignored numeric
-// entities. Frontends render `description` with `whitespace-pre-wrap`, so
-// preserving newlines is the right default — callers that want a single
-// line can post-process. Tags become a single space (safer than empty:
-// `<span>a</span><span>b</span>` stays "a b" instead of collapsing to "ab").
+// HTML-to-plain-text helpers for upstream descriptions. The UI renders
+// `description` with `whitespace-pre-wrap`, so newlines are preserved. Tags
+// become a single space so `<span>a</span><span>b</span>` stays "a b".
 
 /** Decode HTML entities — named, decimal numeric, and hex numeric. */
 export function decodeHtmlEntities(str: string): string {

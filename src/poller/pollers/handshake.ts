@@ -17,9 +17,7 @@ import { closeBrowserSafely, closeContextSafely } from '../utils/browser';
 // healthy DOM read — it only trips on a genuinely stuck page.
 const evalGuard = <T>(p: Promise<T>): Promise<T> => withTimeout(p, 30_000, 'handshake page.evaluate');
 
-function alertAuthExpired(): void {
-  console.warn('[handshake] Session expired — re-run: npx tsx src/handshake-login.ts');
-}
+const LOGIN_HINT = 'run: npm run handshake:login';
 
 const AUTH_PATH = path.join(process.cwd(), 'data', 'handshake-auth.json');
 
@@ -37,8 +35,7 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
 
     // Check we're logged in (not redirected to login)
     if (page.url().includes('login') || page.url().includes('sign_in')) {
-      console.warn('[handshake poller] Session expired — run: npx tsx src/handshake-login.ts');
-      alertAuthExpired();
+      console.warn(`[handshake poller] Session expired — ${LOGIN_HINT}`);
       await page.close();
       return [];
     }
@@ -100,8 +97,6 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
           row.salaryUnit = sal.unit ?? undefined;
         }
         if (!company) needCompanyBackfill++;
-        // Carry jobId so the detail-page pass can backfill company by id.
-        (row as Partial<Internship> & { _jobId?: string })._jobId = raw.jobId;
         results.push(row);
       }
       console.log(`[handshake poller] Page ${pageNum}: ${rawCards.length} cards (${needCompanyBackfill} need company backfill)`);
@@ -159,7 +154,7 @@ async function enrichWithDetailLinks(
       // Card anchors point to /job-search/{id}, which renders the listing
       // SPA with a small sidebar — no <data-hook="job-details-page">
       // wrapper, no real description text. The dedicated detail view at
-      // /jobs/{id} has both. Verified via probe on 2026-05-22.
+      // /jobs/{id} has both.
       const detailUrl = job.link.replace(/\/job-search\/(\d+)/, '/jobs/$1');
       await page.goto(detailUrl, { waitUntil: 'domcontentloaded', timeout: 15000 });
       // Detail page is a React SPA; the description block is injected via
@@ -193,14 +188,7 @@ async function enrichWithDetailLinks(
         // subsections, and take the remaining text. The detail-root is
         // bounded to job-specific content — no site nav/footer to pollute
         // the way the old `body p` fallback did, so this is safe.
-        //
-        // Tried two narrower strategies first (Description: prefix; longest
-        // single <p>) — both missed on 3/5 sample postings because
-        // Handshake's detail layout varies: some employers get rendered
-        // with a "Description:" header, others get raw <p> tags, others
-        // split job-body across non-<p> divs.
         let description = '';
-        let descSelectorHit = '';
         const detailRoot = document.querySelector('[data-hook="job-details-page"]') as HTMLElement | null;
         if (detailRoot) {
           // Clone so we can prune subtrees without mutating the live DOM.
@@ -221,10 +209,7 @@ async function enrichWithDetailLinks(
             (target ?? el).remove();
           });
           const text = (clone.textContent || '').trim();
-          if (text.length > 100) {
-            description = text;
-            descSelectorHit = 'job-details-page (apply-modal + similar-jobs stripped)';
-          }
+          if (text.length > 100) description = text;
         }
         description = description.replace(/\s+/g, ' ').trim();
         // Handshake's mobile-app promo banner sits inside the same data-hook
@@ -239,13 +224,13 @@ async function enrichWithDetailLinks(
         description = description.slice(0, 20_000);
 
         // Employer name fallback for logoless cards: the detail page's
-        // employer logo alt is "{Company} logo" (recon 2026-06-04). Strip the
-        // trailing " logo". Scoped to the details root to avoid similar-jobs.
+        // employer logo alt is "{Company} logo". Scoped to the details root
+        // to avoid similar-jobs.
         let employerName = '';
         const detailImg = (document.querySelector('[data-hook="job-details-page"] img[alt]') as HTMLImageElement | null);
         if (detailImg?.alt) employerName = detailImg.alt.replace(/\s*logo\s*$/i, '').trim();
 
-        return { externalLink, description, descSelectorHit, employerName };
+        return { externalLink, description, employerName };
       }, { patterns: EXTERNAL_ATS_PATTERNS, bannerSource: HANDSHAKE_PROMO_BANNER_SOURCE }));
 
       if (detail.externalLink) {
@@ -281,7 +266,7 @@ async function enrichWithDetailLinks(
 
 export async function pollHandshake(): Promise<Partial<Internship>[]> {
   if (!fs.existsSync(AUTH_PATH)) {
-    console.warn('[handshake poller] No saved session — run: npx tsx src/handshake-login.ts');
+    console.warn(`[handshake poller] No saved session — ${LOGIN_HINT}`);
     return [];
   }
 
@@ -310,15 +295,13 @@ export async function pollHandshake(): Promise<Partial<Internship>[]> {
     await closeContextSafely(context, 'handshake');
 
     // Drop any row that still lacks a company (logoless card not in the
-    // enriched batch, or detail-page fallback also missed) — never store
-    // garbage. Strip the temp _jobId so it never reaches storage.
+    // enriched batch, or detail-page fallback also missed).
     const beforeDrop = results.length;
     const cleaned = results.filter((r) => (r.company || '').trim().length > 0);
     const droppedNoCompany = beforeDrop - cleaned.length;
     if (droppedNoCompany > 0) {
       console.warn(`[handshake poller] Dropped ${droppedNoCompany} card(s) with no resolvable company`);
     }
-    cleaned.forEach((r) => { delete (r as Partial<Internship> & { _jobId?: string })._jobId; });
 
     // Auto-discover new ATS targets from extracted links
     const discovered = cleaned

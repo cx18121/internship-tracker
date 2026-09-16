@@ -1,8 +1,7 @@
 // Pure derivation of Handshake job-card fields from RAW scraped signals.
 // Kept browser-free and side-effect-free so it is unit-testable; the
 // scraper (handshake.ts) collects raw strings in page.evaluate and calls
-// these in Node. Anchored to the card structure verified via live recon
-// on 2026-06-04:
+// these in Node. Card structure:
 //   logoAlt   = img[alt]  (clean company; ~12% of cards have no logo)
 //   ariaLabel = "{Company} {Role} {Pay|Unpaid} · {Type} · {Dates} {Location} {time}"
 //   footer    = "[Promoted∙]{Location}∙{time-ago}"   (∙ = U+2219)

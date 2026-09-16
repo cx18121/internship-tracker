@@ -6,16 +6,8 @@
 //   2. portal-scanner.ts — given a stored row's link, pull the ATS's
 //      canonical job id for portal-disappearance detection.
 //
-// Previously each consumer carried its own 6-branch if-else over the same
-// 6 ATS kinds, plus the polling code in ats.ts dispatches off a third copy.
-// Adding a 7th ATS used to require editing 3 files. After this, the URL
-// half of that knowledge lives here; only the new pollX() and the dispatch
-// in ats.ts still need updating.
-//
 // The polling side stays in ats.ts because each ATS API has a different
-// request/response shape — Workday alone needs CSRF detection, facet
-// discovery, and a Playwright fallback. The abstraction wouldn't earn its
-// keep for that part.
+// request/response shape.
 
 import type { ATSTarget } from './types';
 

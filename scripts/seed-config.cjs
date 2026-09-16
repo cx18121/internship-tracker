@@ -37,13 +37,7 @@ const MERGE_FILES = {
 const OVERWRITE_FILES = new Set([
   'scoring-config.json',     // scoring tuning ships from source, no runtime writes
   'jobspy-config.json',      // poll query config, source-controlled
-  'resume.pdf',              // ships from source (currently used only locally)
 ]);
-
-// companies.yml stays seed-if-missing: it was historically mutated by the now-
-// retired websearch-discovery poller. It's currently consumed by nothing in
-// the runtime (careers-scan is also retired); kept seedable so future tooling
-// can still read it.
 
 function readJsonSafe(p) {
   try {

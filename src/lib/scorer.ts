@@ -28,14 +28,6 @@ function loadConfig(): ScoringConfig {
   return _config;
 }
 
-/**
- * Clear the cached config. Test helper — production code should not call this.
- * After clearing, the next `loadConfig()` re-reads the file.
- */
-export function _resetConfigCache(): void {
-  _config = null;
-}
-
 // ---------------------------------------------------------------------------
 // Per-component scoring
 // ---------------------------------------------------------------------------
