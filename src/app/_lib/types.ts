@@ -1,24 +1,5 @@
-export interface Internship {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  link: string;
-  source: string;
-  postedAt: string;
-  seenAt: string;
-  score: number | null;
-  scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F' | null;
-  matchedKeywords?: string[];
-  applied: boolean;
-  hidden?: boolean;
-  description?: string;
-  salaryText?: string;
-  salaryMin?: number;
-  salaryMax?: number;
-  salaryUnit?: 'hourly' | 'monthly' | 'yearly';
-  season?: string[];
-}
+export type { ListItem as Internship } from "./list-item";
+export type { AppliedFilter, TierFilter } from "@/lib/filter-spec";
 
 export interface Stats {
   total: number;
@@ -33,7 +14,5 @@ export interface Sources {
   byType: Record<string, number>;
 }
 
-export type AppliedFilter = "all" | "applied" | "not-applied";
 export type SortBy = "score" | "posted";
-export type TierFilter = "all" | "solid-or-better" | "top-or-better" | "elite";
 export type DateWindow = "all" | "1d" | "3d" | "7d" | "30d" | "90d";

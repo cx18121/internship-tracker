@@ -172,10 +172,10 @@ function InternshipRowImpl({
                 so touch users can also dismiss postings (list is the default
                 mobile view). Label and icon flip based on current state. */}
             <button
-              onClick={() => onHide(item.id, item.hidden ?? false)}
+              onClick={() => onHide(item.id, item.hidden)}
               disabled={pending}
               aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
-              aria-pressed={item.hidden ?? false}
+              aria-pressed={item.hidden}
               className="inline-flex h-8 w-8 md:h-6 md:w-6 items-center justify-center rounded text-white/45 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
               title={item.hidden ? "Unhide this posting" : "Hide this posting"}
             >

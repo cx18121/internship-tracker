@@ -33,91 +33,76 @@ import { FilterRail } from "./_components/FilterRail";
 import { MobileFilterSheet } from "./_components/MobileFilterSheet";
 import { ListSkeleton, CardSkeleton, EmptyState } from "./_components/Skeletons";
 import { ActiveFilterChips } from "./_components/ActiveFilterChips";
-import type {
-  Internship,
-  Stats,
-  Sources,
-  AppliedFilter,
-  SortBy,
-  TierFilter,
-  DateWindow,
-} from "./_lib/types";
+import type { AppliedFilter, SortBy } from "./_lib/types";
 import { PAGE_SIZE, GROUPS_PER_PAGE, DATE_WINDOWS } from "./_lib/constants";
-import { lsGet, lsSet, LS_DATES_KEY, LS_NOTES_KEY } from "./_lib/storage";
-import { parseSeason, seasonSortKey } from "@/lib/seasons";
+import { lsGet, lsSet, LS_NOTES_KEY } from "./_lib/storage";
+import { ROLE_SPECIALIZATIONS, postingMatchesRole, type RoleId } from "@/lib/role-taxonomy";
 import {
-  ROLE_SPECIALIZATIONS,
-  isRoleId,
-  postingMatchesRole,
-  type RoleId,
-} from "@/lib/role-taxonomy";
-import { applyFilterSpec } from "@/lib/filter-spec";
-import { passesLocalPredicates as passesLocal, filterAndSortInternships } from "./_lib/filter-pipeline";
+  DEFAULT_FILTERS, activeFilterCount, evaluateFilters, filtersFromParams, writeFiltersToParams, type Filters,
+} from "./_lib/filters";
 import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
 import { useDebouncedValue } from "./_hooks/useDebouncedValue";
 import { useIsOwner } from "./_hooks/useIsOwner";
-import { ownerHeader } from "./_lib/ownerHeader";
+import { useInternshipsData } from "./_hooks/useInternshipsData";
+
+interface View {
+  sort: SortBy;
+  page: number;
+  mode: "card" | "list";
+  group: boolean;
+}
+const DEFAULT_VIEW: View = { sort: "score", page: 1, mode: "list", group: false };
+
+function viewFromParams(sp: URLSearchParams): View {
+  const sort = sp.get("sort");
+  const page = Number(sp.get("page"));
+  const mode = sp.get("view");
+  return {
+    sort: sort === "posted" || sort === "newest" ? "posted" : "score",
+    page: Number.isFinite(page) && page > 1 ? page : 1,
+    mode: mode === "card" ? "card" : "list",
+    group: sp.get("group") === "1",
+  };
+}
+
+function writeViewToParams(v: View, params: URLSearchParams): void {
+  if (v.sort !== "score") params.set("sort", v.sort);
+  if (v.page > 1) params.set("page", String(v.page));
+  if (v.mode !== "list") params.set("view", v.mode);
+  if (v.mode === "list" && v.group) params.set("group", "1");
+}
 
 export default function InternshipsPage() {
   const isOwner = useIsOwner();
-  const [internships, setInternships] = useState<Internship[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [sources, setSources] = useState<Sources | null>(null);
-  const [offline, setOffline] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  // Filters — kept in flat state so URL round-trips stay simple.
-  const [searchText, setSearchText] = useState("");
-  const [selectedSources, setSelectedSources] = useState<string[]>([]);
-  const [minScore, setMinScore] = useState(0);
-  const [locationText, setLocationText] = useState("");
-  const [selectedLocations, setSelectedLocations] = useState<string[]>([]);
-  const [includeKeywords, setIncludeKeywords] = useState<string[]>([]);
-  const [excludeKeywords, setExcludeKeywords] = useState<string[]>([]);
-  const [appliedFilter, setAppliedFilter] = useState<AppliedFilter>("all");
-  const [tierFilter, setTierFilter] = useState<TierFilter>("all");
-  const [selectedSeasons, setSelectedSeasons] = useState<string[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<RoleId[]>([]);
-  const [dateWindow, setDateWindow] = useState<DateWindow>("all");
-  const [showHidden, setShowHidden] = useState(false);
-
-  // Sort & pagination
-  const [sortBy, setSortBy] = useState<SortBy>("score");
-  const [currentPage, setCurrentPage] = useState(1);
-  const [viewMode, setViewMode] = useState<"card" | "list">("list");
-  const [groupByCompany, setGroupByCompany] = useState(false);
-
-  // Applied tracking (localStorage)
-  const [appliedDates, setAppliedDates] = useState<Record<string, string>>({});
+  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
+  const [view, setView] = useState<View>(DEFAULT_VIEW);
   const [notesMap, setNotesMap] = useState<Record<string, string>>({});
-
-  // Mobile-only filter sheet (rail is hidden below `lg`)
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
-
-  // Per-row in-flight PATCH guard + ok/!ok rollback. The hook owns
-  // pending-id tracking and fetch; this page just defines local apply/revert.
-  const { pendingIds, patch } = useOptimisticPatch();
-
-  // Notification settings — every field + the load/save flow lives in the hook.
   const [notifModalOpen, setNotifModalOpen] = useState(false);
-  const notif = useNotifSettings();
-
-  // Hydration guard — URL sync waits until initial state is loaded
+  // URL sync and the first fetch wait until state is restored from the URL.
   const [hydrated, setHydrated] = useState(false);
 
-  // Search input ref for `/` keyboard shortcut
-  const searchInputRef = useRef<HTMLInputElement>(null);
+  const data = useInternshipsData(isOwner, hydrated);
+  const { internships, setInternships, stats, sources, offline, loading, refreshing, refresh } = data;
+  const { pendingIds, patch } = useOptimisticPatch();
+  const notif = useNotifSettings();
 
-  // True once the user has actually typed in the search box. Gates the
-  // debounce delay: user keystrokes debounce (120ms), but a *programmatic*
-  // search set — the URL-hydration-on-mount that restores `?q=` from a shared
-  // link — applies immediately (delay 0), so a shared filtered link doesn't
-  // flash the unfiltered list for 120ms before settling.
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // Keystrokes debounce; programmatic sets (URL restore, clear) apply at once.
   const userTypedSearchRef = useRef(false);
 
-  // `/` focuses the search input. Skip when the user is already typing.
+  const updateFilters = useCallback((patch: Partial<Filters>) => {
+    setFilters((f) => ({ ...f, ...patch }));
+    setView((v) => (v.page === 1 ? v : { ...v, page: 1 }));
+  }, []);
+  const updateView = useCallback((patch: Partial<View>) => setView((v) => ({ ...v, ...patch })), []);
+  const clearFilters = useCallback(() => {
+    setFilters(DEFAULT_FILTERS);
+    setView((v) => ({ ...v, sort: "score", page: 1 }));
+  }, []);
+
+  // `/` focuses search unless the user is already typing somewhere.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return;
@@ -132,271 +117,46 @@ export default function InternshipsPage() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Load localStorage + initial filter state from URL on mount
+  // Restore state from URL and localStorage on mount.
   useEffect(() => {
-    setAppliedDates(lsGet<Record<string, string>>(LS_DATES_KEY, {}));
     setNotesMap(lsGet<Record<string, string>>(LS_NOTES_KEY, {}));
-
     const sp = new URLSearchParams(window.location.search);
-    const parseList = (key: string) =>
-      (sp.get(key) ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-
-    const sources = parseList("sources");
-    if (sources.length) setSelectedSources(sources);
-
-    const locs = parseList("locs");
-    if (locs.length) setSelectedLocations(locs);
-
-    const inc = parseList("include");
-    if (inc.length) setIncludeKeywords(inc);
-
-    const exc = parseList("exclude");
-    if (exc.length) setExcludeKeywords(exc);
-
-    const ms = Number(sp.get("minScore"));
-    if (Number.isFinite(ms) && ms > 0) setMinScore(ms);
-
-    const q = sp.get("q");
-    if (q) setSearchText(q);
-
-    if (sp.get("showHidden") === "1") setShowHidden(true);
-
-    const loc = sp.get("location");
-    if (loc) setLocationText(loc);
-
-    const applied = sp.get("applied") as AppliedFilter | null;
-    if (applied === "applied" || applied === "not-applied") setAppliedFilter(applied);
-
-    const tier = sp.get("tier") as TierFilter | null;
-    if (tier === "top-or-better" || tier === "elite") setTierFilter(tier);
-
-    const seasons = parseList("seasons");
-    if (seasons.length) setSelectedSeasons(seasons);
-
-    const roles = parseList("roles").filter(isRoleId);
-    if (roles.length) setSelectedRoles(roles);
-
-    const window_ = sp.get("when") as DateWindow | null;
-    if (window_ && DATE_WINDOWS.some((d) => d.value === window_)) setDateWindow(window_);
-
-    const view = sp.get("view");
-    if (view === "list" || view === "card") setViewMode(view);
-
-    if (sp.get("group") === "1") setGroupByCompany(true);
-
-    const sort = sp.get("sort");
-    // Legacy URL with ?sort=newest still routes to a usable answer.
-    if (sort === "newest" || sort === "posted") setSortBy("posted");
-    else if (sort === "score") setSortBy("score");
-
-    const page = Number(sp.get("page"));
-    if (Number.isFinite(page) && page > 1) setCurrentPage(page);
-
+    setFilters(filtersFromParams(sp));
+    setView(viewFromParams(sp));
     setHydrated(true);
   }, []);
 
-  // Search + location are app-only predicates not in the shared filter spec.
-  // Debounce only real typing into a non-empty query. Programmatic sets
-  // (URL hydration) and clears (Escape / clear button / Clear All, which set
-  // searchText back to "") apply immediately — no 120ms lag on those paths.
-  const debouncedSearch = useDebouncedValue(
-    searchText,
-    userTypedSearchRef.current && searchText !== "" ? 120 : 0,
-  );
-  const searchLower = debouncedSearch.trim().toLowerCase();
+  const debouncedQ = useDebouncedValue(filters.q, userTypedSearchRef.current && filters.q !== "" ? 120 : 0);
+  const effectiveFilters = useMemo(() => ({ ...filters, q: debouncedQ }), [filters, debouncedQ]);
 
-  // Push filter state back to URL whenever it changes (after hydration)
+  // Mirror state to the URL.
   useEffect(() => {
     if (!hydrated) return;
     const params = new URLSearchParams();
-    if (selectedSources.length) params.set("sources", selectedSources.join(","));
-    if (selectedLocations.length) params.set("locs", selectedLocations.join(","));
-    if (includeKeywords.length) params.set("include", includeKeywords.join(","));
-    if (excludeKeywords.length) params.set("exclude", excludeKeywords.join(","));
-    if (minScore > 0) params.set("minScore", String(minScore));
-    if (locationText) params.set("location", locationText);
-    if (debouncedSearch) params.set("q", debouncedSearch);
-    if (showHidden) params.set("showHidden", "1");
-    if (appliedFilter !== "all") params.set("applied", appliedFilter);
-    if (tierFilter !== "all") params.set("tier", tierFilter);
-    if (selectedSeasons.length) params.set("seasons", selectedSeasons.join(","));
-    if (selectedRoles.length) params.set("roles", selectedRoles.join(","));
-    if (dateWindow !== "all") params.set("when", dateWindow);
-    if (viewMode !== "list") params.set("view", viewMode);
-    if (viewMode === "list" && groupByCompany) params.set("group", "1");
-    if (sortBy !== "score") params.set("sort", sortBy);
-    if (currentPage > 1) params.set("page", String(currentPage));
-
+    writeFiltersToParams(effectiveFilters, params);
+    writeViewToParams(view, params);
     const qs = params.toString();
-    const url = qs ? `${window.location.pathname}?${qs}` : window.location.pathname;
-    window.history.replaceState({}, "", url);
-  }, [
-    hydrated,
-    selectedSources, selectedLocations, includeKeywords, excludeKeywords,
-    minScore, locationText, appliedFilter, tierFilter, selectedSeasons,
-    selectedRoles, dateWindow,
-    debouncedSearch, showHidden,
-    viewMode, groupByCompany, sortBy, currentPage,
-  ]);
+    window.history.replaceState({}, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
+  }, [hydrated, effectiveFilters, view]);
 
-  const fetchData = useCallback(async (isRefresh = false, signal?: AbortSignal) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-    try {
-      // Fetch the full corpus once; ALL filtering (source, score, tier,
-      // season, …) runs client-side via applyFilterSpec. No filter change
-      // triggers a network call or skeleton flash.
-      // Only owners receive hidden rows; for friends the includeHidden flag is
-      // ignored server-side anyway, but skipping it client-side avoids the
-      // pointless query bit. Owner header is sent unconditionally — server
-      // verifies it — so a friend who forges localStorage.ownerToken still gets
-      // hidden-stripped data.
-      const listRes = await fetch(
-        `/api/internships${isOwner ? "?includeHidden=1" : ""}`,
-        { signal, headers: ownerHeader() },
-      );
-
-      if (listRes.status === 503) {
-        setOffline(true);
-        return;
-      }
-      setOffline(false);
-
-      if (listRes.ok) setInternships(await listRes.json());
-    } catch (err) {
-      // AbortError = a newer fetch superseded this one; leave UI alone so
-      // the in-flight request's setInternships doesn't get stomped by a
-      // stale "offline" flag.
-      if ((err as { name?: string })?.name === "AbortError") return;
-      setOffline(true);
-    } finally {
-      if (signal?.aborted) return;
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  // Abort any in-flight fetchData when filters change again before it lands —
-  // otherwise a slow request from filter state N can overwrite a fast
-  // request from filter state N+1, leaving the UI showing stale data.
-  //
-  // Gated on `hydrated` so the URL-hydration effect (which calls
-  // setSelectedSources / setMinScore) doesn't trigger a second full
-  // round-trip on cold load. First fetch uses the post-hydration values.
-  useEffect(() => {
-    if (!hydrated) return;
-    const abort = new AbortController();
-    fetchData(false, abort.signal);
-    return () => abort.abort();
-  }, [hydrated, fetchData]);
-
-  // Stats + sources are filter-independent — they don't need the list
-  // fetch's AbortController. Previously they shared it, so rapid filter
-  // toggling could cancel stats mid-flight and leave it null forever (the
-  // header showed "—" until the user reloaded). Fetched once on mount and
-  // re-fetched on manual Refresh.
-  const fetchStatsAndSources = useCallback(async () => {
-    try {
-      const [statsRes, sourcesRes] = await Promise.all([
-        fetch("/api/internships/stats"),
-        fetch("/api/internships/sources"),
-      ]);
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (sourcesRes.ok) setSources(await sourcesRes.json());
-    } catch {
-      // Stats failure shouldn't toggle the offline banner — the list
-      // endpoint is the source of truth for "is the API up?".
-    }
-  }, []);
-
-  useEffect(() => {
-    void fetchStatsAndSources();
-  }, [fetchStatsAndSources]);
-
-  // Grouped list view paginates by company (not by row) so a company's roles
-  // never split across pages. This flag gates both the page-reset below and the
-  // grouping/pagination math further down.
-  const isGroupedList = viewMode === "list" && groupByCompany;
-
-  // Reset to page 1 when filters or sort change — but NOT for the params that
-  // hydration applies from the URL, so a shared link like ?page=3&sources=Indeed
-  // lands on page 3. The hydrated:false→true transition fires this effect once
-  // with the URL's filters already applied; that first run is the baseline and
-  // must be skipped (a bare `if (!hydrated) return` doesn't, since hydrated is a
-  // dep). Every genuine user change after that resets the page.
-  // isGroupedList is a dep because it flips the pagination unit (rows vs
-  // companies); keying on the combined condition (not viewMode alone) avoids
-  // resetting on ordinary list↔card switches in ungrouped mode.
-  const pageResetArmedRef = useRef(false);
-  useEffect(() => {
-    if (!hydrated) return;
-    if (!pageResetArmedRef.current) {
-      pageResetArmedRef.current = true;
-      return;
-    }
-    setCurrentPage(1);
-  }, [
-    hydrated,
-    selectedSources, minScore, selectedLocations, locationText,
-    includeKeywords, excludeKeywords, appliedFilter, tierFilter,
-    selectedSeasons, selectedRoles, dateWindow, sortBy, debouncedSearch, showHidden,
-    isGroupedList,
-  ]);
-
-  // Functional `setAppliedDates` so rapid toggles on different rows compose
-  // on top of each other's writes — a captured snapshot would let the
-  // second click stomp the first row's entry in state and localStorage.
-  const writeAppliedDate = useCallback((id: string, on: boolean): void => {
-    setAppliedDates((prev) => {
-      const next = { ...prev };
-      if (on) next[id] = new Date().toISOString();
-      else delete next[id];
-      lsSet(LS_DATES_KEY, next);
-      return next;
-    });
-  }, []);
-
-  const patchInternshipField = useCallback(<K extends "applied" | "hidden">(
-    id: string,
-    field: K,
-    next: boolean,
-    current: boolean,
-  ): Promise<void> => {
+  const patchField = useCallback((id: string, next: { applied?: boolean; hidden?: boolean }, current: typeof next) => {
+    const appliedAt = next.applied === undefined ? {} : { appliedAt: next.applied ? new Date().toISOString() : null };
     return patch(
       id,
-      { [field]: next },
-      () => {
-        setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: next } : i)));
-        if (field === "applied") writeAppliedDate(id, next);
-      },
-      () => {
-        setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: current } : i)));
-        if (field === "applied") writeAppliedDate(id, current);
-      },
+      { ...next, ...appliedAt },
+      () => setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, ...next, ...(appliedAt.appliedAt !== undefined ? { appliedAt: appliedAt.appliedAt ?? undefined } : {}) } : i))),
+      () => setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, ...current } : i))),
     );
-  }, [patch, writeAppliedDate]);
+  }, [patch, setInternships]);
 
-  const toggleApplied = useCallback((id: string, current: boolean): void => {
-    void patchInternshipField(id, "applied", !current, current);
-  }, [patchInternshipField]);
-  const hidePosting = useCallback((id: string): void => {
-    void patchInternshipField(id, "hidden", true, false);
-  }, [patchInternshipField]);
-  const unhidePosting = useCallback((id: string): void => {
-    void patchInternshipField(id, "hidden", false, true);
-  }, [patchInternshipField]);
-
-  // Stable hide/unhide dispatcher. The row/card pass their own committed
-  // `hidden` value, so no ref into `internships` is needed — keeping the
-  // handler referentially stable without a render-phase ref write.
-  const handleListHide = useCallback((id: string, hidden: boolean) => {
-    if (hidden) unhidePosting(id);
-    else hidePosting(id);
-  }, [hidePosting, unhidePosting]);
+  const toggleApplied = useCallback((id: string, current: boolean) => {
+    void patchField(id, { applied: !current }, { applied: current });
+  }, [patchField]);
+  const handleHide = useCallback((id: string, hidden: boolean) => {
+    void patchField(id, { hidden: !hidden }, { hidden });
+  }, [patchField]);
 
   const updateNote = useCallback((id: string, note: string) => {
-    // Functional update + lsSet inside the updater so two rapid edits on
-    // different ids don't stomp each other via stale `notesMap` closure.
     setNotesMap((prev) => {
       const next = { ...prev, [id]: note };
       if (!note) delete next[id];
@@ -405,198 +165,44 @@ export default function InternshipsPage() {
     });
   }, []);
 
-  function clearFilters() {
-    setSearchText("");
-    setSelectedSources([]);
-    setMinScore(0);
-    setLocationText("");
-    setSelectedLocations([]);
-    setIncludeKeywords([]);
-    setExcludeKeywords([]);
-    setAppliedFilter("all");
-    setTierFilter("all");
-    setSelectedSeasons([]);
-    setSelectedRoles([]);
-    setDateWindow("all");
-    setSortBy("score");
-    setShowHidden(false);
-    setCurrentPage(1);
-  }
-
-  function toggleArr<T>(arr: T[], val: T): T[] {
-    return arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val];
-  }
-
-  // Dynamic sources from stats
   const dynamicSources: string[] | null = stats?.bySource
-    ? Object.entries(stats.bySource)
-        .filter(([, count]) => count > 0)
-        .map(([src]) => src)
-        .sort()
+    ? Object.entries(stats.bySource).filter(([, n]) => n > 0).map(([src]) => src).sort()
     : null;
 
-
-  // Every keyword that appears on at least one internship's matchedKeywords
-  // anywhere in the loaded corpus. Used by FilterRail to dim keyword chips
-  // the user typed that won't match anything — the include/exclude filter
-  // operates on the scorer's tag set, not free text, so a typed keyword
-  // missing from the corpus silently wipes out all results.
+  // Keyword and role chips outside these sets are dimmed: they would match nothing.
   const knownKeywords = useMemo(() => {
     const set = new Set<string>();
-    for (const i of internships) {
-      for (const k of i.matchedKeywords ?? []) set.add(k.toLowerCase());
-    }
+    for (const i of internships) for (const k of i.matchedKeywords) set.add(k.toLowerCase());
     return set;
   }, [internships]);
-
-  // Role IDs that match at least one loaded posting. Used to dim chips that
-  // would silently return zero hits in the current corpus (same UX cue as
-  // the keyword chips' "unknown" treatment).
   const availableRoles = useMemo(() => {
     const set = new Set<RoleId>();
     for (const role of ROLE_SPECIALIZATIONS) {
-      if (set.has(role.id)) continue;
-      for (const i of internships) {
-        if (postingMatchesRole(i.matchedKeywords ?? [], role.id)) {
-          set.add(role.id);
-          break;
-        }
-      }
+      if (internships.some((i) => postingMatchesRole(i.matchedKeywords, role.id))) set.add(role.id);
     }
     return set;
   }, [internships]);
 
-  // Date-window cutoff in ms. `null` means no date filter (all time).
-  const windowCutoff = useMemo(() => {
-    const cfg = DATE_WINDOWS.find((d) => d.value === dateWindow);
-    if (!cfg || cfg.days == null) return null;
-    return Date.now() - cfg.days * 24 * 60 * 60 * 1000;
-  }, [dateWindow]);
-
-  // Internships that pass every active filter except the season filter.
-  // Season chip counts are derived from this so they update when tier, source,
-  // role, etc. change — without counting against the season selection itself.
-  const filteredExcludingSeasons = useMemo(() => {
-    return internships.filter((i) => {
-      if (!passesLocal(i, { searchLower, selectedLocations, locationText })) return false;
-      return applyFilterSpec(i, {
-        tier: tierFilter,
-        appliedFilter,
-        excludeHidden: !showHidden,
-        includeSources: selectedSources,
-        minScore,
-        postedAfter: windowCutoff ?? undefined,
-        includeKeywords,
-        excludeKeywords,
-        roles: selectedRoles,
-      });
-    });
-  }, [
-    internships, searchLower, selectedLocations, locationText, showHidden, selectedSources, minScore, tierFilter,
-    appliedFilter, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
-  ]);
-
-  // Dynamic season tokens. Prefer the stored `season` field; fall back to
-  // parseSeason for any pre-migration row that's still null. Chronological
-  // sort (winter → spring → summer → fall, year ASC).
-  // Counts reflect the filtered corpus (all filters except season) so clicking
-  // a tier filter immediately updates the numbers next to each season chip.
-  const dynamicSeasons = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const i of filteredExcludingSeasons) {
-      const tokens = i.season ?? parseSeason(i.title);
-      for (const s of tokens) counts.set(s, (counts.get(s) ?? 0) + 1);
-    }
-    return [...counts.entries()].sort(([a], [b]) =>
-      seasonSortKey(a).localeCompare(seasonSortKey(b)),
-    );
-  }, [filteredExcludingSeasons]);
-
-  // Client-side filter + sort (memoized)
-  const filtered = useMemo(
-    () =>
-      filterAndSortInternships(internships, {
-        searchLower, selectedLocations, locationText,
-        tier: tierFilter, seasons: selectedSeasons, appliedFilter, showHidden,
-        selectedSources, minScore, windowCutoff,
-        includeKeywords, excludeKeywords, selectedRoles, sortBy,
-      }),
-    [
-      internships, searchLower, selectedLocations, locationText,
-      tierFilter, selectedSeasons, appliedFilter, showHidden,
-      selectedSources, minScore, windowCutoff,
-      includeKeywords, excludeKeywords, selectedRoles, sortBy,
-    ],
+  const { filtered, seasonCounts, tabCounts, hiddenCount } = useMemo(
+    () => evaluateFilters(internships, effectiveFilters, view.sort),
+    [internships, effectiveFilters, view.sort],
   );
+  const filterCount = activeFilterCount(effectiveFilters);
 
-  // Grouping runs over the full filtered set here (before the page slice below)
-  // so company order, per-company role lists, and the section counts are all
-  // whole-dataset correct.
-  const groups = useMemo(
-    () => (isGroupedList ? groupInternships(filtered, sortBy) : null),
-    [isGroupedList, filtered, sortBy],
-  );
-
-  // Pagination
-  const pageUnitCount = isGroupedList ? groups!.length : filtered.length;
-  const perPage = isGroupedList ? GROUPS_PER_PAGE : PAGE_SIZE;
+  // Grouped list view paginates by company so a company's roles never split.
+  const isGroupedList = view.mode === "list" && view.group;
+  const groups = useMemo(() => (isGroupedList ? groupInternships(filtered, view.sort) : null), [isGroupedList, filtered, view.sort]);
+  const pageUnitCount = groups ? groups.length : filtered.length;
+  const perPage = groups ? GROUPS_PER_PAGE : PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(pageUnitCount / perPage));
-  const safePage = Math.min(currentPage, totalPages);
-  const paginated = useMemo(
-    () => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE),
-    [filtered, safePage],
-  );
-  const pagedGroups = useMemo(
-    () => (groups ? groups.slice((safePage - 1) * GROUPS_PER_PAGE, safePage * GROUPS_PER_PAGE) : null),
-    [groups, safePage],
-  );
+  const safePage = Math.min(view.page, totalPages);
+  const paginated = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage]);
+  const pagedGroups = useMemo(() => groups?.slice((safePage - 1) * GROUPS_PER_PAGE, safePage * GROUPS_PER_PAGE) ?? null, [groups, safePage]);
 
-  const activeFilterCount =
-    (searchText !== "" ? 1 : 0) +
-    (selectedSources.length > 0 ? 1 : 0) +
-    (minScore > 0 ? 1 : 0) +
-    (selectedLocations.length > 0 ? 1 : 0) +
-    (locationText !== "" ? 1 : 0) +
-    (includeKeywords.length > 0 ? 1 : 0) +
-    (excludeKeywords.length > 0 ? 1 : 0) +
-    (tierFilter !== "all" ? 1 : 0) +
-    (selectedSeasons.length > 0 ? 1 : 0) +
-    (selectedRoles.length > 0 ? 1 : 0) +
-    (dateWindow !== "all" ? 1 : 0);
-
-  const hiddenCount = useMemo(
-    () => internships.filter((i) => i.hidden).length,
-    [internships],
-  );
-
-  // Tab counts. Computed pre-applied-filter so the chip numbers show the
-  // available scope before the user clicks, not the current selection's
-  // intersection with itself. All other filters DO apply.
-  const tabCounts = useMemo(() => {
-    let all = 0,
-      applied = 0;
-    for (const i of internships) {
-      // Mirror the main list's filters, except the appliedFilter tab itself.
-      if (!passesLocal(i, { searchLower, selectedLocations, locationText })) continue;
-      if (!applyFilterSpec(i, {
-        tier: tierFilter,
-        seasons: selectedSeasons,
-        excludeHidden: !showHidden,
-        includeSources: selectedSources,
-        minScore,
-        postedAfter: windowCutoff ?? undefined,
-        includeKeywords,
-        excludeKeywords,
-        roles: selectedRoles,
-      })) continue;
-      all++;
-      if (i.applied) applied++;
-    }
-    return { all, applied, open: all - applied };
-  }, [
-    internships, searchLower, selectedLocations, locationText, showHidden, selectedSources, minScore, tierFilter,
-    selectedSeasons, windowCutoff, includeKeywords, excludeKeywords, selectedRoles,
-  ]);
+  const railProps = {
+    filters, onChange: updateFilters, onClearAll: clearFilters,
+    sources: dynamicSources, seasonCounts, knownKeywords, availableRoles,
+  };
 
   return (
     <div className="min-h-screen">
@@ -625,42 +231,42 @@ export default function InternshipsPage() {
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
               Filters
-              {activeFilterCount > 0 && (
+              {filterCount > 0 && (
                 <span className="px-1 py-px rounded text-[10px] bg-white/15 text-white tabular-nums">
-                  {activeFilterCount}
+                  {filterCount}
                 </span>
               )}
             </button>
 
             <div className="flex items-center rounded-md border border-white/10 bg-white/[0.04] p-0.5">
               <button
-                onClick={() => setViewMode("list")}
+                onClick={() => updateView({ mode: "list" })}
                 className={`p-1.5 rounded transition-colors ${
-                  viewMode === "list" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
+                  view.mode === "list" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
                 }`}
                 title="List view"
               >
                 <List className="h-3.5 w-3.5" />
               </button>
               <button
-                onClick={() => setViewMode("card")}
+                onClick={() => updateView({ mode: "card" })}
                 className={`p-1.5 rounded transition-colors ${
-                  viewMode === "card" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
+                  view.mode === "card" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
                 }`}
                 title="Card view"
               >
                 <LayoutGrid className="h-3.5 w-3.5" />
               </button>
             </div>
-            {viewMode === "list" && (
+            {view.mode === "list" && (
               <button
-                onClick={() => setGroupByCompany((v) => !v)}
+                onClick={() => updateView({ group: !view.group, page: 1 })}
                 className={`p-1.5 rounded border transition-colors ${
-                  groupByCompany
+                  view.group
                     ? "border-white/30 bg-white/15 text-white"
                     : "border-white/10 bg-white/[0.04] text-white/40 hover:text-white/70"
                 }`}
-                title={groupByCompany ? "Ungroup" : "Group by company"}
+                title={view.group ? "Ungroup" : "Group by company"}
               >
                 <Layers className="h-3.5 w-3.5" />
               </button>
@@ -680,7 +286,7 @@ export default function InternshipsPage() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => { void fetchData(true); void fetchStatsAndSources(); }}
+              onClick={() => void refresh()}
               disabled={refreshing}
               aria-label="Refresh"
               className="gap-1.5 h-7 px-2 sm:px-2.5 border-white/10 bg-white/[0.04] hover:bg-white/10 text-[12px]"
@@ -709,32 +315,7 @@ export default function InternshipsPage() {
         <div className="grid gap-6 px-5 py-4 lg:grid-cols-[240px_minmax(0,1fr)]">
           {/* Left rail — desktop only; mobile uses MobileFilterSheet (mounted below) */}
           <div className="hidden lg:block lg:sticky lg:top-[3.5rem] lg:self-start lg:max-h-[calc(100vh-4.5rem)] lg:overflow-y-auto lg:pr-2 lg:-mr-2 lg:pb-6">
-            <FilterRail
-              dynamicSources={dynamicSources}
-              dynamicSeasons={dynamicSeasons}
-              selectedSources={selectedSources}
-              tierFilter={tierFilter}
-              selectedSeasons={selectedSeasons}
-              selectedRoles={selectedRoles}
-              minScore={minScore}
-              selectedLocations={selectedLocations}
-              locationText={locationText}
-              includeKeywords={includeKeywords}
-              excludeKeywords={excludeKeywords}
-              knownKeywords={knownKeywords}
-              availableRoles={availableRoles}
-              setSelectedSources={setSelectedSources}
-              setTierFilter={setTierFilter}
-              setSelectedSeasons={setSelectedSeasons}
-              setSelectedRoles={setSelectedRoles}
-              setMinScore={setMinScore}
-              setSelectedLocations={setSelectedLocations}
-              setLocationText={setLocationText}
-              setIncludeKeywords={setIncludeKeywords}
-              setExcludeKeywords={setExcludeKeywords}
-              activeFilterCount={activeFilterCount}
-              onClearAll={clearFilters}
-            />
+            <FilterRail {...railProps} />
           </div>
 
           {/* Main column */}
@@ -747,11 +328,11 @@ export default function InternshipsPage() {
                 <input
                   ref={searchInputRef}
                   type="text"
-                  value={searchText}
-                  onChange={(e) => { userTypedSearchRef.current = true; setSearchText(e.target.value); }}
+                  value={filters.q}
+                  onChange={(e) => { userTypedSearchRef.current = true; updateFilters({ q: e.target.value }); }}
                   onKeyDown={(e) => {
                     if (e.key === "Escape") {
-                      setSearchText("");
+                      updateFilters({ q: "" });
                       e.currentTarget.blur();
                     }
                   }}
@@ -759,10 +340,10 @@ export default function InternshipsPage() {
                   aria-label="Search postings"
                   className="w-full h-7 pl-7 pr-7 rounded-md bg-white/[0.04] border border-white/10 text-[12px] text-white/85 placeholder:text-white/50 focus:outline-none focus:border-white/25 focus:bg-white/[0.06] transition-colors"
                 />
-                {searchText ? (
+                {filters.q ? (
                   <button
                     type="button"
-                    onClick={() => setSearchText("")}
+                    onClick={() => updateFilters({ q: "" })}
                     aria-label="Clear search"
                     className="absolute right-1.5 top-1/2 -translate-y-1/2 h-5 w-5 inline-flex items-center justify-center rounded text-white/40 hover:text-white/80 hover:bg-white/[0.06]"
                   >
@@ -779,11 +360,11 @@ export default function InternshipsPage() {
                 {(["all", "not-applied", "applied"] as AppliedFilter[]).map((tab) => {
                   const count =
                     tab === "all" ? tabCounts.all : tab === "applied" ? tabCounts.applied : tabCounts.open;
-                  const active = appliedFilter === tab;
+                  const active = filters.applied === tab;
                   return (
                     <button
                       key={tab}
-                      onClick={() => setAppliedFilter(tab)}
+                      onClick={() => updateFilters({ applied: tab })}
                       className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] transition-colors ${
                         active
                           ? "bg-white/15 text-white"
@@ -807,9 +388,9 @@ export default function InternshipsPage() {
                 {DATE_WINDOWS.map((w) => (
                   <button
                     key={w.value}
-                    onClick={() => setDateWindow(w.value)}
+                    onClick={() => updateFilters({ when: w.value })}
                     className={`px-2.5 py-1 rounded text-[11px] transition-colors ${
-                      dateWindow === w.value
+                      filters.when === w.value
                         ? "bg-white/15 text-white"
                         : "text-white/55 hover:text-white/70"
                     }`}
@@ -821,7 +402,7 @@ export default function InternshipsPage() {
 
               <div className="flex items-center gap-2">
                 <span className="text-[10px] uppercase tracking-[0.08em] text-white/55">Sort</span>
-                <Select value={sortBy} onValueChange={(v) => v && setSortBy(v as SortBy)}>
+                <Select value={view.sort} onValueChange={(v) => v && updateView({ sort: v as SortBy, page: 1 })}>
                   <SelectTrigger
                     size="sm"
                     className="h-7 border-white/10 bg-white/[0.04] text-white/70 text-[12px] min-w-[7rem]"
@@ -837,20 +418,20 @@ export default function InternshipsPage() {
 
               <span className="ml-auto text-[11px] text-white/55 tabular-nums">
                 {loading ? "…" : `${filtered.length.toLocaleString()} listing${filtered.length !== 1 ? "s" : ""}`}
-                {activeFilterCount > 0 && !loading && (
+                {filterCount > 0 && !loading && (
                   <span className="text-white/55"> · filtered</span>
                 )}
                 {hiddenCount > 0 && !loading && (
                   <>
                     <span className="text-white/45"> · </span>
                     <button
-                      onClick={() => setShowHidden((v) => !v)}
+                      onClick={() => updateFilters({ showHidden: !filters.showHidden })}
                       className="inline-flex items-center gap-1 text-white/55 hover:text-white/85 transition-colors normal-nums underline-offset-4 hover:underline"
-                      title={showHidden ? "Hide hidden postings" : "Show hidden postings"}
+                      title={filters.showHidden ? "Hide hidden postings" : "Show hidden postings"}
                     >
                       <Eye className="h-3 w-3" />
                       {hiddenCount} hidden
-                      {showHidden && <span className="text-emerald-300/80"> · shown</span>}
+                      {filters.showHidden && <span className="text-emerald-300/80"> · shown</span>}
                     </button>
                   </>
                 )}
@@ -858,56 +439,32 @@ export default function InternshipsPage() {
             </div>
 
             {/* Active filter chips — visible only when at least one filter is set */}
-            <ActiveFilterChips
-              searchText={searchText}
-              selectedSources={selectedSources}
-              tierFilter={tierFilter}
-              selectedSeasons={selectedSeasons}
-              selectedRoles={selectedRoles}
-              minScore={minScore}
-              selectedLocations={selectedLocations}
-              locationText={locationText}
-              includeKeywords={includeKeywords}
-              excludeKeywords={excludeKeywords}
-              dateWindow={dateWindow}
-              setSearchText={setSearchText}
-              setSelectedSources={setSelectedSources}
-              setTierFilter={setTierFilter}
-              setSelectedSeasons={setSelectedSeasons}
-              setSelectedRoles={setSelectedRoles}
-              setMinScore={setMinScore}
-              setSelectedLocations={setSelectedLocations}
-              setLocationText={setLocationText}
-              setIncludeKeywords={setIncludeKeywords}
-              setExcludeKeywords={setExcludeKeywords}
-              setDateWindow={setDateWindow}
-              onClearAll={clearFilters}
-            />
+            <ActiveFilterChips filters={effectiveFilters} onChange={updateFilters} onClearAll={clearFilters} />
 
             {/* Listings */}
             {loading ? (
-              viewMode === "list" ? (
+              view.mode === "list" ? (
                 <ListSkeleton />
               ) : (
                 <CardSkeleton />
               )
             ) : filtered.length === 0 ? (
               <EmptyState
-                hasActiveFilters={activeFilterCount > 0}
+                hasActiveFilters={filterCount > 0}
                 onClearFilters={clearFilters}
-                onClearDateWindow={dateWindow !== "all" ? () => setDateWindow("all") : null}
-                dateWindowLabel={DATE_WINDOWS.find((d) => d.value === dateWindow)?.label ?? null}
+                onClearDateWindow={filters.when !== "all" ? () => updateFilters({ when: "all" }) : null}
+                dateWindowLabel={DATE_WINDOWS.find((d) => d.value === filters.when)?.label ?? null}
               />
             ) : (
               <>
-                {viewMode === "list" ? (
+                {view.mode === "list" ? (
                   <InternshipList
                     items={paginated}
-                    groups={isGroupedList ? pagedGroups : null}
-                    sortBy={sortBy}
+                    groups={pagedGroups}
+                    sortBy={view.sort}
                     pendingIds={pendingIds}
                     onToggleApplied={toggleApplied}
-                    onHide={handleListHide}
+                    onHide={handleHide}
                     isOwner={isOwner}
                   />
                 ) : (
@@ -916,12 +473,11 @@ export default function InternshipsPage() {
                       <InternshipCard
                         key={item.id}
                         item={item}
-                        appliedDate={appliedDates[item.id] ?? null}
                         notes={notesMap[item.id] ?? ""}
                         pending={pendingIds.has(item.id)}
                         onNotesChange={updateNote}
                         onToggleApplied={toggleApplied}
-                        onHide={handleListHide}
+                        onHide={handleHide}
                         isOwner={isOwner}
                       />
                     ))}
@@ -934,7 +490,7 @@ export default function InternshipsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        onClick={() => updateView({ page: Math.max(1, safePage - 1) })}
                         disabled={safePage <= 1}
                         className="gap-1.5 h-7 border-white/10 bg-[oklch(0.18_0.005_260)] hover:bg-white/10 disabled:opacity-30 text-[12px]"
                       >
@@ -956,7 +512,7 @@ export default function InternshipsPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        onClick={() => updateView({ page: Math.min(totalPages, safePage + 1) })}
                         disabled={safePage >= totalPages}
                         className="gap-1.5 h-7 border-white/10 bg-[oklch(0.18_0.005_260)] hover:bg-white/10 disabled:opacity-30 text-[12px]"
                       >
@@ -973,69 +529,18 @@ export default function InternshipsPage() {
       )}
 
       <MobileFilterSheet open={mobileFiltersOpen} onClose={() => setMobileFiltersOpen(false)}>
-        <FilterRail
-          dynamicSources={dynamicSources}
-          dynamicSeasons={dynamicSeasons}
-          selectedSources={selectedSources}
-          tierFilter={tierFilter}
-          selectedSeasons={selectedSeasons}
-          selectedRoles={selectedRoles}
-          minScore={minScore}
-          selectedLocations={selectedLocations}
-          locationText={locationText}
-          includeKeywords={includeKeywords}
-          excludeKeywords={excludeKeywords}
-          knownKeywords={knownKeywords}
-          availableRoles={availableRoles}
-          setSelectedSources={setSelectedSources}
-          setTierFilter={setTierFilter}
-          setSelectedSeasons={setSelectedSeasons}
-          setSelectedRoles={setSelectedRoles}
-          setMinScore={setMinScore}
-          setSelectedLocations={setSelectedLocations}
-          setLocationText={setLocationText}
-          setIncludeKeywords={setIncludeKeywords}
-          setExcludeKeywords={setExcludeKeywords}
-          activeFilterCount={activeFilterCount}
-          onClearAll={clearFilters}
-        />
+        <FilterRail {...railProps} />
       </MobileFilterSheet>
 
       <NotifModal
         open={notifModalOpen}
         onOpenChange={setNotifModalOpen}
-        minScore={notif.minScore}
-        onMinScoreChange={notif.setMinScore}
-        sourceDownAlerts={notif.sourceDownAlerts}
-        onSourceDownAlertsChange={notif.setSourceDownAlerts}
-        tierFilter={notif.tierFilter}
-        onTierFilterChange={notif.setTierFilter}
-        selectedSeasons={notif.seasons}
-        onSeasonsToggle={(t) => notif.setSeasons((prev) => toggleArr(prev, t))}
-        seasonOptions={dynamicSeasons.map(([token, count]) => ({ token, count }))}
-        dynamicSources={dynamicSources}
-        excludedSources={notif.excludedSources}
-        onExcludedSourcesChange={notif.setExcludedSources}
-        excludeNonUS={notif.excludeNonUS}
-        onExcludeNonUSChange={notif.setExcludeNonUS}
-        includeKeywords={notif.includeKeywords}
-        excludeKeywords={notif.excludeKeywords}
+        settings={notif.settings}
+        onChange={notif.update}
+        seasonOptions={seasonCounts.map(([token, count]) => ({ token, count }))}
+        sources={dynamicSources ?? []}
         knownKeywords={knownKeywords}
-        onIncludeKeywordsChange={notif.setIncludeKeywords}
-        onExcludeKeywordsChange={notif.setExcludeKeywords}
-        selectedRoles={notif.roles}
         availableRoles={availableRoles}
-        onRolesToggle={(id) => notif.setRoles((prev) => toggleArr(prev, id))}
-        skipApplied={notif.skipApplied}
-        skipHidden={notif.skipHidden}
-        onSkipAppliedChange={notif.setSkipApplied}
-        onSkipHiddenChange={notif.setSkipHidden}
-        channels={notif.channels}
-        onChannelToggle={(ch) => notif.setChannels((prev) => ({ ...prev, [ch]: !prev[ch] }))}
-        emailRecipients={notif.emailRecipients}
-        onEmailRecipientsChange={notif.setEmailRecipients}
-        phoneNumbers={notif.phoneNumbers}
-        onPhoneNumbersChange={notif.setPhoneNumbers}
         onSave={notif.save}
         saving={notif.saving}
         saved={notif.saved}

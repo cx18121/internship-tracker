@@ -5,15 +5,11 @@ import type { Internship } from "@/lib/types";
 export const LIST_FIELDS = [
   "id", "title", "company", "location", "link", "source",
   "postedAt", "seenAt", "score", "scoreLabel", "matchedKeywords",
-  "applied", "hidden", "salaryText", "season",
-] as const;
+  "applied", "appliedAt", "hidden", "salaryText", "season",
+] as const satisfies ReadonlyArray<keyof Internship>;
 
 export type ListItem = Pick<Internship, (typeof LIST_FIELDS)[number]>;
 
 export function pickListFields(i: Internship): ListItem {
-  const out: Partial<ListItem> = {};
-  for (const f of LIST_FIELDS) {
-    if (i[f] !== undefined) (out as Record<string, unknown>)[f] = i[f];
-  }
-  return out as ListItem;
+  return Object.fromEntries(LIST_FIELDS.map(f => [f, i[f]])) as ListItem;
 }

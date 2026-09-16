@@ -1,9 +1,9 @@
 import { firefox, BrowserContext } from 'playwright';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Internship } from '../../lib/types';
+import type { RawPosting } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
-import { buildInternshipRow } from '../utils/build-row';
+import { buildPosting } from '../utils/build-row';
 import { HANDSHAKE_PROMO_BANNER_SOURCE } from '../utils/description-trim';
 import { pool } from '../../lib/concurrency';
 import { deriveCompany, deriveRoleAndComp, deriveLocation } from './handshake-parse';
@@ -24,8 +24,8 @@ const AUTH_PATH = path.join(process.cwd(), 'data', 'handshake-auth.json');
 const JOBS_URL =
   'https://app.joinhandshake.com/job-search?page=1&per_page=25&sort_direction=desc&sort_column=created_at&employment_type[]=Internship';
 
-async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internship>[]> {
-  const results: Partial<Internship>[] = [];
+async function scrapeJobsPage(context: BrowserContext): Promise<RawPosting[]> {
+  const results: RawPosting[] = [];
   const page = await context.newPage();
 
   try {
@@ -81,23 +81,16 @@ async function scrapeJobsPage(context: BrowserContext): Promise<Partial<Internsh
         const location = deriveLocation(raw.footerText);
         const { role, comp } = deriveRoleAndComp(company ?? '', raw.ariaLabel, location);
         if (!role) continue; // nothing usable
-        const sal = comp ? parseSalary(comp) : { text: null, min: null, max: null, unit: null };
-        const row = buildInternshipRow({
+        results.push(buildPosting({
           title: role,
           company: company ?? '',
           location,
           link: raw.link,
           source: 'Handshake',
-          seenAt: now,
-        });
-        if (sal.text) {
-          row.salaryText = sal.text;
-          row.salaryMin = sal.min ?? undefined;
-          row.salaryMax = sal.max ?? undefined;
-          row.salaryUnit = sal.unit ?? undefined;
-        }
+          now,
+          salary: comp ? parseSalary(comp) : undefined,
+        }));
         if (!company) needCompanyBackfill++;
-        results.push(row);
       }
       console.log(`[handshake poller] Page ${pageNum}: ${rawCards.length} cards (${needCompanyBackfill} need company backfill)`);
 
@@ -138,7 +131,7 @@ const EXTERNAL_ATS_PATTERNS = [
  */
 async function enrichWithDetailLinks(
   context: BrowserContext,
-  jobs: Partial<Internship>[],
+  jobs: RawPosting[],
   limit = 100,
   concurrency = 3,
 ): Promise<void> {
@@ -264,7 +257,7 @@ async function enrichWithDetailLinks(
   }
 }
 
-export async function pollHandshake(): Promise<Partial<Internship>[]> {
+export async function pollHandshake(): Promise<RawPosting[]> {
   if (!fs.existsSync(AUTH_PATH)) {
     console.warn(`[handshake poller] No saved session — ${LOGIN_HINT}`);
     return [];

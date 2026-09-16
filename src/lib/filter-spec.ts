@@ -3,24 +3,12 @@
 // optional field; each caller passes the subset it cares about.
 
 import { isElite, isTopOrBetter, isSolidOrBetter } from './tiers';
-import { parseSeason } from './seasons';
 import { postingMatchesAnyRole, type RoleId } from './role-taxonomy';
+import type { Internship } from './types';
 
-// Minimal structural shape the spec needs. Both the storage-side Internship
-// (src/lib/types.ts) and the wire-side Internship (src/app/_lib/types.ts)
-// satisfy this — they differ on whether matchedKeywords is required, and
-// the spec only ever reads it as optional anyway.
-export interface FilterablePosting {
-  title?: string;
-  company?: string;
-  source: string;
-  score: number | null;
-  matchedKeywords?: string[];
-  season?: string[];
-  postedAt?: string;
-  applied: boolean;
-  hidden?: boolean;
-}
+/** The fields a filter reads. Satisfied by a stored Internship and by the list-view payload. */
+export type Filterable = Pick<Internship, 'company' | 'title' | 'source' | 'season' | 'applied' | 'hidden'> &
+  Partial<Pick<Internship, 'score' | 'postedAt' | 'matchedKeywords'>>;
 
 export type TierFilter = 'all' | 'elite' | 'top-or-better' | 'solid-or-better';
 export type AppliedFilter = 'all' | 'applied' | 'not-applied';
@@ -55,15 +43,12 @@ export interface FilterSpec {
  * Each predicate is skipped when its field is undefined or its array is
  * empty — the spec is intentionally additive, not "all must be set."
  */
-export function applyFilterSpec(i: FilterablePosting, spec: FilterSpec): boolean {
-  if (spec.tier === 'elite' && !isElite(i.company ?? '')) return false;
-  if (spec.tier === 'top-or-better' && !isTopOrBetter(i.company ?? '')) return false;
-  if (spec.tier === 'solid-or-better' && !isSolidOrBetter(i.company ?? '')) return false;
+export function applyFilterSpec(i: Filterable, spec: FilterSpec): boolean {
+  if (spec.tier === 'elite' && !isElite(i.company)) return false;
+  if (spec.tier === 'top-or-better' && !isTopOrBetter(i.company)) return false;
+  if (spec.tier === 'solid-or-better' && !isSolidOrBetter(i.company)) return false;
 
-  if (spec.seasons && spec.seasons.length > 0) {
-    const tokens = i.season ?? parseSeason(i.title ?? '');
-    if (!tokens.some(t => spec.seasons!.includes(t))) return false;
-  }
+  if (spec.seasons && spec.seasons.length > 0 && !i.season.some(t => spec.seasons!.includes(t))) return false;
 
   if (spec.appliedFilter === 'applied' && !i.applied) return false;
   if (spec.appliedFilter === 'not-applied' && i.applied) return false;

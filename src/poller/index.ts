@@ -1,6 +1,8 @@
 import 'dotenv/config';
 import { runCycle } from './agent';
-import { revalidateLinks, closeDb } from '../lib/store';
+import { revalidateLinks } from '../lib/store';
+import { closePool } from '../lib/db';
+import { runMigrations } from '../lib/migrate';
 import { revalidateLinkedIn } from './linkedin-revalidate';
 import { withTimeout, TimeoutError } from './utils/with-timeout';
 
@@ -47,7 +49,7 @@ async function withWatchdog<T>(label: string, ms: number, work: Promise<T>): Pro
         `[internship-tracker] WATCHDOG: ${err.message} — cycle wedged with no ` +
         `internal timeout; exiting for a clean supervisor restart`,
       );
-      try { await closeDb(); } catch {}
+      try { await closePool(); } catch {}
       process.exit(1);
     }
     throw err;
@@ -61,7 +63,7 @@ async function safeSlow(): Promise<void> {
   }
   slowRunning = true;
   try {
-    await withWatchdog('slow cycle', WATCHDOG_MS_SLOW, runCycle({ tier: 'slow' }));
+    await withWatchdog('slow cycle', WATCHDOG_MS_SLOW, runCycle('slow'));
   } catch (err) {
     // Never let a single bad cycle propagate out of setInterval — that would
     // raise an unhandledRejection and (on newer Node) kill the process.
@@ -73,7 +75,7 @@ async function safeSlow(): Promise<void> {
 
 async function safeFast(): Promise<void> {
   try {
-    await withWatchdog('fast cycle', WATCHDOG_MS_FAST, runCycle({ tier: 'fast' }));
+    await withWatchdog('fast cycle', WATCHDOG_MS_FAST, runCycle('fast'));
   } catch (err) {
     console.error('[internship-tracker] Fast cycle threw:', err);
   }
@@ -99,13 +101,14 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Starting agent.`);
   console.log(`[internship-tracker] Fast poll: ${POLL_INTERVAL_MS_FAST / 1000}s | Slow poll: ${POLL_INTERVAL_MS_SLOW / 1000}s`);
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h`);
+  await runMigrations();
 
   // Initial run — do everything once so the DB has fresh state.
   // Wrapped so a transient startup failure (single source 500, DNS hiccup,
   // etc.) just logs and continues to the interval setup, rather than killing
   // the supervisor before any poll cycle is ever scheduled.
   try {
-    await withWatchdog('initial cycle', WATCHDOG_MS_INITIAL, runCycle({ tier: 'all' }));
+    await withWatchdog('initial cycle', WATCHDOG_MS_INITIAL, runCycle('all'));
   } catch (err) {
     console.error('[internship-tracker] Initial cycle threw:', err);
   }
@@ -154,7 +157,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`[internship-tracker] Received ${signal} — closing pool and exiting cleanly`);
-  try { await closeDb(); } catch {}
+  try { await closePool(); } catch {}
   process.exit(0);
 }
 process.on('SIGTERM', shutdown);
@@ -162,6 +165,6 @@ process.on('SIGINT', shutdown);
 
 main().catch(async err => {
   console.error('[internship-tracker] Fatal error:', err);
-  try { await closeDb(); } catch {}
+  try { await closePool(); } catch {}
   process.exit(1);
 });

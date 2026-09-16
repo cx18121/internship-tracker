@@ -1,37 +1,20 @@
-// Seeds a minimal fixture set so the live-API test section can run in CI
-// against a fresh Postgres without depending on production data. The fixtures
-// upsert by stable id so re-running is idempotent.
+// Applies migrations and seeds fixtures for the integration tests. Requires
+// DATABASE_URL in the shell; deliberately does not read .env so it cannot
+// target production by accident.
 //
-// Usage:
-//   npx tsx scripts/seed-test-db.ts                 # seeds DATABASE_URL
-//   DATABASE_URL=postgresql://... seed-test-db.ts   # seeds an alternate DB
+// Usage: DATABASE_URL=postgresql://... npx tsx scripts/seed-test-db.ts
 //
 // Inserts three rows chosen to exercise every assertion the live tests make:
 // at least one row with score ≥ 70, at least one with scoreLabel="A", and a
 // non-zero count with a valid ISO seenAt for the stats endpoint.
 
-import 'dotenv/config';
-import * as fs from 'fs';
-import * as path from 'path';
-import { getPool, closePool } from '../src/lib/db';
+import { closePool } from '../src/lib/db';
+import { runMigrations } from '../src/lib/migrate';
 import { deduplicateAndStore } from '../src/lib/store';
 import type { Internship } from '../src/lib/types';
 
 async function main(): Promise<void> {
-  // Apply schema migrations in lexicographic order. CI starts with an empty
-  // pg, so every migration must run before any inserts. Each migration is
-  // expected to be idempotent (CREATE TABLE IF NOT EXISTS, DROP TABLE IF
-  // EXISTS, etc.) so re-running locally against an already-migrated DB is
-  // safe.
-  const pool = getPool();
-  const migrationsDir = path.join(process.cwd(), 'migrations');
-  const migrations = fs.readdirSync(migrationsDir)
-    .filter((f) => f.endsWith('.sql'))
-    .sort();
-  for (const file of migrations) {
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf-8');
-    await pool.query(sql);
-  }
+  await runMigrations();
 
   const now = new Date().toISOString();
   const fixtures: Internship[] = [
@@ -47,8 +30,12 @@ async function main(): Promise<void> {
       score: 95,
       scoreLabel: 'A',
       matchedKeywords: ['python', 'rag'],
-      isNew: true,
       applied: false,
+      hidden: false,
+      archived: false,
+      failedCheckCount: 0,
+      normalizedKey: '',
+      season: ['summer-2027'],
     },
     {
       id: 'fixture-top-b',
@@ -62,8 +49,12 @@ async function main(): Promise<void> {
       score: 75,
       scoreLabel: 'B',
       matchedKeywords: ['python', 'sql'],
-      isNew: true,
       applied: false,
+      hidden: false,
+      archived: false,
+      failedCheckCount: 0,
+      normalizedKey: '',
+      season: ['summer-2027'],
     },
     {
       id: 'fixture-low-f',
@@ -77,8 +68,12 @@ async function main(): Promise<void> {
       score: 15,
       scoreLabel: 'F',
       matchedKeywords: [],
-      isNew: true,
       applied: false,
+      hidden: false,
+      archived: false,
+      failedCheckCount: 0,
+      normalizedKey: '',
+      season: ['summer-2027'],
     },
   ];
 

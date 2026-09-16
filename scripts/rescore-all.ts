@@ -20,10 +20,9 @@ const DRY_RUN = process.argv.includes('--dry-run');
 
 interface Row {
   id: string;
-  title: string | null;
-  company: string | null;
-  location: string | null;
-  description: string | null;
+  title: string;
+  company: string;
+  location: string;
   score: number | null;
   score_label: string | null;
 }
@@ -66,7 +65,7 @@ function format(h: ReturnType<typeof histogram>): string {
 async function main(): Promise<void> {
   const pool = getPool();
   const { rows } = await pool.query<Row>(`
-    SELECT id, title, company, location, description, score, score_label
+    SELECT id, title, company, location, score, score_label
     FROM internships
   `);
 
@@ -80,12 +79,7 @@ async function main(): Promise<void> {
 
   // Collect new scores first; write inside a single transaction if not --dry-run.
   const scored = rows.map(r => {
-    const result = scoreInternship({
-      title: r.title ?? '',
-      company: r.company ?? '',
-      location: r.location ?? '',
-      description: r.description ?? undefined,
-    });
+    const result = scoreInternship({ title: r.title, company: r.company, location: r.location });
     const before = r.score ?? -1;
     if (result.score === before && result.scoreLabel === r.score_label) {
       unchanged++;

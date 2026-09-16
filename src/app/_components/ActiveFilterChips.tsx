@@ -2,9 +2,10 @@
 
 import { X } from "lucide-react";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
-import type { TierFilter, DateWindow } from "../_lib/types";
+import { ROLE_SPECIALIZATIONS } from "@/lib/role-taxonomy";
 import { DATE_WINDOWS } from "../_lib/constants";
+import type { Filters } from "../_lib/filters";
+import { TIER_LABELS } from "./FilterRail";
 
 /**
  * Renders a removable pill for each active filter so the user can see and
@@ -12,29 +13,8 @@ import { DATE_WINDOWS } from "../_lib/constants";
  * are no active filters.
  */
 interface Props {
-  searchText: string;
-  selectedSources: string[];
-  tierFilter: TierFilter;
-  selectedSeasons: string[];
-  selectedRoles: RoleId[];
-  minScore: number;
-  selectedLocations: string[];
-  locationText: string;
-  includeKeywords: string[];
-  excludeKeywords: string[];
-  dateWindow: DateWindow;
-
-  setSearchText: (s: string) => void;
-  setSelectedSources: (fn: (prev: string[]) => string[]) => void;
-  setTierFilter: (t: TierFilter) => void;
-  setSelectedSeasons: (fn: (prev: string[]) => string[]) => void;
-  setSelectedRoles: (fn: (prev: RoleId[]) => RoleId[]) => void;
-  setMinScore: (n: number) => void;
-  setSelectedLocations: (fn: (prev: string[]) => string[]) => void;
-  setLocationText: (s: string) => void;
-  setIncludeKeywords: (fn: (prev: string[]) => string[]) => void;
-  setExcludeKeywords: (fn: (prev: string[]) => string[]) => void;
-  setDateWindow: (d: DateWindow) => void;
+  filters: Filters;
+  onChange: (patch: Partial<Filters>) => void;
   onClearAll: () => void;
 }
 
@@ -68,113 +48,38 @@ function Pill({
   );
 }
 
-export function ActiveFilterChips(props: Props) {
-  const {
-    searchText,
-    selectedSources,
-    tierFilter,
-    selectedSeasons,
-    selectedRoles,
-    minScore,
-    selectedLocations,
-    locationText,
-    includeKeywords,
-    excludeKeywords,
-    dateWindow,
-    setSearchText,
-    setSelectedSources,
-    setTierFilter,
-    setSelectedSeasons,
-    setSelectedRoles,
-    setMinScore,
-    setSelectedLocations,
-    setLocationText,
-    setIncludeKeywords,
-    setExcludeKeywords,
-    setDateWindow,
-    onClearAll,
-  } = props;
-
-  const windowLabel = DATE_WINDOWS.find((d) => d.value === dateWindow)?.label;
+export function ActiveFilterChips({ filters: f, onChange, onClearAll }: Props) {
+  const windowLabel = DATE_WINDOWS.find((d) => d.value === f.when)?.label;
+  const without = <T,>(list: T[], v: T) => list.filter((x) => x !== v);
 
   const chips: React.ReactNode[] = [];
 
-  if (searchText)
+  if (f.q)
     chips.push(
-      <Pill key="search" label={<>Search: <span className="text-white">{searchText}</span></>} onClear={() => setSearchText("")} />,
+      <Pill key="search" label={<>Search: <span className="text-white">{f.q}</span></>} onClear={() => onChange({ q: "" })} />,
     );
-
-  if (tierFilter !== "all")
-    chips.push(
-      <Pill
-        key="tier"
-        label={`Tier: ${tierFilter === "elite" ? "Elite" : "Top+"}`}
-        onClear={() => setTierFilter("all")}
-      />,
-    );
-
-  if (minScore > 0)
-    chips.push(<Pill key="minScore" label={`Min ${minScore}`} onClear={() => setMinScore(0)} />);
-
-  if (dateWindow !== "all" && windowLabel)
-    chips.push(
-      <Pill key="when" label={`Last ${windowLabel}`} onClear={() => setDateWindow("all")} />,
-    );
-
-  for (const s of selectedSources)
-    chips.push(
-      <Pill key={`src-${s}`} label={s} onClear={() => setSelectedSources((prev) => prev.filter((x) => x !== s))} />,
-    );
-
-  for (const t of selectedSeasons)
-    chips.push(
-      <Pill
-        key={`season-${t}`}
-        label={formatSeasonLabel(t)}
-        onClear={() => setSelectedSeasons((prev) => prev.filter((x) => x !== t))}
-      />,
-    );
-
-  for (const r of selectedRoles) {
+  if (f.tier !== "all")
+    chips.push(<Pill key="tier" label={`Tier: ${TIER_LABELS[f.tier]}`} onClear={() => onChange({ tier: "all" })} />);
+  if (f.minScore > 0)
+    chips.push(<Pill key="minScore" label={`Min ${f.minScore}`} onClear={() => onChange({ minScore: 0 })} />);
+  if (f.when !== "all" && windowLabel)
+    chips.push(<Pill key="when" label={`Last ${windowLabel}`} onClear={() => onChange({ when: "all" })} />);
+  for (const s of f.sources)
+    chips.push(<Pill key={`src-${s}`} label={s} onClear={() => onChange({ sources: without(f.sources, s) })} />);
+  for (const t of f.seasons)
+    chips.push(<Pill key={`season-${t}`} label={formatSeasonLabel(t)} onClear={() => onChange({ seasons: without(f.seasons, t) })} />);
+  for (const r of f.roles) {
     const role = ROLE_SPECIALIZATIONS.find((x) => x.id === r);
-    if (!role) continue;
-    chips.push(
-      <Pill
-        key={`role-${r}`}
-        label={`Role: ${role.label}`}
-        onClear={() => setSelectedRoles((prev) => prev.filter((x) => x !== r))}
-      />,
-    );
+    if (role) chips.push(<Pill key={`role-${r}`} label={`Role: ${role.label}`} onClear={() => onChange({ roles: without(f.roles, r) })} />);
   }
-
-  for (const l of selectedLocations)
-    chips.push(
-      <Pill key={`loc-${l}`} label={l} onClear={() => setSelectedLocations((prev) => prev.filter((x) => x !== l))} />,
-    );
-
-  if (locationText)
-    chips.push(
-      <Pill key="loc-text" label={`Location: ${locationText}`} onClear={() => setLocationText("")} />,
-    );
-
-  for (const k of includeKeywords)
-    chips.push(
-      <Pill
-        key={`kw-${k}`}
-        label={`+${k}`}
-        onClear={() => setIncludeKeywords((prev) => prev.filter((x) => x !== k))}
-      />,
-    );
-
-  for (const k of excludeKeywords)
-    chips.push(
-      <Pill
-        key={`xkw-${k}`}
-        label={`−${k}`}
-        tone="danger"
-        onClear={() => setExcludeKeywords((prev) => prev.filter((x) => x !== k))}
-      />,
-    );
+  for (const l of f.locations)
+    chips.push(<Pill key={`loc-${l}`} label={l} onClear={() => onChange({ locations: without(f.locations, l) })} />);
+  if (f.locationText)
+    chips.push(<Pill key="loc-text" label={`Location: ${f.locationText}`} onClear={() => onChange({ locationText: "" })} />);
+  for (const k of f.include)
+    chips.push(<Pill key={`kw-${k}`} label={`+${k}`} onClear={() => onChange({ include: without(f.include, k) })} />);
+  for (const k of f.exclude)
+    chips.push(<Pill key={`xkw-${k}`} label={`−${k}`} tone="danger" onClear={() => onChange({ exclude: without(f.exclude, k) })} />);
 
   if (chips.length === 0) return null;
 

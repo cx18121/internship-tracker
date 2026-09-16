@@ -5,7 +5,8 @@ import type { ATSTarget } from '../types';
 export type { ATSTarget } from '../types';
 export { discoverATSTarget } from '../ats-registry';
 
-const CONFIG_PATH = path.join(process.cwd(), 'data', 'ats-targets.json');
+const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
+const CONFIG_PATH = path.join(DATA_DIR, 'ats-targets.json');
 
 /**
  * Shared loader for data/ats-targets.json. Single source of truth for the
@@ -23,7 +24,7 @@ export function loadATSTargets(): ATSTarget[] {
     return [];
   }
 }
-const DENYLIST_PATH = path.join(process.cwd(), 'data', 'ats-discovery-denylist.json');
+const DENYLIST_PATH = path.join(DATA_DIR, 'ats-discovery-denylist.json');
 
 interface DenylistEntry { slug: string; reason?: string }
 interface Denylist { denied: DenylistEntry[] }

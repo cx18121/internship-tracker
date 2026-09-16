@@ -9,43 +9,27 @@ import { formatSeasonLabel } from "@/lib/seasons";
 import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
+import { activeFilterCount, type Filters } from "../_lib/filters";
 
 interface Props {
-  // data
-  dynamicSources: string[] | null;
-  dynamicSeasons: Array<[string, number]>;
-  // state
-  selectedSources: string[];
-  tierFilter: TierFilter;
-  selectedSeasons: string[];
-  selectedRoles: RoleId[];
-  minScore: number;
-  selectedLocations: string[];
-  locationText: string;
-  includeKeywords: string[];
-  excludeKeywords: string[];
-  // Every keyword present on at least one loaded internship. Keyword chips
-  // not in this set are dimmed with a "not found in any posting" tooltip —
-  // the include/exclude filter matches against the scorer's matchedKeywords,
-  // not free text, so an unknown keyword silently zeroes out the result list.
-  knownKeywords: Set<string>;
-  // Role IDs that match at least one posting in the loaded corpus. Roles
-  // outside this set get dimmed the same way unknown keyword chips do.
-  availableRoles: Set<RoleId>;
-  // setters
-  setSelectedSources: (fn: (prev: string[]) => string[]) => void;
-  setTierFilter: (t: TierFilter) => void;
-  setSelectedSeasons: (fn: (prev: string[]) => string[]) => void;
-  setSelectedRoles: (fn: (prev: RoleId[]) => RoleId[]) => void;
-  setMinScore: (n: number) => void;
-  setSelectedLocations: (fn: (prev: string[]) => string[]) => void;
-  setLocationText: (s: string) => void;
-  setIncludeKeywords: React.Dispatch<React.SetStateAction<string[]>>;
-  setExcludeKeywords: React.Dispatch<React.SetStateAction<string[]>>;
-  // misc
-  activeFilterCount: number;
+  filters: Filters;
+  onChange: (patch: Partial<Filters>) => void;
   onClearAll: () => void;
+  // Derived from the loaded corpus.
+  sources: string[] | null;
+  seasonCounts: Array<[string, number]>;
+  /** Keywords present on at least one loaded posting; others are dimmed. */
+  knownKeywords: Set<string>;
+  /** Roles matching at least one loaded posting; others are dimmed. */
+  availableRoles: Set<RoleId>;
 }
+
+export const TIER_LABELS: Record<TierFilter, string> = {
+  all: "All",
+  "solid-or-better": `Top ${ELITE_COUNT + TOP_COUNT + SOLID_COUNT}`,
+  "top-or-better": `Top ${ELITE_COUNT + TOP_COUNT}`,
+  elite: `Top ${ELITE_COUNT}`,
+};
 
 function toggleArr<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
@@ -105,34 +89,8 @@ function Chip({
   );
 }
 
-export function FilterRail(props: Props) {
-  const {
-    dynamicSources,
-    dynamicSeasons,
-    selectedSources,
-    tierFilter,
-    selectedSeasons,
-    selectedRoles,
-    minScore,
-    selectedLocations,
-    locationText,
-    includeKeywords,
-    excludeKeywords,
-    knownKeywords,
-    availableRoles,
-    setSelectedSources,
-    setTierFilter,
-    setSelectedSeasons,
-    setSelectedRoles,
-    setMinScore,
-    setSelectedLocations,
-    setLocationText,
-    setIncludeKeywords,
-    setExcludeKeywords,
-    activeFilterCount,
-    onClearAll,
-  } = props;
-
+export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCounts, knownKeywords, availableRoles }: Props) {
+  const count = activeFilterCount(f);
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
   return (
@@ -140,13 +98,13 @@ export function FilterRail(props: Props) {
       <div className="flex items-baseline justify-between pb-1 border-b border-white/[0.06]">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/50">
           Filters
-          {activeFilterCount > 0 && (
+          {count > 0 && (
             <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-white/10 text-white/70 normal-case tracking-normal">
-              {activeFilterCount}
+              {count}
             </span>
           )}
         </h2>
-        {activeFilterCount > 0 && (
+        {count > 0 && (
           <button
             onClick={onClearAll}
             className="text-[11px] text-white/40 hover:text-white/70 transition-colors"
@@ -158,15 +116,9 @@ export function FilterRail(props: Props) {
 
       <Section label="Tier">
         <div className="flex flex-wrap gap-1.5">
-          {(["all", "solid-or-better", "top-or-better", "elite"] as TierFilter[]).map((t) => (
-            <Chip key={t} active={tierFilter === t} onClick={() => setTierFilter(t)}>
-              {t === "all"
-                ? "All"
-                : t === "elite"
-                  ? `Top ${ELITE_COUNT}`
-                  : t === "top-or-better"
-                    ? `Top ${ELITE_COUNT + TOP_COUNT}`
-                    : `Top ${ELITE_COUNT + TOP_COUNT + SOLID_COUNT}`}
+          {(Object.keys(TIER_LABELS) as TierFilter[]).map((t) => (
+            <Chip key={t} active={f.tier === t} onClick={() => onChange({ tier: t })}>
+              {TIER_LABELS[t]}
             </Chip>
           ))}
         </div>
@@ -177,9 +129,9 @@ export function FilterRail(props: Props) {
           {ROLE_SPECIALIZATIONS.map((r) => (
             <Chip
               key={r.id}
-              active={selectedRoles.includes(r.id)}
+              active={f.roles.includes(r.id)}
               dimmed={!availableRoles.has(r.id)}
-              onClick={() => setSelectedRoles((prev) => toggleArr(prev, r.id))}
+              onClick={() => onChange({ roles: toggleArr(f.roles, r.id) })}
               title={!availableRoles.has(r.id) ? "No postings match this role in the current corpus" : undefined}
             >
               {r.label}
@@ -191,32 +143,32 @@ export function FilterRail(props: Props) {
       <Section
         label="Min Score"
         trailing={
-          <span className="text-[11px] tabular-nums text-white/70">{minScore}</span>
+          <span className="text-[11px] tabular-nums text-white/70">{f.minScore}</span>
         }
       >
         <input
           type="range"
           min={0}
           max={100}
-          value={minScore}
-          onChange={(e) => setMinScore(Number(e.target.value))}
+          value={f.minScore}
+          onChange={(e) => onChange({ minScore: Number(e.target.value) })}
           className="w-full accent-white/70 h-1"
         />
       </Section>
 
       <Section label="Season">
         <div className="flex flex-wrap gap-1.5">
-          {dynamicSeasons.length === 0 ? (
+          {seasonCounts.length === 0 ? (
             <span className="text-[11px] text-white/45">None detected</span>
           ) : (
-            dynamicSeasons.map(([token, count]) => (
+            seasonCounts.map(([token, n]) => (
               <Chip
                 key={token}
-                active={selectedSeasons.includes(token)}
-                onClick={() => setSelectedSeasons((prev) => toggleArr(prev, token))}
+                active={f.seasons.includes(token)}
+                onClick={() => onChange({ seasons: toggleArr(f.seasons, token) })}
               >
                 {formatSeasonLabel(token)}{" "}
-                <span className="text-white/45 tabular-nums">{count}</span>
+                <span className="text-white/45 tabular-nums">{n}</span>
               </Chip>
             ))
           )}
@@ -225,7 +177,7 @@ export function FilterRail(props: Props) {
 
       <Section label="Source">
         <div className="flex flex-wrap gap-1.5">
-          {dynamicSources === null ? (
+          {sources === null ? (
             Array.from({ length: 4 }).map((_, i) => (
               <span
                 key={i}
@@ -234,14 +186,14 @@ export function FilterRail(props: Props) {
                 &nbsp;
               </span>
             ))
-          ) : dynamicSources.length === 0 ? (
+          ) : sources.length === 0 ? (
             <span className="text-[11px] text-white/45">No sources yet</span>
           ) : (
-            dynamicSources.map((s) => (
+            sources.map((s) => (
               <Chip
                 key={s}
-                active={selectedSources.includes(s)}
-                onClick={() => setSelectedSources((prev) => toggleArr(prev, s))}
+                active={f.sources.includes(s)}
+                onClick={() => onChange({ sources: toggleArr(f.sources, s) })}
               >
                 {s}
               </Chip>
@@ -255,8 +207,8 @@ export function FilterRail(props: Props) {
           {LOCATION_PRESETS.map((l) => (
             <Chip
               key={l}
-              active={selectedLocations.includes(l)}
-              onClick={() => setSelectedLocations((prev) => toggleArr(prev, l))}
+              active={f.locations.includes(l)}
+              onClick={() => onChange({ locations: toggleArr(f.locations, l) })}
             >
               {l}
             </Chip>
@@ -264,8 +216,8 @@ export function FilterRail(props: Props) {
         </div>
         <Input
           placeholder="Other location…"
-          value={locationText}
-          onChange={(e) => setLocationText(e.target.value)}
+          value={f.locationText}
+          onChange={(e) => onChange({ locationText: e.target.value })}
           className="h-7 text-[12px] bg-white/[0.04] border-white/10"
         />
       </Section>
@@ -287,8 +239,8 @@ export function FilterRail(props: Props) {
           <div className="space-y-5 mt-4">
             <Section label="Include keywords">
               <KeywordChips
-                values={includeKeywords}
-                onValuesChange={setIncludeKeywords}
+                values={f.include}
+                onValuesChange={(v) => onChange({ include: v })}
                 placeholder="e.g. React"
                 knownKeywords={knownKeywords}
                 tone="include"
@@ -297,8 +249,8 @@ export function FilterRail(props: Props) {
 
             <Section label="Exclude keywords">
               <KeywordChips
-                values={excludeKeywords}
-                onValuesChange={setExcludeKeywords}
+                values={f.exclude}
+                onValuesChange={(v) => onChange({ exclude: v })}
                 placeholder="e.g. PhD"
                 knownKeywords={knownKeywords}
                 tone="exclude"

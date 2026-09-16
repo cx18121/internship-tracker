@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { Bell, Check, X, Mail, MessageSquare, BotMessageSquare } from "lucide-react";
+import { Bell, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,8 +14,8 @@ import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { KeywordChips } from "./KeywordChips";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
-import type { TierFilter } from "../_lib/types";
-import type { NotifChannels } from "@/lib/notifSettings";
+import type { TierFilter } from "@/lib/filter-spec";
+import type { NotifSettings } from "@/lib/notifSettings";
 
 interface SeasonOption {
   token: string;
@@ -26,52 +25,16 @@ interface SeasonOption {
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  // Score + tier + seasons (existing)
-  minScore: number;
-  onMinScoreChange: (n: number) => void;
-  tierFilter: TierFilter;
-  onTierFilterChange: (t: TierFilter) => void;
-  selectedSeasons: string[];
-  onSeasonsToggle: (token: string) => void;
+  settings: NotifSettings;
+  onChange: (patch: Partial<NotifSettings>) => void;
+  /** Options derived from the current corpus, for chips. */
   seasonOptions: SeasonOption[];
-  // Source-down alerts (existing toggle)
-  sourceDownAlerts: boolean;
-  onSourceDownAlertsChange: (b: boolean) => void;
-  // Source blocklist
-  dynamicSources: string[] | null;
-  excludedSources: string[];
-  onExcludedSourcesChange: (fn: (prev: string[]) => string[]) => void;
-  // Location: non-US suppression
-  excludeNonUS: boolean;
-  onExcludeNonUSChange: (b: boolean) => void;
-  // Keywords (matchedKeywords scorer-tag matching, same as FilterRail)
-  includeKeywords: string[];
-  excludeKeywords: string[];
+  sources: string[];
   knownKeywords: Set<string>;
-  onIncludeKeywordsChange: (fn: (prev: string[]) => string[]) => void;
-  onExcludeKeywordsChange: (fn: (prev: string[]) => string[]) => void;
-  // Role specializations — OR-semantics across selected RoleIds.
-  selectedRoles: RoleId[];
   availableRoles: Set<RoleId>;
-  onRolesToggle: (id: RoleId) => void;
-  // User-state skips
-  skipApplied: boolean;
-  skipHidden: boolean;
-  onSkipAppliedChange: (b: boolean) => void;
-  onSkipHiddenChange: (b: boolean) => void;
-  // Delivery channels
-  channels: NotifChannels;
-  onChannelToggle: (ch: keyof NotifChannels) => void;
-  emailRecipients: string[];
-  onEmailRecipientsChange: (fn: (prev: string[]) => string[]) => void;
-  phoneNumbers: string[];
-  onPhoneNumbersChange: (fn: (prev: string[]) => string[]) => void;
-  // Save action
   onSave: () => void;
   saving: boolean;
   saved: boolean;
-  // Non-null when the last save attempt failed; rendered as red text next
-  // to the Save button so the user doesn't assume a 4xx/5xx was a success.
   error: string | null;
 }
 
@@ -170,68 +133,15 @@ function Toggle({
   );
 }
 
-// KeywordChips (shared with FilterRail) handles the keyword-input control.
+function toggle<T>(list: T[], v: T): T[] {
+  return list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+}
 
 export function NotifModal({
-  open,
-  onOpenChange,
-  minScore,
-  onMinScoreChange,
-  sourceDownAlerts,
-  onSourceDownAlertsChange,
-  tierFilter,
-  onTierFilterChange,
-  selectedSeasons,
-  onSeasonsToggle,
-  seasonOptions,
-  dynamicSources,
-  excludedSources,
-  onExcludedSourcesChange,
-  excludeNonUS,
-  onExcludeNonUSChange,
-  includeKeywords,
-  excludeKeywords,
-  knownKeywords,
-  onIncludeKeywordsChange,
-  onExcludeKeywordsChange,
-  selectedRoles,
-  availableRoles,
-  onRolesToggle,
-  skipApplied,
-  skipHidden,
-  onSkipAppliedChange,
-  onSkipHiddenChange,
-  channels,
-  onChannelToggle,
-  emailRecipients,
-  onEmailRecipientsChange,
-  phoneNumbers,
-  onPhoneNumbersChange,
-  onSave,
-  saving,
-  saved,
-  error,
+  open, onOpenChange, settings, onChange, seasonOptions, sources, knownKeywords, availableRoles,
+  onSave, saving, saved, error,
 }: Props) {
-  const [emailInput, setEmailInput] = useState("");
-  const [phoneInput, setPhoneInput] = useState("");
-
-  function addEmail() {
-    const v = emailInput.trim().toLowerCase();
-    if (!v || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return;
-    onEmailRecipientsChange((prev) => (prev.includes(v) ? prev : [...prev, v]));
-    setEmailInput("");
-  }
-  function addPhone() {
-    const v = phoneInput.trim();
-    if (!v || !/^\+\d{10,15}$/.test(v)) return;
-    onPhoneNumbersChange((prev) => (prev.includes(v) ? prev : [...prev, v]));
-    setPhoneInput("");
-  }
-  function toggleSource(s: string) {
-    onExcludedSourcesChange((prev) =>
-      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s],
-    );
-  }
+  const s = settings;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -248,14 +158,10 @@ export function NotifModal({
               type="number"
               min={0}
               max={100}
-              value={minScore}
+              value={s.minScore}
               onChange={(e) => {
-                // Empty string → Number("") === 0, but other non-numeric
-                // input (e.g. "e", "-", paste of "abc") → NaN. Coerce NaN to
-                // 0 so the server doesn't get a number-typed NaN, which
-                // sneaks past `typeof === 'number'` and writes `null` to JSON.
                 const n = Number(e.target.value);
-                onMinScoreChange(Number.isFinite(n) ? n : 0);
+                onChange({ minScore: Number.isFinite(n) ? n : 0 });
               }}
               className="w-20 h-7 text-[13px] bg-white/[0.04] border-white/10 tabular-nums"
             />
@@ -266,8 +172,8 @@ export function NotifModal({
               {TIER_OPTIONS.map(({ value, label }) => (
                 <Chip
                   key={value}
-                  active={tierFilter === value}
-                  onClick={() => onTierFilterChange(value)}
+                  active={s.tierFilter === value}
+                  onClick={() => onChange({ tierFilter: value })}
                 >
                   {label}
                 </Chip>
@@ -278,13 +184,13 @@ export function NotifModal({
           <Section label="Role" hint="empty = all" className="sm:col-span-2">
             <div className="flex flex-wrap gap-1.5">
               {ROLE_SPECIALIZATIONS.map((r) => {
-                const active = selectedRoles.includes(r.id);
+                const active = s.roles.includes(r.id);
                 const unknown = !availableRoles.has(r.id);
                 return (
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => onRolesToggle(r.id)}
+                    onClick={() => onChange({ roles: toggle(s.roles, r.id) })}
                     title={unknown ? "No postings currently match this role" : undefined}
                     className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
                       active
@@ -309,8 +215,8 @@ export function NotifModal({
                 seasonOptions.map(({ token, count }) => (
                   <Chip
                     key={token}
-                    active={selectedSeasons.includes(token)}
-                    onClick={() => onSeasonsToggle(token)}
+                    active={s.seasons.includes(token)}
+                    onClick={() => onChange({ seasons: toggle(s.seasons, token) })}
                   >
                     {formatSeasonLabel(token)}{" "}
                     <span className="text-white/35 tabular-nums">{count}</span>
@@ -322,17 +228,17 @@ export function NotifModal({
 
           <Section label="Skip sources" hint="silence noisy sources" className="sm:col-span-2">
             <div className="flex flex-wrap gap-1.5">
-              {!dynamicSources || dynamicSources.length === 0 ? (
+              {sources.length === 0 ? (
                 <span className="text-[11px] text-white/40">No sources loaded yet</span>
               ) : (
-                dynamicSources.map((s) => (
+                sources.map((src) => (
                   <Chip
-                    key={s}
-                    active={excludedSources.includes(s)}
+                    key={src}
+                    active={s.excludedSources.includes(src)}
                     tone="danger"
-                    onClick={() => toggleSource(s)}
+                    onClick={() => onChange({ excludedSources: toggle(s.excludedSources, src) })}
                   >
-                    {s}
+                    {src}
                   </Chip>
                 ))
               )}
@@ -340,13 +246,13 @@ export function NotifModal({
           </Section>
 
           <Section label="Location">
-            <Toggle on={excludeNonUS} onChange={onExcludeNonUSChange} label="Skip non-US postings" />
+            <Toggle on={s.excludeNonUS} onChange={(b) => onChange({ excludeNonUS: b })} label="Skip non-US postings" />
           </Section>
 
           <Section label="Include keywords" hint="match scorer tags">
             <KeywordChips
-              values={includeKeywords}
-              onValuesChange={(next) => onIncludeKeywordsChange(() => next)}
+              values={s.includeKeywords}
+              onValuesChange={(next) => onChange({ includeKeywords: next })}
               placeholder="e.g. React"
               knownKeywords={knownKeywords}
               tone="include"
@@ -355,8 +261,8 @@ export function NotifModal({
 
           <Section label="Exclude keywords">
             <KeywordChips
-              values={excludeKeywords}
-              onValuesChange={(next) => onExcludeKeywordsChange(() => next)}
+              values={s.excludeKeywords}
+              onValuesChange={(next) => onChange({ excludeKeywords: next })}
               placeholder="e.g. PhD"
               knownKeywords={knownKeywords}
               tone="exclude"
@@ -365,88 +271,15 @@ export function NotifModal({
 
           <Section label="User state">
             <div className="space-y-2">
-              <Toggle on={skipApplied} onChange={onSkipAppliedChange} label="Skip applied postings" />
-              <Toggle on={skipHidden} onChange={onSkipHiddenChange} label="Skip hidden postings" />
-            </div>
-          </Section>
-
-          <Section label="Channels" hint="where to send alerts" className="sm:col-span-2">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <BotMessageSquare className="h-3.5 w-3.5 text-white/40 shrink-0" />
-                <Toggle on={channels.discord} onChange={() => onChannelToggle("discord")} label="Discord" />
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Mail className="h-3.5 w-3.5 text-white/40 shrink-0" />
-                  <Toggle on={channels.email} onChange={() => onChannelToggle("email")} label="Email" />
-                </div>
-                {channels.email && (
-                  <div className="ml-6 space-y-1.5">
-                    <div className="flex gap-1.5">
-                      <Input
-                        placeholder="you@example.com"
-                        value={emailInput}
-                        onChange={(e) => setEmailInput(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addEmail()}
-                        className="h-7 text-[12px] bg-white/[0.04] border-white/10"
-                      />
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]" onClick={addEmail}>Add</Button>
-                    </div>
-                    {emailRecipients.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {emailRecipients.map((e) => (
-                          <span key={e} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-white/10 text-white/70">
-                            {e}
-                            <button onClick={() => onEmailRecipientsChange((prev) => prev.filter((x) => x !== e))}><X className="h-2.5 w-2.5" /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[10px] text-white/35">Requires <code className="text-white/50">RESEND_API_KEY</code>; set <code className="text-white/50">RESEND_FROM</code> for a verified sender (defaults to Resend sandbox)</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <MessageSquare className="h-3.5 w-3.5 text-white/40 shrink-0" />
-                  <Toggle on={channels.sms} onChange={() => onChannelToggle("sms")} label="SMS (text message)" />
-                </div>
-                {channels.sms && (
-                  <div className="ml-6 space-y-1.5">
-                    <div className="flex gap-1.5">
-                      <Input
-                        placeholder="+12125551234"
-                        value={phoneInput}
-                        onChange={(e) => setPhoneInput(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && addPhone()}
-                        className="h-7 text-[12px] bg-white/[0.04] border-white/10"
-                      />
-                      <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] border-white/10 bg-white/[0.04]" onClick={addPhone}>Add</Button>
-                    </div>
-                    {phoneNumbers.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {phoneNumbers.map((p) => (
-                          <span key={p} className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] bg-white/10 text-white/70">
-                            {p}
-                            <button onClick={() => onPhoneNumbersChange((prev) => prev.filter((x) => x !== p))}><X className="h-2.5 w-2.5" /></button>
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <p className="text-[10px] text-white/35">E.164 format · Requires Twilio env vars</p>
-                  </div>
-                )}
-              </div>
+              <Toggle on={s.skipApplied} onChange={(b) => onChange({ skipApplied: b })} label="Skip applied postings" />
+              <Toggle on={s.skipHidden} onChange={(b) => onChange({ skipHidden: b })} label="Skip hidden postings" />
             </div>
           </Section>
 
           <Section label="Alerts" className="sm:col-span-2">
             <Toggle
-              on={sourceDownAlerts}
-              onChange={onSourceDownAlertsChange}
+              on={s.sourceDownAlerts}
+              onChange={(b) => onChange({ sourceDownAlerts: b })}
               label="Alert when a source goes down"
             />
           </Section>

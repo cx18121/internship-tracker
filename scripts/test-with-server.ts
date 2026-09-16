@@ -1,13 +1,12 @@
-// Runs the test suite against a freshly-started dev server, then shuts it
-// down. Resolves the "6 live API tests fail because no server is running"
-// gap from `npm test` without making the test file itself responsible for
-// process management.
+// Runs the full test suite (unit + integration) against a freshly-started
+// dev server, then shuts it down. The integration file's HTTP tests need a
+// live server; this keeps process management out of the test files.
 //
 // Flow:
 //   1. Spawn `next dev -p <PORT>` in the background, suppressing its output
 //      unless DEBUG_SERVER=1.
 //   2. Poll /api/internships/stats until it 200s (or timeout).
-//   3. Run `npx tsx src/poller/test.ts` to completion.
+//   3. Run `npx tsx --test 'src/**/*.test.ts' tests/integration.test.ts`.
 //   4. SIGTERM the dev server; SIGKILL after 5s if it ignores.
 //   5. Exit with the test suite's exit code.
 //
@@ -15,7 +14,6 @@
 //        DEBUG_SERVER=1 npx tsx scripts/test-with-server.ts   (stream dev logs)
 
 import { spawn, ChildProcess } from 'child_process';
-import * as path from 'path';
 
 const PORT = process.env.PORT || '3001';
 const STATS_URL = `http://localhost:${PORT}/api/internships/stats`;
@@ -56,6 +54,10 @@ async function shutdown(server: ChildProcess): Promise<void> {
 }
 
 (async () => {
+  if (!process.env.DATABASE_URL) {
+    console.error('[test-with-server] DATABASE_URL must be set explicitly (a local test Postgres); refusing to fall back to .env');
+    process.exit(2);
+  }
   log(`Starting dev server on port ${PORT}…`);
   const server = spawn('npx', ['next', 'dev', '-p', PORT], {
     cwd: process.cwd(),
@@ -88,8 +90,10 @@ async function shutdown(server: ChildProcess): Promise<void> {
   }
   log('Server ready. Running tests…\n');
 
-  const tester = spawn('npx', ['tsx', path.join('src', 'poller', 'test.ts')], {
+  // No shell: the glob is passed literally and expanded by node's test runner.
+  const tester = spawn('npx', ['tsx', '--test', 'src/**/*.test.ts', 'tests/integration.test.ts'], {
     cwd: process.cwd(),
+    env: { ...process.env, TEST_BASE_URL: process.env.TEST_BASE_URL ?? `http://localhost:${PORT}` },
     stdio: 'inherit',
   });
 

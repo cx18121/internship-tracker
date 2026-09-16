@@ -1,4 +1,4 @@
-import { Internship } from '../lib/types';
+import type { RawPosting } from '../lib/types';
 import { classifyLocation } from './iso-locations';
 import { INTERN_SIGNAL_RE } from './utils/intern-signal';
 import { isExpiredSeasonTokens, deriveSeasonWithDefault } from '../lib/seasons';
@@ -68,7 +68,9 @@ const RESEARCH_INTERN_PATTERNS = [
   'research assistant',   // "Research Assistant Intern" (not a coding role)
 ];
 
-export type ExclusionReason = 'non_us' | 'phd_required' | 'closed' | 'non_swe' | 'not_intern' | 'expired_season';
+export type ExclusionReason = 'non-us' | 'phd-required' | 'closed' | 'non-swe' | 'not-intern' | 'expired-season';
+
+export const EXCLUSION_REASONS: readonly ExclusionReason[] = ['non-us', 'phd-required', 'closed', 'non-swe', 'not-intern', 'expired-season'];
 
 export interface FilterResult {
   passed: boolean;
@@ -76,7 +78,7 @@ export interface FilterResult {
 }
 
 interface FilterContext {
-  internship: Partial<Internship>;
+  posting: RawPosting;
   titleLower: string;
   combined: string;
 }
@@ -89,40 +91,39 @@ interface Rule {
 
 // Order matters: the first rejecting rule wins. Tier-order chosen to surface
 // the most specific reason — e.g. non-US wins over not-intern because
-// "London engineer" should report 'non_us', not 'not_intern'.
+// "London engineer" should report 'non-us', not 'not-intern'.
 const RULES: readonly Rule[] = [
   // Empty/ambiguous locations come back as 'unknown' from classifyLocation
   // and pass — manual review beats blanket-rejecting unstructured strings.
-  { reason: 'non_us',       rejects: ({ internship }) => classifyLocation(internship.location || '') === 'non_us' },
-  { reason: 'not_intern',   rejects: ({ internship }) => !INTERN_SIGNAL_RE.test(internship.title || '') },
+  { reason: 'non-us',       rejects: ({ posting }) => classifyLocation(posting.location) === 'non_us' },
+  { reason: 'not-intern',   rejects: ({ posting }) => !INTERN_SIGNAL_RE.test(posting.title) },
   // Research-track blocks override the CS-signal allowlist below: "Research
   // Intern" contains "research" which isn't a CS stem, but it could still
   // contain "engineer" or "science" via "research engineer" / "research
   // scientist" so we'd miss them without this rule firing first.
-  { reason: 'non_swe',      rejects: ({ titleLower }) => RESEARCH_INTERN_PATTERNS.some((p) => titleLower.includes(p)) },
-  { reason: 'non_swe',      rejects: ({ titleLower }) => NON_SWE_ROLES.some((r) => titleLower.includes(r)) },
+  { reason: 'non-swe',      rejects: ({ titleLower }) => RESEARCH_INTERN_PATTERNS.some((p) => titleLower.includes(p)) },
+  { reason: 'non-swe',      rejects: ({ titleLower }) => NON_SWE_ROLES.some((r) => titleLower.includes(r)) },
   // PhD gate runs before cs_signal so "PhD Software Engineer Intern" gets
   // bounced even though it has strong CS signals.
-  { reason: 'phd_required', rejects: ({ combined }) => PHD_MASTERS_PATTERNS.some((p) => combined.includes(p.toLowerCase())) },
+  { reason: 'phd-required', rejects: ({ combined }) => PHD_MASTERS_PATTERNS.some((p) => combined.includes(p.toLowerCase())) },
   // Positive allowlist: must contain a recognized CS/SWE signal. "sde" is
   // included for Software Development Engineer intern titles.
-  { reason: 'non_swe',      rejects: ({ titleLower, internship }) =>
+  { reason: 'non-swe',      rejects: ({ titleLower, posting }) =>
       !CS_SIGNAL_STEMS.some((s) => titleLower.includes(s)) &&
-      !CS_SIGNAL_EXACT_RE.test(internship.title || '') },
+      !CS_SIGNAL_EXACT_RE.test(posting.title) },
   { reason: 'closed',       rejects: ({ combined }) => CLOSED_PATTERNS.some((p) => combined.includes(p.toLowerCase())) },
-  // Runs last: only an otherwise-valid SWE intern role gets tagged 'expired_season',
+  // Runs last: only an otherwise-valid SWE intern role gets tagged 'expired-season',
   // so the count reflects genuinely-missed roles rather than e.g. expired non-SWE.
   // The off-season list carries many past cycles (Summer 2024, Winter 2026, …).
-  { reason: 'expired_season', rejects: ({ internship }) => isExpiredSeasonTokens(internship.season ?? deriveSeasonWithDefault(internship.title)) },
+  { reason: 'expired-season', rejects: ({ posting }) => isExpiredSeasonTokens(posting.season ?? deriveSeasonWithDefault(posting.title)) },
 ];
 
-export function applyHardFilters(internship: Partial<Internship>): FilterResult {
-  const titleLower = (internship.title || '').toLowerCase();
-  const locationLower = (internship.location || '').toLowerCase();
+export function applyHardFilters(posting: RawPosting): FilterResult {
+  const titleLower = posting.title.toLowerCase();
   const ctx: FilterContext = {
-    internship,
+    posting,
     titleLower,
-    combined: `${titleLower} ${locationLower}`,
+    combined: `${titleLower} ${posting.location.toLowerCase()}`,
   };
   for (const rule of RULES) {
     if (rule.rejects(ctx)) return { passed: false, reason: rule.reason };
@@ -130,42 +131,15 @@ export function applyHardFilters(internship: Partial<Internship>): FilterResult 
   return { passed: true };
 }
 
-export interface FilterCounts {
-  excludedNonUS: number;
-  excludedPhDRequired: number;
-  excludedClosed: number;
-  excludedNonSWE: number;
-  excludedNotIntern: number;
-  excludedExpiredSeason: number;
-}
+export type ExclusionCounts = Record<ExclusionReason, number>;
 
-export function filterInternships(
-  internships: Partial<Internship>[]
-): { passed: Partial<Internship>[]; counts: FilterCounts } {
-  const counts: FilterCounts = {
-    excludedNonUS: 0,
-    excludedPhDRequired: 0,
-    excludedClosed: 0,
-    excludedNonSWE: 0,
-    excludedNotIntern: 0,
-    excludedExpiredSeason: 0,
-  };
-
-  const passed: Partial<Internship>[] = [];
-
-  for (const i of internships) {
-    const result = applyHardFilters(i);
-    if (result.passed) {
-      passed.push(i);
-    } else {
-      if (result.reason === 'non_us') counts.excludedNonUS++;
-      if (result.reason === 'phd_required') counts.excludedPhDRequired++;
-      if (result.reason === 'closed') counts.excludedClosed++;
-      if (result.reason === 'non_swe') counts.excludedNonSWE++;
-      if (result.reason === 'not_intern') counts.excludedNotIntern++;
-      if (result.reason === 'expired_season') counts.excludedExpiredSeason++;
-    }
+export function filterPostings(postings: RawPosting[]): { passed: RawPosting[]; excluded: ExclusionCounts } {
+  const excluded = Object.fromEntries(EXCLUSION_REASONS.map(r => [r, 0])) as ExclusionCounts;
+  const passed: RawPosting[] = [];
+  for (const p of postings) {
+    const result = applyHardFilters(p);
+    if (result.passed) passed.push(p);
+    else excluded[result.reason!]++;
   }
-
-  return { passed, counts };
+  return { passed, excluded };
 }

@@ -1,72 +1,57 @@
-// Promotes a raw partial-internship (whatever the poller produced) into the
-// fully-scored row that goes into deduplicateAndStore. Used by agent.ts.
-//
-// The pipeline ordering matters and is documented at each step. Scorer
-// runs against the ORIGINAL (full-length, ~4000-char) description so it
-// catches tech keywords from anywhere in the body; the smartTrim runs
-// AFTER, so storage only keeps the UI-friendly subset (benefits/EEO/legal
-// tail dropped, capped ~2000).
-
-import md5 from 'md5';
-import type { Internship } from '../../lib/types';
+import { createHash } from 'node:crypto';
+import type { Internship, RawPosting } from '../../lib/types';
 import { stripUtm, stripEmojiPrefix } from '../../lib/utils/normalize';
 import { scoreInternship } from '../../lib/scorer';
 import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
-import { buildInternshipRow } from './build-row';
+import { deriveSeasonWithDefault } from '../../lib/seasons';
 import { smartTrimDescription } from './description-trim';
 
-export function enrichForStorage(p: Partial<Internship>, now: string): Internship {
-  // Canonicalize the company name ONCE here — the storage chokepoint where
-  // id, normalizedKey, and the stored company field are all set. Keeping them
-  // derived from the same value is what lets cross-source dedup (store.ts)
-  // collapse "NVIDIA" / "NVIDIA AI" and stops the by-company grouping from
-  // splitting one company across two sections.
-  const company = canonicalizeCompany(stripEmojiPrefix(p.company || ''));
+/**
+ * Promote a poller's RawPosting into the stored Internship. This is the only
+ * place a stored row is built, so id, normalizedKey, company, season, and
+ * salary are all derived from the same values.
+ *
+ * The scorer runs against the full description; smartTrim runs after so
+ * storage keeps only the UI-friendly subset.
+ */
+export function enrichForStorage(p: RawPosting, now: string): Internship {
+  const company = canonicalizeCompany(stripEmojiPrefix(p.company));
+  const link = stripUtm(p.link) || p.link;
+  const { score, scoreLabel, matchedKeywords } = scoreInternship({ title: p.title, company, location: p.location });
 
-  const { score, scoreLabel, matchedKeywords } = scoreInternship({ ...p, company });
-
-  // Salary precedence: a scraper that reports authoritative comp (e.g.
-  // Handshake's card pay token) wins. Handshake always states comp on the
-  // card ($… or "Unpaid"), so we NEVER re-parse its description — that's
-  // what used to invent salaries for unpaid roles. Other sources fall back
-  // to parsing title + description (pre-trim, so a buried pay line survives).
-  const salary = p.salaryText
-    ? { text: p.salaryText, min: p.salaryMin ?? null, max: p.salaryMax ?? null, unit: p.salaryUnit ?? null }
-    : p.source === 'Handshake'
-      ? { text: null, min: null, max: null, unit: null }
-      : parseSalary(`${p.title || ''} ${p.description || ''}`);
+  // A source that states compensation (Handshake's card) is authoritative and
+  // is never second-guessed by description parsing, which invented salaries
+  // for unpaid roles. Other sources parse title + full description.
+  const salary = p.salary ?? (p.source === 'Handshake' ? null : parseSalary(`${p.title} ${p.description ?? ''}`));
+  const description = smartTrimDescription(p.description);
 
   return {
-    ...buildInternshipRow({
-      title: p.title || '',
-      company,
-      location: p.location || '',
-      link: p.link || '',
-      source: p.source || 'Unknown',
-      upstreamPostedAt: p.postedAt,
-      seenAt: now,
-      season: p.season,
-    }),
-    id: md5(`${company}${p.title || ''}${stripUtm(p.link || '')}`),
-    description: smartTrimDescription(p.description) || undefined,
-    // ATS provenance is set by github/portal-scanner pollers and required by
-    // portal-scanner's archiveDisappeared() (closing detection). Forward it.
-    atsSource: p.atsSource,
-    atsJobId: p.atsJobId,
-    atsTarget: p.atsTarget,
-    multiLocation: p.multiLocation,
+    id: createHash('md5').update(`${company}${p.title}${link}`).digest('hex'),
+    title: p.title,
+    company,
+    location: p.location,
+    link,
+    source: p.source,
+    postedAt: p.postedAt,
+    seenAt: now,
     score,
     scoreLabel,
     matchedKeywords,
-    isNew: true,
-    normalizedKey: normalizeKey(company, p.title || ''),
-    ...(salary.text ? {
+    applied: false,
+    hidden: false,
+    archived: false,
+    failedCheckCount: 0,
+    normalizedKey: normalizeKey(company, p.title),
+    season: p.season ?? deriveSeasonWithDefault(p.title),
+    ...(description ? { description } : {}),
+    ...(p.multiLocation ? { multiLocation: p.multiLocation } : {}),
+    ...(salary?.text ? {
       salaryText: salary.text,
       salaryMin: salary.min ?? undefined,
       salaryMax: salary.max ?? undefined,
       salaryUnit: salary.unit ?? undefined,
     } : {}),
-  } as Internship;
+  };
 }

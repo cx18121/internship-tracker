@@ -1,6 +1,6 @@
 import { patchInternship } from "@/lib/store";
 import { isOwnerRequest, forbidden } from "@/lib/owner";
-import type { Internship } from "@/lib/types";
+import type { InternshipPatch } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +27,7 @@ function isHttpUrl(v: string): boolean {
 const validators: Record<(typeof ALLOWED)[number], (v: unknown) => unknown | typeof INVALID> = {
   applied: (v) => (typeof v === "boolean" ? v : INVALID),
   hidden: (v) => (typeof v === "boolean" ? v : INVALID),
-  appliedAt: (v) => {
-    if (v === null) return undefined;
-    return typeof v === "string" && isISODateString(v) ? v : INVALID;
-  },
+  appliedAt: (v) => (v === null ? null : typeof v === "string" && isISODateString(v) ? v : INVALID),
   link: (v) => {
     if (typeof v !== "string" || v.length === 0 || v.length > MAX_URL_LEN || !isHttpUrl(v)) return INVALID;
     return v;
@@ -44,7 +41,7 @@ export async function PATCH(
   if (!isOwnerRequest(request)) return forbidden();
   const { id } = await ctx.params;
   const body = await request.json().catch(() => ({}));
-  const patch: Partial<Internship> = {};
+  const patch: InternshipPatch = {};
   for (const key of ALLOWED) {
     if (!(key in body)) continue;
     const coerced = validators[key](body[key]);

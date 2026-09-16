@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import type { Internship } from "./types";
+import type { Internship, ScoreLabel } from "./types";
 import { tokenize, containsPhrase, matchesCompanyName } from "./keyword-match";
 
 // ---------------------------------------------------------------------------
@@ -95,28 +95,28 @@ export interface ScoreBreakdown {
 
 export interface ScoreResult {
   score: number;
-  scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F';
+  scoreLabel: ScoreLabel;
   breakdown: ScoreBreakdown;
   matchedKeywords: string[];
 }
 
+export type Scorable = Pick<Internship, 'title' | 'company' | 'location'>;
+
 /**
  * Score an internship against the scoring config.
  *
- * @param entry  The internship to score (only title/company/location are read).
+ * @param entry  Title, company, and location of the posting.
  * @param config Optional config override — defaults to the cached load of
  *               data/scoring-config.json. Tests pass a synthetic config here
  *               to verify tier boundaries without touching the filesystem.
  */
-export function scoreInternship(entry: Partial<Internship>, config?: ScoringConfig): ScoreResult {
+export function scoreInternship(entry: Scorable, config?: ScoringConfig): ScoreResult {
   const cfg = config ?? loadConfig();
-  const title = entry.title ?? '';
-  const company = entry.company ?? '';
   const matched: string[] = [];
 
-  const role = scoreRole(title, cfg, matched);
-  const coPts = scoreCompany(company, cfg, matched);
-  const loc = scoreLocation(entry.location ?? '', cfg, matched);
+  const role = scoreRole(entry.title, cfg, matched);
+  const coPts = scoreCompany(entry.company, cfg, matched);
+  const loc = scoreLocation(entry.location, cfg, matched);
 
   const raw = role + coPts + loc;
   const score = Math.max(0, Math.min(raw, cfg.scoringCeiling));

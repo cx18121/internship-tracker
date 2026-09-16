@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { Internship, ATSTarget } from '../../lib/types';
+import type { RawPosting, ATSTarget } from '../../lib/types';
 import { loadATSTargets } from '../../lib/utils/ats-discovery';
 import { INTERN_SIGNAL_RE, isInternTitle } from '../utils/intern-signal';
 import { stripHtml } from '../utils/html';
@@ -9,7 +9,7 @@ import {
   fetchSmartRecruitersDescription,
   fetchRipplingDescription,
 } from '../utils/description-fetchers';
-import { buildInternshipRow } from '../utils/build-row';
+import { buildPosting } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
 import { jsonStore } from '../../lib/sidecar';
 import { closeBrowserSafely } from '../utils/browser';
@@ -24,25 +24,25 @@ const REQUEST_TIMEOUT = 10_000;
 
 export { isInternTitle };
 
-async function pollGreenhouse(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollGreenhouse(target: ATSTarget, now: string): Promise<RawPosting[]> {
   const url = `https://boards-api.greenhouse.io/v1/boards/${target.slug}/jobs?content=true`;
   const { data } = await axios.get(url, { timeout: REQUEST_TIMEOUT });
   const company = target.name || target.slug;
   return (data.jobs || [])
     .filter((j: any) => INTERN_SIGNAL_RE.test(j.title || ''))
-    .map((j: any) => buildInternshipRow({
+    .map((j: any) => buildPosting({
       title: stripHtml(j.title || ''),
       company,
       location: j.location?.name,
       link: j.absolute_url || `https://boards.greenhouse.io/${target.slug}/jobs/${j.id}`,
       source: 'Greenhouse',
       upstreamPostedAt: j.updated_at,
-      seenAt: now,
+      now,
       descriptionHtml: typeof j.content === 'string' ? j.content.slice(0, MAX_RAW_DESC) : undefined,
     }));
 }
 
-async function pollLever(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollLever(target: ATSTarget, now: string): Promise<RawPosting[]> {
   const url = `https://api.lever.co/v0/postings/${target.slug}?mode=json`;
   const { data } = await axios.get(url, { timeout: REQUEST_TIMEOUT });
   const postings: any[] = Array.isArray(data) ? data : [];
@@ -55,7 +55,7 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
       const commitmentMatch = (j.categories?.commitment || '').toLowerCase() === 'internship';
       return titleMatch || commitmentMatch;
     })
-    .map((j) => buildInternshipRow({
+    .map((j) => buildPosting({
       title: j.text || '',
       company,
       // Lever workplaceType is an internal enum ("remote"/"onsite"/"hybrid"/
@@ -66,12 +66,12 @@ async function pollLever(target: ATSTarget, now: string): Promise<Partial<Intern
       link: j.hostedUrl || j.applyUrl || '',
       source: 'Lever',
       upstreamPostedAt: j.createdAt ? new Date(j.createdAt).toISOString() : undefined,
-      seenAt: now,
+      now,
       description: extractLeverDescription(j),
     }));
 }
 
-async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollAshby(target: ATSTarget, now: string): Promise<RawPosting[]> {
   // Ashby embeds job data in window.__appData on the job board page
   const { data: html } = await axios.get(`https://jobs.ashbyhq.com/${target.slug}`, {
     timeout: REQUEST_TIMEOUT,
@@ -101,10 +101,10 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
     return titleMatch || typeMatch;
   });
 
-  const results: Partial<Internship>[] = [];
+  const results: RawPosting[] = [];
   for (const j of interns) {
     const description = await fetchAshbyDescription(target.slug, j.id);
-    results.push(buildInternshipRow({
+    results.push(buildPosting({
       title: j.title || '',
       company,
       location: j.workplaceType === 'Remote'
@@ -113,7 +113,7 @@ async function pollAshby(target: ATSTarget, now: string): Promise<Partial<Intern
       link: `https://jobs.ashbyhq.com/${target.slug}/${j.id}`,
       source: 'Ashby',
       upstreamPostedAt: j.publishedDate,
-      seenAt: now,
+      now,
       description,
     }));
   }
@@ -193,7 +193,7 @@ async function pollWorkday(
   target: ATSTarget,
   now: string,
   facetDiscoveries?: Map<string, { [k: string]: string[] }>,
-): Promise<Partial<Internship>[]> {
+): Promise<RawPosting[]> {
   const tenant = target.slug;
   const board = target.board || '';
   const wdInstance = target.wdInstance || 'wd1';
@@ -276,19 +276,19 @@ async function pollWorkday(
     // locationsText rather than a city. If it just echoes the company name, fall back.
     const rawLoc = j.locationsText || '';
     const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
-    return buildInternshipRow({
+    return buildPosting({
       title: j.title || '',
       company,
       location,
       link: `${workdayBoardUrl(baseHost, tenant, board, isSiteVariant)}${j.externalPath}`,
       source: 'Workday',
-      seenAt: now,
+      now,
       description: descriptions.get(j.externalPath),
     });
   });
 }
 
-async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollICIMS(target: ATSTarget, now: string): Promise<RawPosting[]> {
   // slug is used as the iCIMS tenantId
   const tenantId = target.slug;
   const url = `https://careers-${tenantId}.icims.com/jobs/search?ss=1&searchKeyword=intern&searchLocation=&in_iframe=1`;
@@ -298,7 +298,7 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
     responseType: 'text',
   });
   const company = target.name || tenantId;
-  const results: Partial<Internship>[] = [];
+  const results: RawPosting[] = [];
 
   // Parse <li class="iCIMS_JobsTable_Item"> blocks
   const itemPattern = /<li[^>]*class="[^"]*iCIMS_JobsTable_Item[^"]*"[^>]*>([\s\S]*?)<\/li>/gi;
@@ -313,7 +313,7 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
     const jobId = linkMatch[2];
     const title = linkMatch[3].replace(/<[^>]+>/g, '').trim();
     if (!isInternTitle(title)) continue;
-    results.push(buildInternshipRow({
+    results.push(buildPosting({
       title,
       company,
       location: 'United States',
@@ -321,13 +321,13 @@ async function pollICIMS(target: ATSTarget, now: string): Promise<Partial<Intern
         ? relLink
         : `https://careers-${tenantId}.icims.com/jobs/${jobId}/job`,
       source: 'iCIMS',
-      seenAt: now,
+      now,
     }));
   }
   return results;
 }
 
-async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<RawPosting[]> {
   const url = `https://api.smartrecruiters.com/v1/companies/${target.slug}/postings?status=PUBLIC&limit=100`;
   const { data } = await axios.get(url, {
     timeout: REQUEST_TIMEOUT,
@@ -341,10 +341,10 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
     return titleMatch || typeMatch;
   });
 
-  const results: Partial<Internship>[] = [];
+  const results: RawPosting[] = [];
   for (const j of interns) {
     const description = await fetchSmartRecruitersDescription(target.slug, j.id);
-    results.push(buildInternshipRow({
+    results.push(buildPosting({
       title: j.name || '',
       company,
       location: [j.location?.city, j.location?.region, j.location?.country]
@@ -352,14 +352,14 @@ async function pollSmartRecruiters(target: ATSTarget, now: string): Promise<Part
       link: `https://jobs.smartrecruiters.com/${target.slug}/${j.id}`,
       source: 'SmartRecruiters',
       upstreamPostedAt: j.releasedDate,
-      seenAt: now,
+      now,
       description,
     }));
   }
   return results;
 }
 
-async function pollRippling(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollRippling(target: ATSTarget, now: string): Promise<RawPosting[]> {
   const url = `https://api.rippling.com/platform/api/ats/v1/board/${target.slug}/jobs`;
   const { data } = await axios.get(url, {
     timeout: REQUEST_TIMEOUT,
@@ -392,21 +392,19 @@ async function pollRippling(target: ATSTarget, now: string): Promise<Partial<Int
     descriptions.set(job.uuid, await fetchRipplingDescription(target.slug, job.uuid));
   });
 
-  return grouped.map(({ job, locations }) => ({
-    ...buildInternshipRow({
-      title: job.name || '',
-      company,
-      location: locations[0] || '',
-      link: job.url || `https://ats.rippling.com/${target.slug}/jobs/${job.uuid}`,
-      source: 'Rippling',
-      seenAt: now,
-      description: descriptions.get(job.uuid),
-    }),
-    ...(locations.length > 1 ? { multiLocation: locations } : {}),
+  return grouped.map(({ job, locations }) => buildPosting({
+    title: job.name || '',
+    company,
+    location: locations[0] || '',
+    link: job.url || `https://ats.rippling.com/${target.slug}/jobs/${job.uuid}`,
+    source: 'Rippling',
+    now,
+    description: descriptions.get(job.uuid),
+    multiLocation: locations,
   }));
 }
 
-async function pollWorkable(target: ATSTarget, now: string): Promise<Partial<Internship>[]> {
+async function pollWorkable(target: ATSTarget, now: string): Promise<RawPosting[]> {
   // Public job-list endpoint is a POST with an empty filter body.
   const url = `https://apply.workable.com/api/v3/accounts/${target.slug}/jobs`;
   const { data } = await axios.post(url, {}, {
@@ -426,14 +424,14 @@ async function pollWorkable(target: ATSTarget, now: string): Promise<Partial<Int
       const location = loc.city
         ? [loc.city, loc.region, loc.country].filter(Boolean).join(', ')
         : (isRemote ? 'Remote' : (loc.country || ''));
-      return buildInternshipRow({
+      return buildPosting({
         title: j.title || '',
         company,
         location,
         link: `https://apply.workable.com/${target.slug}/j/${j.shortcode}/`,
         source: 'Workable',
         upstreamPostedAt: j.published,
-        seenAt: now,
+        now,
       });
     });
 }
@@ -441,11 +439,11 @@ async function pollWorkable(target: ATSTarget, now: string): Promise<Partial<Int
 async function pollWorkdayPlaywright(
   csrfTargets: ATSTarget[],
   now: string,
-): Promise<{ jobs: Partial<Internship>[]; csrfConfirmedSlugs: string[]; csrfFailedSlugs: string[] }> {
+): Promise<{ jobs: RawPosting[]; csrfConfirmedSlugs: string[]; csrfFailedSlugs: string[] }> {
   if (csrfTargets.length === 0) return { jobs: [], csrfConfirmedSlugs: [], csrfFailedSlugs: [] };
   const { firefox } = await import('playwright');
   const browser = await firefox.launch({ headless: true });
-  const jobs: Partial<Internship>[] = [];
+  const jobs: RawPosting[] = [];
   const csrfConfirmedSlugs: string[] = [];
   const csrfFailedSlugs: string[] = [];
 
@@ -536,13 +534,13 @@ async function pollWorkdayPlaywright(
       const tJobs = interns.map((j) => {
         const rawLoc = j.locationsText || '';
         const location = (rawLoc && rawLoc !== company) ? rawLoc : 'United States';
-        return buildInternshipRow({
+        return buildPosting({
           title: j.title || '',
           company,
           location,
           link: `${boardUrl}${j.externalPath}`,
           source: 'Workday',
-          seenAt: now,
+          now,
           description: descriptions.get(j.externalPath),
         });
       });
@@ -642,7 +640,10 @@ function overlayWorkdayFlags(targets: ATSTarget[]): ATSTarget[] {
   });
 }
 
-export async function pollATS(): Promise<Partial<Internship>[]> {
+/** Source labels the ATS pollers write. */
+export const ATS_SOURCES = ['Greenhouse', 'Lever', 'Ashby', 'Workday', 'iCIMS', 'SmartRecruiters', 'Rippling', 'Workable'] as const;
+
+export async function pollATS(): Promise<RawPosting[]> {
   const rawTargets = loadATSTargets();
   if (rawTargets.length === 0) {
     console.warn('[ats] No targets in data/ats-targets.json (file missing, malformed, or empty)');
@@ -650,7 +651,7 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
   }
   const targets: ATSTarget[] = overlayWorkdayFlags(rawTargets);
   const now = new Date().toISOString();
-  const results: Partial<Internship>[] = [];
+  const results: RawPosting[] = [];
 
   // Separate Playwright-required Workday targets to batch browser startup.
   // Tenants flagged wdSkipPlaywright have already failed the Playwright path
@@ -677,7 +678,7 @@ export async function pollATS(): Promise<Partial<Internship>[]> {
 
   async function pollOne(target: ATSTarget): Promise<void> {
     try {
-      let jobs: Partial<Internship>[] = [];
+      let jobs: RawPosting[] = [];
       if (target.ats === 'greenhouse') jobs = await pollGreenhouse(target, now);
       else if (target.ats === 'lever') jobs = await pollLever(target, now);
       else if (target.ats === 'ashby') jobs = await pollAshby(target, now);

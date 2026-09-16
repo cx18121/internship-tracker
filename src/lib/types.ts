@@ -1,77 +1,70 @@
+import type { Salary } from './salary';
+
+export type ScoreLabel = 'A' | 'B' | 'C' | 'D' | 'F';
+
+/**
+ * One listing as a poller reports it. Everything derived (id, score,
+ * default season, normalizedKey, trimmed description, parsed salary) is
+ * added once by enrichForStorage.
+ */
+export interface RawPosting {
+  title: string;
+  company: string;
+  /** '' when the source reports no location. */
+  location: string;
+  link: string;
+  source: string;
+  /** ISO timestamp. Poll time when the source reports no publication date. */
+  postedAt: string;
+  /** Plain text, already stripped of HTML. */
+  description?: string;
+  /** Only when the source states a season explicitly (SimplifyJobs README column). */
+  season?: string[];
+  /** Only when the source states compensation explicitly (Handshake card). */
+  salary?: Salary;
+  multiLocation?: string[];
+}
+
+/** A stored row. Mirrors the `internships` table. */
 export interface Internship {
-  id: string;           // MD5(company + title + link)
+  id: string;           // md5(company + title + stripUtm(link))
   title: string;
   company: string;
   location: string;
-  description?: string; // Job description text (when available)
+  description?: string;
   link: string;
-  source: string;       // SimplifyJobs | RemoteOK | Handshake
-  atsSource?: string;   // greenhouse | lever | workday | icims | ashby | unknown
-  /** Job ID as given by the ATS portal (e.g. "4829100123" from a Greenhouse board URL). Used for portal disappearance detection. */
-  atsJobId?: string;
-  /** Slug of the ATS target in ats-targets.json that matched this listing. */
-  atsTarget?: string;
+  source: string;
   postedAt: string;
   seenAt: string;
   score: number | null;
-  /** Letter grade derived from `score`. NULL means "never scored" (e.g.
-   *  legacy JSON-migrated rows, or the test-fixture seed). */
-  scoreLabel: 'A' | 'B' | 'C' | 'D' | 'F' | null;
+  /** null = never scored (test fixtures). */
+  scoreLabel: ScoreLabel | null;
   matchedKeywords: string[];
-  isNew: boolean;
   applied: boolean;
-  archived?: boolean;
   appliedAt?: string;
+  hidden: boolean;
+  archived: boolean;
   /**
-   * Link revalidation metadata.
-   * Policy: 404/410/451 on first check → archive immediately.
-   * Transient failures (403, 429, 5xx) → don't increment count.
-   * Successful check → reset failedCheckCount to 0.
+   * Link revalidation. 404/410/451/401 on check → archive. Transient
+   * failures (403, 429, 5xx) don't increment. A passing check resets to 0.
    */
-  failedCheckCount?: number;   // 0 = last check passed; incremented each consecutive failure
-  firstFailedAt?: string;      // ISO timestamp of first failure (resets when check passes)
-  lastCheckedAt?: string;      // ISO timestamp of last HTTP revalidation check
-  applicationUrl?: string;
-  applicationStatus?: string; // not_applied, applied, interviewing, rejected, offered
-  /** Set when this entry covers multiple locations (e.g. SimplifyJobs "N locationsCity1, STCity2, ST...") */
+  failedCheckCount: number;
+  firstFailedAt?: string;
+  lastCheckedAt?: string;
   multiLocation?: string[];
-  /** Parsed salary info. Populated by src/lib/salary.ts when ingesting. */
   salaryText?: string;
   salaryMin?: number;
   salaryMax?: number;
-  salaryUnit?: 'hourly' | 'monthly' | 'yearly';
-  /** Cross-source dedup key (company + normalized title). See src/lib/normalize-key.ts. */
-  normalizedKey?: string;
-  /** Hidden from UI + alerts via the Discord ❌ Not interested button. */
-  hidden?: boolean;
-  /**
-   * Season tokens parsed from the title (e.g. ["summer-2026"], ["fall-2026",
-   * "summer-2027"]). Populated at write time by toRow() via parseSeason().
-   * Backfilled once for legacy rows — empty/year-only parses default to
-   * ["summer-${year ?? 2026}"] there so they show up under the season chips.
-   */
-  season?: string[];
-}
-
-export interface CycleStats {
-  timestamp: string;
-  sourcesPolled: string[];
-  rawFetched: number;
-  excludedNonUS: number;
-  excludedPhDRequired: number;
-  excludedClosed: number;
-  excludedNonSWE: number;
-  newScored: number;
-  sent: number;
+  salaryUnit?: Salary['unit'];
+  /** Cross-source dedup key (company + normalized title). See normalize-key.ts. */
+  normalizedKey: string;
+  /** Season tokens like "summer-2027". Always at least one. */
+  season: string[];
 }
 
 /**
- * Canonical schema for entries in data/ats-targets.json. Loaded by
- * loadATSTargets() (src/lib/utils/ats-discovery.ts). The workday-only fields
- * (wdInstance, wdDomain, wdCsrfRequired, wdSkipPlaywright) are optional —
- * runtime values for wdCsrfRequired and wdSkipPlaywright may also be
- * overlaid from the workday-flags sidecar cache (see overlayWorkdayFlags
- * in src/poller/pollers/ats.ts).
+ * Entry in data/ats-targets.json. The Workday-only fields (wd*) may also be
+ * overlaid at runtime from the workday-flags sidecar (see ats.ts).
  */
 export interface ATSTarget {
   slug: string;
@@ -81,11 +74,9 @@ export interface ATSTarget {
   wdInstance?: string;        // Workday: wd1 (default), wd3, wd5, etc.
   wdDomain?: string;          // Workday: 'myworkdaysite.com' for site variant, default 'myworkdayjobs.com'
   wdCsrfRequired?: boolean;   // Workday: true when direct CXS API returns 422 (needs Playwright)
-  wdSkipPlaywright?: boolean; // Workday: true when Playwright fallback has confirmed-failed; short-circuits future cycles
-  // Workday: cached intern facet IDs from a discovery call, keyed by facet
-  // parameter (e.g. `{ jobFamilyGroup: ['abc'], workerSubType: ['def','ghi'] }`).
-  // Sent as `appliedFacets` to server-side filter to intern-only roles.
-  // `{}` means discovery ran but tenant has no intern facet → fall back to
-  // searchText='intern'. `undefined` means discovery hasn't run yet.
+  wdSkipPlaywright?: boolean; // Workday: true when Playwright fallback has confirmed-failed
+  /** Workday: cached intern facet IDs keyed by facet parameter. `{}` means
+   *  discovery ran and found none (fall back to searchText='intern');
+   *  `undefined` means discovery hasn't run. */
   wdInternFacets?: { [facetParameter: string]: string[] };
 }

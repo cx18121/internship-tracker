@@ -1,74 +1,43 @@
-// Row construction for poller output. Every poller produces partial
-// Internship rows with the same four wiring fields — source, postedAt,
-// seenAt, applied — and the same fallback rule: when the upstream ATS
-// doesn't report a publication date, postedAt defaults to seenAt (poll
-// time). Before this module that rule lived inline in 7+ places, with
-// minor variations ("j.updated_at || now", "j.createdAt ? new Date(...)
-// : now", etc.).
-//
-// Callers pass identifying fields, an optional upstream-reported
-// publication timestamp, and the description (either pre-stripped plain
-// text via `description` or raw HTML via `descriptionHtml` — never both).
-// Source-specific extras (atsSource, multiLocation, salary fields) are
-// spread in by the caller. The single truncation point downstream is
-// smartTrimDescription in agent.ts; this layer only does null-collapse.
-
-import type { Internship } from '../../lib/types';
-import { stripEmojiPrefix } from '../../lib/utils/normalize';
+import type { RawPosting } from '../../lib/types';
 import { stripHtml } from './html';
 
-export interface RowSeed {
+export interface PostingSeed {
   title: string;
   company: string;
   link: string;
   location?: string | null;
   source: string;
-  /** ISO timestamp the upstream ATS reports for publication. Falls back
-   *  to `seenAt` when null/empty OR unparseable — keeps the "freshness"
-   *  floor honest for sources that don't expose a real date, and guards
-   *  the posted_at timestamptz column from non-date strings (JobSpy/Indeed
-   *  reports relative dates like "5 days ago" that Postgres can't store —
-   *  one such row used to abort the whole poll batch's transaction). */
+  /** Publication timestamp the source reports. Falls back to `now` when
+   *  missing or unparseable (JobSpy emits "5 days ago", which Postgres
+   *  rejects). */
   upstreamPostedAt?: string | null;
-  /** ISO timestamp the poller is using as "now". Threaded from the
-   *  caller so an entire poll batch shares one timestamp. */
-  seenAt: string;
-  /** Plain-text description. Pollers that already have stripped text
-   *  (Lever via descriptionPlain, Ashby/Workday/SmartRecruiters via the
-   *  description-fetcher helpers) pass it here. */
+  /** Poll time, shared by the whole batch. */
+  now: string;
+  /** Plain-text description. */
   description?: string | null;
-  /** Raw HTML description. Pollers that hold unstripped markup
-   *  (Greenhouse j.content, JobSpy when description_format=html) pass it
-   *  here and buildInternshipRow strips. Mutually exclusive with
-   *  `description` — if both are set, `descriptionHtml` wins. */
+  /** Raw HTML description; stripped here. Wins over `description`. */
   descriptionHtml?: string | null;
   season?: string[];
+  salary?: RawPosting['salary'];
+  multiLocation?: string[];
 }
 
-/** True when `v` is a string a database timestamp column can store. Rejects
- *  null/empty and relative/free-text dates ("5 days ago", "Just posted") that
- *  upstream sources emit and Postgres rejects with a 22007 parse error. */
-function isStorableDate(v: string | null | undefined): boolean {
+function isStorableDate(v: string | null | undefined): v is string {
   return !!v && !Number.isNaN(Date.parse(v));
 }
 
-export function buildInternshipRow(seed: RowSeed): Partial<Internship> {
-  const rawDesc = seed.descriptionHtml
-    ? stripHtml(seed.descriptionHtml)
-    : (seed.description ?? '');
-  // Internship.location is typed as `string` (not nullable). Existing
-  // pollers fall back to '' when no location is known; mirror that here
-  // so the typed surface stays narrow.
+export function buildPosting(seed: PostingSeed): RawPosting {
+  const description = (seed.descriptionHtml ? stripHtml(seed.descriptionHtml) : seed.description ?? '').trim();
   return {
     title: seed.title,
-    company: stripEmojiPrefix(seed.company),
+    company: seed.company,
     location: seed.location ?? '',
     link: seed.link,
     source: seed.source,
-    postedAt: isStorableDate(seed.upstreamPostedAt) ? seed.upstreamPostedAt! : seed.seenAt,
-    seenAt: seed.seenAt,
-    applied: false,
-    description: rawDesc.trim() || undefined,
+    postedAt: isStorableDate(seed.upstreamPostedAt) ? seed.upstreamPostedAt : seed.now,
+    ...(description ? { description } : {}),
     ...(seed.season && seed.season.length > 0 ? { season: seed.season } : {}),
+    ...(seed.salary?.text ? { salary: seed.salary } : {}),
+    ...(seed.multiLocation && seed.multiLocation.length > 1 ? { multiLocation: seed.multiLocation } : {}),
   };
 }

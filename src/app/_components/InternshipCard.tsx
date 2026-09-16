@@ -14,7 +14,6 @@ import { timeAgo, formatDate, isStale } from "../_lib/format";
 
 interface Props {
   item: Internship;
-  appliedDate: string | null;
   notes: string;
   pending?: boolean;
   // id-based so the parent can pass stable (referentially-constant) handlers
@@ -28,7 +27,6 @@ interface Props {
 
 function InternshipCardImpl({
   item,
-  appliedDate,
   notes,
   pending = false,
   onNotesChange,
@@ -51,10 +49,10 @@ function InternshipCardImpl({
           flip based on current state. */}
       {isOwner && (
         <button
-          onClick={() => onHide(item.id, item.hidden ?? false)}
+          onClick={() => onHide(item.id, item.hidden)}
           disabled={pending}
           aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
-          aria-pressed={item.hidden ?? false}
+          aria-pressed={item.hidden}
           title={item.hidden ? "Unhide this posting" : "Hide this posting"}
           className="absolute top-2.5 right-2.5 h-6 w-6 inline-flex items-center justify-center rounded text-white/35 hover:text-white/80 hover:bg-white/[0.06] opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
         >
@@ -172,8 +170,8 @@ function InternshipCardImpl({
                 "Mark applied"
               )}
             </button>
-            {appliedDate && item.applied && (
-              <span className="text-[10px] text-white/45 tabular-nums">{formatDate(appliedDate)}</span>
+            {item.appliedAt && item.applied && (
+              <span className="text-[10px] text-white/45 tabular-nums">{formatDate(item.appliedAt)}</span>
             )}
           </>
         )}

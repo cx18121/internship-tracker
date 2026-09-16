@@ -1,4 +1,3 @@
-export const LS_DATES_KEY = "internship-applied-dates";
 export const LS_NOTES_KEY = "internship-notes";
 
 export function lsGet<T>(key: string, fallback: T): T {

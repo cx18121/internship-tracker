@@ -1,58 +1,30 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /**
- * Tiny load/save helper for JSON sidecar files under `data/`. Replaces ~7
- * inline copies of `try { JSON.parse(fs.readFileSync(...)) } catch { ... }`
- * scattered across the poller. Two responsibilities:
- *
- *   1. `load()` reads the file and returns the parsed value, or `defaults`
- *      if the file is missing or malformed. Never throws.
- *   2. `save(data)` writes pretty-printed JSON, creating the parent
- *      directory if it doesn't exist (so first-run on a clean volume
- *      doesn't ENOENT).
- *
- * Defaults are spread under the parsed payload — same shallow-merge
- * semantics as the previous bespoke loaders, so a sidecar written before
- * a new field was added still hydrates that field on next read.
+ * Load/save for poller-only JSON caches under data/ (DATA_DIR overrides for
+ * tests). `load()` returns `defaults` merged under the file's contents and
+ * never throws; `save()` is best-effort and returns whether the write landed.
+ * Shared poller/web state belongs in app-state.ts (Postgres), not here.
  */
-export function jsonStore<T extends object>(
-  filename: string,
-  defaults: T,
-): { load(): T; save(data: T): boolean } {
-  // Resolve once at module load. DATA_DIR env override is the test-isolation
-  // seam — tests point it at a tmpdir so they don't trample real sidecars.
+export function jsonStore<T extends object>(filename: string, defaults: T): { load(): T; save(data: T): boolean } {
   const baseDir = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
   const filePath = path.isAbsolute(filename) ? filename : path.join(baseDir, filename);
-
   return {
     load(): T {
       try {
-        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        return { ...defaults, ...parsed };
+        return { ...defaults, ...JSON.parse(fs.readFileSync(filePath, 'utf-8')) };
       } catch {
         return { ...defaults };
       }
     },
     save(data: T): boolean {
-      // Best-effort: a write failure logs but doesn't throw. The pre-refactor
-      // helpers (saveSimplifyCache, saveHistory in linkedin-revalidate) wrapped
-      // writeFileSync in try/catch so a transient FS hiccup couldn't break the
-      // calling cycle after the real work (DB archive, list fetch) had already
-      // succeeded. Preserve that contract here so every consumer gets the
-      // same recoverable semantics.
-      //
-      // Returns true on success / false on failure so user-facing callers
-      // (e.g. the notif-settings POST route) can translate a failed write
-      // into a 500 instead of falsely confirming the save.
       try {
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
         return true;
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        console.warn(`[sidecar] Failed to write ${filePath}: ${msg}`);
+      } catch (e) {
+        console.warn(`[sidecar] Failed to write ${filePath}: ${e instanceof Error ? e.message : e}`);
         return false;
       }
     },

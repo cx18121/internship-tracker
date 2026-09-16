@@ -9,7 +9,7 @@
  */
 import 'dotenv/config';
 import { revalidateLinkedIn } from '../linkedin-revalidate';
-import { closeDb } from '../../lib/store';
+import { closePool } from '../../lib/db';
 
 async function main(): Promise<void> {
   const dryRun = process.argv.includes('--dry-run');
@@ -26,5 +26,5 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    try { await closeDb(); } catch {}
+    try { await closePool(); } catch {}
   });

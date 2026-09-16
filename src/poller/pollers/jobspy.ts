@@ -1,8 +1,8 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import { Internship } from '../../lib/types';
-import { buildInternshipRow } from '../utils/build-row';
+import type { RawPosting } from '../../lib/types';
+import { buildPosting } from '../utils/build-row';
 
 const CONFIG_PATH = path.join(process.cwd(), 'data', 'jobspy-config.json');
 const SCRIPT_PATH = path.join(process.cwd(), 'scripts', 'jobspy_runner.py');
@@ -23,7 +23,7 @@ interface RawJob {
   postedAt: string;
 }
 
-export async function pollJobSpy(): Promise<Partial<Internship>[]> {
+export async function pollJobSpy(): Promise<RawPosting[]> {
   if (!fs.existsSync(SCRIPT_PATH)) {
     console.warn('[jobspy] Runner script not found:', SCRIPT_PATH);
     return [];
@@ -68,14 +68,14 @@ export async function pollJobSpy(): Promise<Partial<Internship>[]> {
       }
 
       const now = new Date().toISOString();
-      const results: Partial<Internship>[] = parsed.map((j) => buildInternshipRow({
+      const results: RawPosting[] = parsed.map((j) => buildPosting({
         title: j.title || '',
         company: j.company || '',
         location: j.location || '',
         link: j.link || '',
         source: j.source || 'JobSpy',
         upstreamPostedAt: j.postedAt,
-        seenAt: now,
+        now,
         descriptionHtml: j.description,
       }));
 

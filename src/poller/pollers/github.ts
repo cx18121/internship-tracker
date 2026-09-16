@@ -1,10 +1,10 @@
 import axios from 'axios';
-import { Internship } from '../../lib/types';
+import type { RawPosting } from '../../lib/types';
 import { discoverATSTarget, saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
 import { stripHtml } from '../utils/html';
 import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import { fetchDescriptionByUrl } from '../utils/description-fetchers';
-import { buildInternshipRow } from '../utils/build-row';
+import { buildPosting } from '../utils/build-row';
 import { parseSeason } from '../../lib/seasons';
 import { pool } from '../../lib/concurrency';
 import { jsonStore } from '../../lib/sidecar';
@@ -151,7 +151,7 @@ export function parseRows(html: string): { company: string; title: string; locat
   return results;
 }
 
-export async function pollGitHub(): Promise<Partial<Internship>[]> {
+export async function pollGitHub(): Promise<RawPosting[]> {
   // Fetch the main (Summer) and off-season (Winter/Fall) lists in parallel.
   // allSettled so one list 404'ing or timing out still yields the other.
   const [main, off] = await Promise.allSettled([
@@ -186,26 +186,16 @@ export async function pollGitHub(): Promise<Partial<Internship>[]> {
   }
 
   const now = new Date().toISOString();
-  const results: Partial<Internship>[] = rows.map(row => {
-    const atsTarget = discoverATSTarget(row.link, row.company);
-    const seasonTokens = row.season ? parseSeason(row.season) : [];
-    const entry: Partial<Internship> = {
-      ...buildInternshipRow({
-        title: row.title,
-        company: row.company,
-        location: row.location,
-        link: row.link,
-        source: 'SimplifyJobs',
-        seenAt: now,
-        season: seasonTokens.length > 0 ? seasonTokens : undefined,
-      }),
-      atsSource: atsTarget ? atsTarget.ats : 'unknown',
-    };
-    if (row.multiLocation && row.multiLocation.length > 0) {
-      entry.multiLocation = row.multiLocation;
-    }
-    return entry;
-  });
+  const results: RawPosting[] = rows.map(row => buildPosting({
+    title: row.title,
+    company: row.company,
+    location: row.location,
+    link: row.link,
+    source: 'SimplifyJobs',
+    now,
+    season: row.season ? parseSeason(row.season) : undefined,
+    multiLocation: row.multiLocation,
+  }));
 
   // Best-effort description backfill via the linked ATS — Greenhouse/Lever/Ashby covered.
   // Concurrency-limited so we don't hammer any one host. Failures silently leave description empty.
