@@ -14,6 +14,30 @@ const POLL_INTERVAL_MS_FAST = parseInt(process.env.POLL_INTERVAL_MS_FAST || '900
 const POLL_INTERVAL_MS_SLOW = parseInt(process.env.POLL_INTERVAL_MS_SLOW || '3600000', 10);
 const REVALIDATE_INTERVAL_MS = parseInt(process.env.REVALIDATE_INTERVAL_MS || String(24 * 60 * 60 * 1000), 10);
 
+// Nightly quiet window: postings rarely appear overnight and the slow tier is
+// the compute cost, so both tiers pause. [start, end) hours in POLL_TZ, may
+// wrap midnight ("22-6"). Set POLL_QUIET_HOURS="" to disable.
+const POLL_TZ = process.env.POLL_TZ || 'America/New_York';
+const QUIET_WINDOW = ((): [number, number] | null => {
+  const spec = process.env.POLL_QUIET_HOURS ?? '1-7';
+  const m = spec.match(/^(\d{1,2})-(\d{1,2})$/);
+  if (!m) return null;
+  const start = parseInt(m[1], 10);
+  const end = parseInt(m[2], 10);
+  if (start > 23 || end > 23) return null;
+  return [start, end];
+})();
+
+function inQuietHours(): boolean {
+  if (!QUIET_WINDOW) return false;
+  const [start, end] = QUIET_WINDOW;
+  const h = parseInt(
+    new Intl.DateTimeFormat('en-US', { hour: '2-digit', hour12: false, timeZone: POLL_TZ }).format(new Date()),
+    10,
+  ) % 24;
+  return start <= end ? h >= start && h < end : h >= start || h < end;
+}
+
 // Per-cycle watchdog deadlines. A healthy slow cycle runs in minutes (JobSpy
 // alone can take up to 5); these sit well above worst-case so they only trip on
 // a genuine wedge — an upstream op that hangs with no internal timeout. The
@@ -57,6 +81,10 @@ async function withWatchdog<T>(label: string, ms: number, work: Promise<T>): Pro
 }
 
 async function safeSlow(): Promise<void> {
+  if (inQuietHours()) {
+    console.log('[internship-tracker] Quiet hours — skipping slow cycle');
+    return;
+  }
   if (slowRunning) {
     console.log('[internship-tracker] Slow cycle already in flight — skipping this tick');
     return;
@@ -74,6 +102,7 @@ async function safeSlow(): Promise<void> {
 }
 
 async function safeFast(): Promise<void> {
+  if (inQuietHours()) return;
   try {
     await withWatchdog('fast cycle', WATCHDOG_MS_FAST, runCycle('fast'));
   } catch (err) {
@@ -101,6 +130,7 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Starting agent.`);
   console.log(`[internship-tracker] Fast poll: ${POLL_INTERVAL_MS_FAST / 1000}s | Slow poll: ${POLL_INTERVAL_MS_SLOW / 1000}s`);
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h`);
+  console.log(`[internship-tracker] Quiet hours: ${QUIET_WINDOW ? `${QUIET_WINDOW[0]}:00–${QUIET_WINDOW[1]}:00 ${POLL_TZ}` : 'disabled'}`);
   await runMigrations();
 
   // Initial run — do everything once so the DB has fresh state.
