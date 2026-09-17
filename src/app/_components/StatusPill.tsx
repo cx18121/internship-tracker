@@ -19,7 +19,6 @@ interface Props {
   lastPolledAt: string | null;
   totalPostings: number | null;
   sourcesTotal: number | null;
-  exclusionCounts: Record<string, number> | null;
 }
 
 function isDown(s: SourceEntry): boolean {
@@ -29,7 +28,7 @@ function isStaleEntry(s: SourceEntry): boolean {
   return s.last24h === 0 && s.last7d > 0;
 }
 
-export function StatusPill({ lastPolledAt, totalPostings, sourcesTotal, exclusionCounts }: Props) {
+export function StatusPill({ lastPolledAt, totalPostings, sourcesTotal }: Props) {
   const [open, setOpen] = useState(false);
   const [health, setHealth] = useState<SourceEntry[] | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -157,15 +156,6 @@ export function StatusPill({ lastPolledAt, totalPostings, sourcesTotal, exclusio
             </div>
           )}
 
-          {exclusionCounts && Object.keys(exclusionCounts).length > 0 && (
-            <div className="pt-2 border-t border-white/10 text-[10px] text-white/40">
-              Filtered out:{" "}
-              {Object.entries(exclusionCounts)
-                .filter(([, v]) => v > 0)
-                .map(([k, v]) => `${v} ${k}`)
-                .join(" · ")}
-            </div>
-          )}
         </div>
       )}
     </div>

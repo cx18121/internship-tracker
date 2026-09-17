@@ -34,11 +34,9 @@ export const SOURCE_BADGE: Record<string, string> = {
   Linkedin:        "bg-sky-500/20 text-sky-400 border border-sky-500/30",
   Indeed:          "bg-indigo-500/20 text-indigo-400 border border-indigo-500/30",
   Glassdoor:       "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30",
-  Google:          "bg-rose-500/20 text-rose-400 border border-rose-500/30",
   Workday:         "bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-500/30",
   SmartRecruiters: "bg-violet-500/20 text-violet-400 border border-violet-500/30",
   iCIMS:           "bg-pink-500/20 text-pink-400 border border-pink-500/30",
-  Inhouse:         "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30",
 };
 
 export const SOURCE_BADGE_FALLBACK = "bg-white/5 text-white/40 border border-white/10";
@@ -53,11 +51,9 @@ export const SOURCE_DOT: Record<string, string> = {
   Linkedin:        "bg-sky-400",
   Indeed:          "bg-indigo-400",
   Glassdoor:       "bg-emerald-400",
-  Google:          "bg-rose-400",
   Workday:         "bg-fuchsia-400",
   SmartRecruiters: "bg-violet-400",
   iCIMS:           "bg-pink-400",
-  Inhouse:         "bg-yellow-400",
 };
 
 export const SOURCE_DOT_FALLBACK = "bg-white/30";

@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { formatSeasonLabel } from "@/lib/seasons";
 import type { TierFilter } from "../_lib/types";
@@ -28,24 +30,40 @@ function toggleArr<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
 }
 
+// Every section can collapse; `collapsed` sets the initial state so the
+// mobile sheet stays short. `activeCount` keeps a collapsed section honest.
 function Section({
   label,
   children,
   trailing,
+  collapsed = false,
+  activeCount = 0,
 }: {
   label: string;
   children: React.ReactNode;
   trailing?: React.ReactNode;
+  collapsed?: boolean;
+  activeCount?: number;
 }) {
+  const [open, setOpen] = useState(!collapsed);
   return (
     <section className="space-y-2">
       <div className="flex items-baseline justify-between">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.08em] text-white/40">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open}
+          className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-white/40 hover:text-white/70 transition-colors"
+        >
+          <ChevronRight className={`h-3 w-3 transition-transform ${open ? "rotate-90" : ""}`} />
           {label}
-        </h3>
-        {trailing}
+          {!open && activeCount > 0 && (
+            <span className="ml-1 px-1 rounded bg-white/10 text-white/70 normal-case tracking-normal tabular-nums">{activeCount}</span>
+          )}
+        </button>
+        {open && trailing}
       </div>
-      {children}
+      {open && children}
     </section>
   );
 }
@@ -126,7 +144,7 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
         </div>
       </Section>
 
-      <Section label="Degree">
+      <Section label="Degree" collapsed activeCount={f.degrees.length}>
         <div className="flex flex-wrap gap-1.5">
           {(Object.keys(DEGREE_LABELS) as Array<keyof typeof DEGREE_LABELS>).map((d) => (
             <Chip key={d} active={f.degrees.includes(d)} onClick={() => onChange({ degrees: toggleArr(f.degrees, d) })}>
@@ -171,7 +189,7 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
         </div>
       </Section>
 
-      <Section label="Source">
+      <Section label="Source" collapsed activeCount={f.sources.length}>
         <div className="flex flex-wrap gap-1.5">
           {sources === null ? (
             Array.from({ length: 4 }).map((_, i) => (

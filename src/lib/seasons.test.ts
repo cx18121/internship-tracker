@@ -33,3 +33,13 @@ describe('Season expiry', () => {
     assert.equal(exp('Co-op - Fall 2025 / Spring 2027'), false);
   });
 });
+
+describe('openSeasonTokens', () => {
+  test('drops passed seasons and keeps current or later ones', async () => {
+    const { openSeasonTokens } = await import('./seasons');
+    const now = new Date('2026-09-17T00:00:00Z'); // fall 2026
+    assert.deepEqual(openSeasonTokens(['summer-2026', 'winter-2027'], now), ['winter-2027']);
+    assert.deepEqual(openSeasonTokens(['fall-2026', 'summer-2027'], now), ['fall-2026', 'summer-2027']);
+    assert.deepEqual(openSeasonTokens(['spring-2026'], now), []);
+  });
+});

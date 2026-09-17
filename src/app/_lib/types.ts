@@ -6,7 +6,6 @@ export interface Stats {
   bySource: Record<string, number>;
   byLabel: Record<string, number>;
   lastPolledAt: string | null;
-  exclusionCounts: Record<string, number>;
 }
 
 export interface Sources {

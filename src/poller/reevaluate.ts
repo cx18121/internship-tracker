@@ -1,6 +1,6 @@
 import type { Internship } from '../lib/types';
 import { getInternships, archiveInternshipsByIds, updateDescription, updateScores, getUnclassified, getCompanyProfiles } from '../lib/store';
-import { isExpiredSeasonTokens } from '../lib/seasons';
+import { isExpiredSeasonTokens, openSeasonTokens } from '../lib/seasons';
 import { scoreInternship } from '../lib/scorer';
 import { metrosFor } from '../lib/metros';
 import { classifyLocation } from './iso-locations';
@@ -88,8 +88,11 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
     const companyTier = tiers.get(companyKey(i.company))?.tier ?? i.companyTier;
     const s = scoreInternship({ title: i.title, company: i.company, location: i.location, roleType: i.roleType, companyTier });
     const metros = metrosFor(i.locations);
-    if (s.score !== i.score || s.companyTier !== i.companyTier || metros.join() !== i.metros.join()) {
-      updates.push({ id: i.id, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords, companyTier: s.companyTier, metros });
+    const season = openSeasonTokens(i.season);
+    // Display location follows the first real listed location ("2 Locations" is a Workday count, not a place).
+    const location = i.locations[0] && !/^\d+ locations?$/i.test(i.locations[0]) ? i.locations[0] : i.location;
+    if (s.score !== i.score || s.companyTier !== i.companyTier || metros.join() !== i.metros.join() || season.join() !== i.season.join() || location !== i.location) {
+      updates.push({ id: i.id, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords, companyTier: s.companyTier, metros, season, location });
     }
   }
   await updateScores(updates);

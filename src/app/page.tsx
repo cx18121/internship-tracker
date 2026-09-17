@@ -159,7 +159,6 @@ export default function InternshipsPage() {
               lastPolledAt={stats?.lastPolledAt ?? null}
               totalPostings={stats?.total ?? null}
               sourcesTotal={sources?.total ?? null}
-              exclusionCounts={stats?.exclusionCounts ?? null}
             />
           </div>
 

@@ -229,10 +229,9 @@ export interface PollStats {
   sourceCounts: Record<string, number>;
   /** Net-new rows per source in the last cycle that polled it. */
   netNewBySource: Record<string, number>;
-  exclusionCounts: Record<string, number>;
 }
 
-const EMPTY_POLL_STATS: PollStats = { polledAt: '', sourceCounts: {}, netNewBySource: {}, exclusionCounts: {} };
+const EMPTY_POLL_STATS: PollStats = { polledAt: '', sourceCounts: {}, netNewBySource: {} };
 
 export async function getPollStats(): Promise<PollStats> {
   return getState('poll-stats', EMPTY_POLL_STATS);
@@ -246,7 +245,6 @@ export async function savePollStats(stats: PollStats): Promise<void> {
     polledAt: stats.polledAt,
     sourceCounts: { ...prev.sourceCounts, ...stats.sourceCounts },
     netNewBySource: { ...prev.netNewBySource, ...stats.netNewBySource },
-    exclusionCounts: stats.exclusionCounts,
   });
 }
 
@@ -255,7 +253,6 @@ export async function getStats(): Promise<{
   bySource: Record<string, number>;
   byLabel: Record<string, number>;
   lastPolledAt: string | null;
-  exclusionCounts: Record<string, number>;
   lastCycleSourceCounts: Record<string, number>;
   lastCycleNetNewBySource: Record<string, number>;
 }> {
@@ -275,7 +272,6 @@ export async function getStats(): Promise<{
     bySource,
     byLabel,
     lastPolledAt: lastSeenR.rows[0]?.seen_at?.toISOString() ?? null,
-    exclusionCounts: poll.exclusionCounts,
     lastCycleSourceCounts: poll.sourceCounts,
     lastCycleNetNewBySource: poll.netNewBySource,
   };
@@ -426,12 +422,12 @@ export async function saveClassification(id: string, c: ClassificationUpdate): P
   );
 }
 
-export async function updateScores(rows: Array<{ id: string; score: number; scoreLabel: ScoreLabel; matchedKeywords: string[]; companyTier: CompanyTier; metros: Metro[] }>): Promise<void> {
+export async function updateScores(rows: Array<{ id: string; score: number; scoreLabel: ScoreLabel; matchedKeywords: string[]; companyTier: CompanyTier; metros: Metro[]; season: string[]; location: string }>): Promise<void> {
   if (rows.length === 0) return;
   await withTxn(async (client) => {
     for (const r of rows) {
-      await client.query('UPDATE internships SET score = $2, score_label = $3, matched_keywords = $4, company_tier = $5, metros = $6 WHERE id = $1',
-        [r.id, r.score, r.scoreLabel, JSON.stringify(r.matchedKeywords), r.companyTier, JSON.stringify(r.metros)]);
+      await client.query('UPDATE internships SET score = $2, score_label = $3, matched_keywords = $4, company_tier = $5, metros = $6, season = $7, location = $8 WHERE id = $1',
+        [r.id, r.score, r.scoreLabel, JSON.stringify(r.matchedKeywords), r.companyTier, JSON.stringify(r.metros), JSON.stringify(r.season), r.location]);
     }
   });
 }

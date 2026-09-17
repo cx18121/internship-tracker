@@ -140,6 +140,13 @@ export function isExpiredSeasonTokens(tokens: string[], now: Date = new Date()):
   return Math.max(...idx) < currentSeasonIndex(now);
 }
 
+/** The tokens that are still open (current season or later). Unparseable
+ *  tokens are kept. Empty when every token has passed. */
+export function openSeasonTokens(tokens: string[], now: Date = new Date()): string[] {
+  const cur = currentSeasonIndex(now);
+  return tokens.filter(t => { const i = seasonTokenIndex(t); return i === null || i >= cur; });
+}
+
 /** Title-level convenience: derive seasons (with the same defaults ingestion
  *  uses) and test expiry. A title with no season info resolves to the current
  *  default cycle, so it is never expired. */

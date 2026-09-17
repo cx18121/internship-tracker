@@ -88,7 +88,7 @@ export async function runCycle(tier: CycleTier = 'all'): Promise<void> {
 
   const sourceCounts: Record<string, number> = {};
   for (const r of raw) sourceCounts[r.source] = (sourceCounts[r.source] ?? 0) + 1;
-  await savePollStats({ polledAt: now, sourceCounts, netNewBySource, exclusionCounts: excluded });
+  await savePollStats({ polledAt: now, sourceCounts, netNewBySource });
 
   if (newInternships.length > 0) {
     // Classify before notifying so the alert carries the judged score and

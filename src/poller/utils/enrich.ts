@@ -5,7 +5,7 @@ import { scoreInternship } from '../../lib/scorer';
 import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
-import { deriveSeasonWithDefault } from '../../lib/seasons';
+import { deriveSeasonWithDefault, openSeasonTokens } from '../../lib/seasons';
 import { metrosFor } from '../../lib/metros';
 
 /**
@@ -44,7 +44,8 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
     archived: false,
     failedCheckCount: 0,
     normalizedKey: normalizeKey(company, p.title),
-    season: p.season ?? deriveSeasonWithDefault(p.title),
+    // Expired tokens on a multi-season posting are dropped; all-expired rows never reach here.
+    season: openSeasonTokens(p.season ?? deriveSeasonWithDefault(p.title)),
     companyTier,
     ...(description ? { description } : {}),
     ...(salary?.text ? {
