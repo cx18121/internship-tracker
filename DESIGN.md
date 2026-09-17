@@ -123,7 +123,7 @@ Padding `4px 10px`, `--radius-md`, `caption` typography. Hit target stays comfor
 
 ### Posting row (dense list view)
 
-Grid layout, single line per posting, fixed column template across the viewport so columns align visually. Score badge first, company + title taking the middle, location + season + posted-date trailing, actions on the right. Hover lifts the row one surface step. A `hot` tag follows the company name for classifier-judged high-growth startups; graduate-only roles carry an MS/PhD tag next to the season.
+Grid layout, single line per posting, fixed column template across the viewport so columns align visually. Score badge first, company + title taking the middle, location + season + posted-date trailing, actions on the right. Hover lifts the row one surface step. Graduate-only roles carry an MS/PhD tag after the title; the score badge's hover names the company tier.
 
 ### Status pill (header)
 

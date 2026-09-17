@@ -40,6 +40,7 @@ function InternshipRowImpl({ item }: Props) {
         className={`justify-self-start text-[10.5px] font-semibold tabular-nums px-1.5 py-0.5 rounded ${
           (item.scoreLabel ? SCORE_BADGE[item.scoreLabel] : undefined) ?? SCORE_BADGE_FALLBACK
         }`}
+        title={item.companyTier && item.companyTier !== "other" ? `Company tier: ${item.companyTier}` : undefined}
       >
         {item.scoreLabel ?? "—"}
         {item.score != null ? ` ${item.score}` : ""}
@@ -57,11 +58,6 @@ function InternshipRowImpl({ item }: Props) {
           />
           <span className="sr-only">Source: {item.source}.</span>
           <span className="font-medium text-white truncate">{item.company}</span>
-          {item.companyTier === "hot" && (
-            <span className="shrink-0 text-[9.5px] px-1 rounded bg-orange-500/15 text-orange-300 border border-orange-500/25" title="High-growth startup">
-              hot
-            </span>
-          )}
         </span>
         {/* Title appears under company on mobile only; desktop has its own column */}
         <span className="md:hidden block text-[11.5px] text-white/55 truncate mt-0.5">
