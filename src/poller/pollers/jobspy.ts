@@ -60,8 +60,8 @@ export async function pollJobSpy(): Promise<RawPosting[]> {
       let parsed: RawJob[] = [];
       try {
         parsed = JSON.parse(stdout.trim());
-      } catch (e: any) {
-        console.warn('[jobspy] JSON parse error:', e.message);
+      } catch (e) {
+        console.warn('[jobspy] JSON parse error:', e instanceof Error ? e.message : e);
         console.warn('[jobspy] Raw output snippet:', stdout.slice(0, 200));
         resolve([]);
         return;

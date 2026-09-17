@@ -111,8 +111,8 @@ async function scrapeJobsPage(context: BrowserContext): Promise<RawPosting[]> {
         console.warn(`[handshake poller] Hit MAX_PAGES (${MAX_PAGES}) — results may be incomplete`);
       }
     }
-  } catch (err: any) {
-    console.warn(`[handshake poller] Scrape error: ${err.message}`);
+  } catch (err) {
+    console.warn(`[handshake poller] Scrape error: ${err instanceof Error ? err.message : err}`);
   }
 
   await page.close();
@@ -213,8 +213,6 @@ async function enrichWithDetailLinks(
         // store the banner.
         description = description.replace(new RegExp(bannerSource, 'gi'), '').trim();
         if (description.length < 50) description = '';
-        // Memory floor; smartTrimDescription in agent.ts caps for storage.
-        description = description.slice(0, 20_000);
 
         // Employer name fallback for logoless cards: the detail page's
         // employer logo alt is "{Company} logo". Scoped to the details root
@@ -307,8 +305,8 @@ export async function pollHandshake(): Promise<RawPosting[]> {
 
     console.log(`[handshake poller] Total: ${cleaned.length}`);
     return cleaned;
-  } catch (err: any) {
-    console.error(`[handshake poller] Browser error: ${err.message}`);
+  } catch (err) {
+    console.error(`[handshake poller] Browser error: ${err instanceof Error ? err.message : err}`);
     return [];
   } finally {
     await closeBrowserSafely(browser, 'handshake');

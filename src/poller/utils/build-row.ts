@@ -1,6 +1,9 @@
 import type { RawPosting } from '../../lib/types';
 import { stripHtml } from './html';
 
+// Memory floor before scoring; smartTrimDescription applies the storage cap.
+const MAX_RAW_DESCRIPTION = 20_000;
+
 export interface PostingSeed {
   title: string;
   company: string;
@@ -27,7 +30,7 @@ function isStorableDate(v: string | null | undefined): v is string {
 }
 
 export function buildPosting(seed: PostingSeed): RawPosting {
-  const description = (seed.descriptionHtml ? stripHtml(seed.descriptionHtml) : seed.description ?? '').trim();
+  const description = (seed.descriptionHtml ? stripHtml(seed.descriptionHtml) : seed.description ?? '').trim().slice(0, MAX_RAW_DESCRIPTION);
   return {
     title: seed.title,
     company: seed.company,

@@ -21,8 +21,8 @@ export async function closeBrowserSafely(browser: Browser | undefined, label: st
   if (!browser) return;
   try {
     await withTimeout(browser.close(), CLOSE_TIMEOUT_MS, `${label} browser.close`);
-  } catch (err: any) {
-    console.warn(`[${label}] browser.close hung or failed (${err.message}) — leaving it for process restart`);
+  } catch (err) {
+    console.warn(`[${label}] browser.close hung or failed (${err instanceof Error ? err.message : err}) — leaving it for process restart`);
   }
 }
 
@@ -30,7 +30,7 @@ export async function closeContextSafely(context: BrowserContext | undefined, la
   if (!context) return;
   try {
     await withTimeout(context.close(), CLOSE_TIMEOUT_MS, `${label} context.close`);
-  } catch (err: any) {
-    console.warn(`[${label}] context.close hung or failed (${err.message})`);
+  } catch (err) {
+    console.warn(`[${label}] context.close hung or failed (${err instanceof Error ? err.message : err})`);
   }
 }

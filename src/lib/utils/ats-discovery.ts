@@ -1,5 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import axios from 'axios';
 import type { ATSTarget } from '../types';
 
 export type { ATSTarget } from '../types';
@@ -8,14 +9,7 @@ export { discoverATSTarget } from '../ats-registry';
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'ats-targets.json');
 
-/**
- * Shared loader for data/ats-targets.json. Single source of truth for the
- * read path — runtime sites (pollATS, portal-scanner, /api/sources) call
- * this instead of inline JSON.parse so a schema change touches one place.
- *
- * Returns an empty array if the file is missing or malformed; callers
- * should treat that as "no targets configured" rather than fatal.
- */
+/** Loader for data/ats-targets.json. Empty array when missing or malformed. */
 export function loadATSTargets(): ATSTarget[] {
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
@@ -117,4 +111,28 @@ export function saveDiscoveredTargets(targets: ATSTarget[]): number {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ targets: existing }, null, 2));
   }
   return added;
+}
+
+/**
+ * Does a public board exist for this slug? Used by the discovery scripts to
+ * confirm candidates before appending them. Ashby returns 200 for any slug,
+ * so its check requires the embedded job data to parse.
+ */
+export async function verifyAtsSlug(slug: string, ats: 'greenhouse' | 'lever' | 'ashby', timeoutMs = 8000): Promise<boolean> {
+  const opts = { timeout: timeoutMs, validateStatus: () => true };
+  try {
+    if (ats === 'greenhouse') {
+      const res = await axios.get(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`, opts);
+      return res.status === 200 && Array.isArray(res.data?.jobs);
+    }
+    if (ats === 'lever') {
+      const res = await axios.get(`https://api.lever.co/v0/postings/${slug}?mode=json`, opts);
+      return res.status === 200 && Array.isArray(res.data);
+    }
+    const res = await axios.get<string>(`https://jobs.ashbyhq.com/${slug}`, { ...opts, responseType: 'text' });
+    const m = res.status === 200 ? res.data.match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s) : null;
+    return !!m && Array.isArray(JSON.parse(m[1])?.jobBoard?.jobPostings);
+  } catch {
+    return false;
+  }
 }

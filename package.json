@@ -16,7 +16,7 @@
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "handshake:login": "npx tsx src/poller/handshake-login.ts",
     "discover:ats": "npx tsx scripts/exa-discover-ats.ts",
-    "match:sparrow": "npx tsx scripts/match-sparrow-startups.ts"
+    "discover:ats:hn": "npx tsx scripts/hn-discover-ats.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

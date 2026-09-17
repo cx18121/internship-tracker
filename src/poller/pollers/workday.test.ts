@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractInternFacets, workdayBoardUrl } from './ats';
+import { extractInternFacets, workdayBoardUrl } from './workday';
 
 describe('Workday facet extraction', () => {
   test('extractInternFacets pulls "Intern Group" from jobFamilyGroup', () => {

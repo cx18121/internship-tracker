@@ -13,28 +13,14 @@
 
 import 'dotenv/config';
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
+import { loadATSTargets, saveDiscoveredTargets, verifyAtsSlug, type ATSTarget } from '../src/lib/utils/ats-discovery';
 
 const EXA_SEARCH_URL = 'https://api.exa.ai/search';
-const ATS_TARGETS_PATH = path.join(process.cwd(), 'data', 'ats-targets.json');
 const RESULTS_PER_ATS = parseInt(process.env.EXA_NUM_RESULTS || '50', 10);
 const VERIFY_TIMEOUT_MS = 8000;
 
 type ATS = 'greenhouse' | 'lever' | 'ashby';
 const SUPPORTED_ATS: readonly ATS[] = ['greenhouse', 'lever', 'ashby'] as const;
-
-interface ATSTarget {
-  slug: string;
-  ats: string;
-  name?: string;
-  [k: string]: unknown;
-}
-
-interface ATSTargetsFile {
-  targets: ATSTarget[];
-  [k: string]: unknown;
-}
 
 interface ExaResult { url: string; title?: string }
 interface ExaSearchResponse { results: ExaResult[] }
@@ -94,42 +80,7 @@ function extractSlug(url: string, ats: ATS): string | null {
 // Slug verification — confirm the board actually exists
 // ---------------------------------------------------------------------------
 
-async function verifySlug(slug: string, ats: ATS): Promise<boolean> {
-  try {
-    if (ats === 'greenhouse') {
-      const url = `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`;
-      const res = await axios.get(url, { timeout: VERIFY_TIMEOUT_MS, validateStatus: () => true });
-      return res.status === 200 && Array.isArray(res.data?.jobs);
-    }
-    if (ats === 'lever') {
-      const url = `https://api.lever.co/v0/postings/${slug}?mode=json`;
-      const res = await axios.get(url, { timeout: VERIFY_TIMEOUT_MS, validateStatus: () => true });
-      return res.status === 200 && Array.isArray(res.data);
-    }
-    if (ats === 'ashby') {
-      const url = `https://jobs.ashbyhq.com/${slug}`;
-      const res = await axios.get<string>(url, {
-        timeout: VERIFY_TIMEOUT_MS,
-        validateStatus: () => true,
-        responseType: 'text',
-      });
-      // Ashby always returns 200 even for invalid slugs (SPA); look for appData
-      // with non-empty jobPostings.
-      if (res.status !== 200 || typeof res.data !== 'string') return false;
-      const m = res.data.match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
-      if (!m) return false;
-      try {
-        const parsed = JSON.parse(m[1]);
-        return Array.isArray(parsed?.jobBoard?.jobPostings);
-      } catch {
-        return false;
-      }
-    }
-  } catch {
-    return false;
-  }
-  return false;
-}
+const verifySlug = (slug: string, ats: ATS) => verifyAtsSlug(slug, ats, VERIFY_TIMEOUT_MS);
 
 // ---------------------------------------------------------------------------
 // Slug → display name
@@ -204,11 +155,9 @@ async function main(): Promise<void> {
   const atsArgIdx = args.indexOf('--ats');
   const onlyATS = atsArgIdx >= 0 ? args[atsArgIdx + 1] : null;
 
-  const config = JSON.parse(fs.readFileSync(ATS_TARGETS_PATH, 'utf-8')) as ATSTargetsFile;
-  const existing = new Set<string>(
-    config.targets.map(t => `${t.ats}:${t.slug.toLowerCase()}`),
-  );
-  console.log(`[exa-discover] Loaded ${config.targets.length} existing targets`);
+  const current = loadATSTargets();
+  const existing = new Set<string>(current.map(t => `${t.ats}:${t.slug.toLowerCase()}`));
+  console.log(`[exa-discover] Loaded ${current.length} existing targets`);
 
   const atsToCheck = onlyATS
     ? SUPPORTED_ATS.filter(a => a === onlyATS)
@@ -241,9 +190,8 @@ async function main(): Promise<void> {
     return;
   }
 
-  config.targets.push(...allNew);
-  fs.writeFileSync(ATS_TARGETS_PATH, JSON.stringify(config, null, 2));
-  console.log(`[exa-discover] Wrote ${allNew.length} new targets to ${ATS_TARGETS_PATH}`);
+  const added = saveDiscoveredTargets(allNew);
+  console.log(`[exa-discover] Added ${added} new targets to data/ats-targets.json`);
 }
 
 main().catch(err => {

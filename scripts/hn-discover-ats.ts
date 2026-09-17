@@ -17,27 +17,14 @@
 
 import 'dotenv/config';
 import axios from 'axios';
-import * as fs from 'fs';
-import * as path from 'path';
+import { loadATSTargets, saveDiscoveredTargets, verifyAtsSlug, type ATSTarget } from '../src/lib/utils/ats-discovery';
 
-const ATS_TARGETS_PATH = path.join(process.cwd(), 'data', 'ats-targets.json');
 const HN_BASE = 'https://hn.algolia.com/api/v1/search';
 const VERIFY_TIMEOUT_MS = 8000;
 const VERIFY_CONCURRENCY = 10;
 
 type ATS = 'greenhouse' | 'lever' | 'ashby';
 const SUPPORTED_ATS: readonly ATS[] = ['greenhouse', 'lever', 'ashby'] as const;
-
-interface ATSTarget {
-  slug: string;
-  ats: string;
-  name?: string;
-  [k: string]: unknown;
-}
-interface ATSTargetsFile {
-  targets: ATSTarget[];
-  [k: string]: unknown;
-}
 
 interface AlgoliaHit {
   comment_text?: string;
@@ -136,35 +123,7 @@ function extractSlugs(text: string, re: RegExp): Set<string> {
   return out;
 }
 
-// ---------------------------------------------------------------------------
-// Slug verification — same logic as scripts/exa-discover-ats.ts
-// ---------------------------------------------------------------------------
-
-async function verifySlug(slug: string, ats: ATS): Promise<boolean> {
-  try {
-    if (ats === 'greenhouse') {
-      const url = `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`;
-      const res = await axios.get(url, { timeout: VERIFY_TIMEOUT_MS, validateStatus: () => true });
-      return res.status === 200 && Array.isArray(res.data?.jobs);
-    }
-    if (ats === 'lever') {
-      const url = `https://api.lever.co/v0/postings/${slug}?mode=json`;
-      const res = await axios.get(url, { timeout: VERIFY_TIMEOUT_MS, validateStatus: () => true });
-      return res.status === 200 && Array.isArray(res.data);
-    }
-    if (ats === 'ashby') {
-      const url = `https://jobs.ashbyhq.com/${slug}`;
-      const res = await axios.get<string>(url, {
-        timeout: VERIFY_TIMEOUT_MS, validateStatus: () => true, responseType: 'text',
-      });
-      if (res.status !== 200 || typeof res.data !== 'string') return false;
-      const m = res.data.match(/window\.__appData\s*=\s*(\{.*?\});\s*\n/s);
-      if (!m) return false;
-      try { return Array.isArray(JSON.parse(m[1])?.jobBoard?.jobPostings); } catch { return false; }
-    }
-  } catch { return false; }
-  return false;
-}
+const verifySlug = (slug: string, ats: ATS) => verifyAtsSlug(slug, ats, VERIFY_TIMEOUT_MS);
 
 async function verifyAll(candidates: { ats: ATS; slug: string }[]): Promise<{ ats: ATS; slug: string }[]> {
   const verified: { ats: ATS; slug: string }[] = [];
@@ -229,11 +188,9 @@ async function main(): Promise<void> {
   const atsArgIdx = args.indexOf('--ats');
   const onlyATS = atsArgIdx >= 0 ? args[atsArgIdx + 1] : null;
 
-  const config = JSON.parse(fs.readFileSync(ATS_TARGETS_PATH, 'utf-8')) as ATSTargetsFile;
-  const existing = new Set<string>(
-    config.targets.map(t => `${t.ats}:${t.slug.toLowerCase()}`),
-  );
-  console.log(`[hn-discover] Loaded ${config.targets.length} existing targets`);
+  const current = loadATSTargets();
+  const existing = new Set<string>(current.map(t => `${t.ats}:${t.slug.toLowerCase()}`));
+  console.log(`[hn-discover] Loaded ${current.length} existing targets`);
 
   const atsToCheck = onlyATS
     ? SUPPORTED_ATS.filter(a => a === onlyATS)
@@ -274,9 +231,8 @@ async function main(): Promise<void> {
     ats: v.ats,
     name: slugToName(v.slug),
   }));
-  config.targets.push(...toAppend);
-  fs.writeFileSync(ATS_TARGETS_PATH, JSON.stringify(config, null, 2));
-  console.log(`\n[hn-discover] Wrote ${toAppend.length} new targets to ${ATS_TARGETS_PATH}`);
+  const added = saveDiscoveredTargets(toAppend);
+  console.log(`\n[hn-discover] Added ${added} new targets to data/ats-targets.json`);
 }
 
 main().catch(err => {
