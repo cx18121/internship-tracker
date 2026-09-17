@@ -8,6 +8,7 @@ import { filterPostings } from './filter';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { enrichForStorage } from './utils/enrich';
 import { sendBatchAlert, checkAndAlertSourceHealth, recordSourceFetches } from './notifier';
+import { classifyRows } from './classify';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
@@ -95,7 +96,10 @@ export async function runCycle(tier: CycleTier = 'all'): Promise<void> {
   await savePollStats({ polledAt: now, sourceCounts, netNewBySource, exclusionCounts: excluded });
 
   if (newInternships.length > 0) {
-    const sent = await sendBatchAlert(newInternships);
+    // Classify before notifying so the alert carries the judged score and
+    // non-technical or non-US rows never reach Discord.
+    const { kept } = await classifyRows(newInternships);
+    const sent = await sendBatchAlert(kept);
     console.log(`[agent] Notified ${sent} posting(s)`);
   }
 

@@ -1,8 +1,24 @@
 {
   "scoringCeiling": 100,
+  "roleBase": {
+    "swe": 60,
+    "ml_ai": 60,
+    "quant": 60,
+    "data": 45,
+    "hardware_ee": 25,
+    "research_science": 25,
+    "product_pm": 20,
+    "other": 0
+  },
+  "companyLift": {
+    "elite": 40,
+    "hot": 30,
+    "top": 25,
+    "solid": 10,
+    "other": 0
+  },
   "companyTiers": {
     "elite": {
-      "points": 70,
       "companies": [
         "akuna capital",
         "amazon",
@@ -51,7 +67,6 @@
       ]
     },
     "top": {
-      "points": 45,
       "companies": [
         "1password",
         "activision blizzard",
@@ -187,7 +202,6 @@
       ]
     },
     "solid": {
-      "points": 20,
       "companies": [
         "airbyte",
         "akamai",
@@ -378,6 +392,11 @@
         "software testing"
       ]
     }
+  },
+  "roleTierFallback": {
+    "T1": "swe",
+    "T2": "data",
+    "T3": "hardware_ee"
   },
   "locationBonus": {
     "preferred": {

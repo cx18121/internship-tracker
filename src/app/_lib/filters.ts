@@ -1,5 +1,6 @@
 import type { Internship, AppliedFilter, TierFilter, DateWindow, SortBy } from "./types";
 import { isRoleId, type RoleId } from "@/lib/role-taxonomy";
+import { ROLE_TYPES, DEGREES, type RoleType, type Degree } from "@/lib/classify/posting";
 import { applyFilterSpec } from "@/lib/filter-spec";
 import { seasonSortKey } from "@/lib/seasons";
 import { DATE_WINDOWS } from "./constants";
@@ -18,6 +19,8 @@ export interface Filters {
   tier: TierFilter;
   seasons: string[];
   roles: RoleId[];
+  roleTypes: RoleType[];
+  degrees: Array<Degree | "unknown">;
   when: DateWindow;
   showHidden: boolean;
 }
@@ -34,6 +37,8 @@ export const DEFAULT_FILTERS: Filters = {
   tier: "all",
   seasons: [],
   roles: [],
+  roleTypes: [],
+  degrees: [],
   when: "all",
   showHidden: false,
 };
@@ -61,6 +66,8 @@ const CODECS: { [K in keyof Filters]: Codec<K> } = {
   tier: { param: "tier", parse: oneOf(["all", "solid-or-better", "top-or-better", "elite"] as const), serialize: (v) => v, counted: true },
   seasons: { param: "seasons", parse: list, serialize: (v) => v.join(","), counted: true },
   roles: { param: "roles", parse: (s) => list(s).filter(isRoleId), serialize: (v) => v.join(","), counted: true },
+  roleTypes: { param: "type", parse: (s) => list(s).filter((x): x is RoleType => (ROLE_TYPES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
+  degrees: { param: "degree", parse: (s) => list(s).filter((x): x is Degree | "unknown" => x === "unknown" || (DEGREES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
   when: { param: "when", parse: oneOf(DATE_WINDOWS.map((d) => d.value)), serialize: (v) => v, counted: true },
   showHidden: { param: "showHidden", parse: (s) => s === "1", serialize: () => "1", counted: false },
 };
@@ -118,6 +125,8 @@ export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy,
     includeKeywords: f.include,
     excludeKeywords: f.exclude,
     roles: f.roles,
+    roleTypes: f.roleTypes,
+    degrees: f.degrees,
   };
 
   const filtered: Internship[] = [];

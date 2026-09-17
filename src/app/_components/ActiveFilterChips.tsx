@@ -6,6 +6,7 @@ import { ROLE_SPECIALIZATIONS } from "@/lib/role-taxonomy";
 import { DATE_WINDOWS } from "../_lib/constants";
 import type { Filters } from "../_lib/filters";
 import { TIER_LABELS } from "./FilterRail";
+import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
 
 /**
  * Renders a removable pill for each active filter so the user can see and
@@ -72,6 +73,10 @@ export function ActiveFilterChips({ filters: f, onChange, onClearAll }: Props) {
     const role = ROLE_SPECIALIZATIONS.find((x) => x.id === r);
     if (role) chips.push(<Pill key={`role-${r}`} label={`Role: ${role.label}`} onClear={() => onChange({ roles: without(f.roles, r) })} />);
   }
+  for (const t of f.roleTypes)
+    chips.push(<Pill key={`type-${t}`} label={ROLE_TYPE_LABELS[t] ?? t} onClear={() => onChange({ roleTypes: without(f.roleTypes, t) })} />);
+  for (const d of f.degrees)
+    chips.push(<Pill key={`deg-${d}`} label={DEGREE_LABELS[d]} onClear={() => onChange({ degrees: without(f.degrees, d) })} />);
   for (const l of f.locations)
     chips.push(<Pill key={`loc-${l}`} label={l} onClear={() => onChange({ locations: without(f.locations, l) })} />);
   if (f.locationText)

@@ -4,6 +4,7 @@ import { revalidateLinks } from '../lib/store';
 import { closePool } from '../lib/db';
 import { runMigrations } from '../lib/migrate';
 import { revalidateLinkedIn } from './linkedin-revalidate';
+import { reevaluate } from './reevaluate';
 import { withTimeout, TimeoutError } from './utils/with-timeout';
 
 // Two-tier polling:
@@ -111,6 +112,11 @@ async function safeFast(): Promise<void> {
 }
 
 async function safeRevalidate(): Promise<void> {
+  try {
+    await withWatchdog('re-evaluation', WATCHDOG_MS_REVALIDATE, reevaluate());
+  } catch (err) {
+    console.error('[internship-tracker] Re-evaluation threw:', err);
+  }
   try {
     await withWatchdog('link revalidation', WATCHDOG_MS_REVALIDATE, revalidateLinks());
   } catch (err) {

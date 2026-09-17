@@ -25,10 +25,10 @@ describe('Filter', () => {
     assert.equal(r.passed, true);
   });
 
-  test('PhD required in title → excluded', () => {
-    const r = applyHardFilters(posting({ title: 'PhD Intern – Research', location: 'New York, NY' }));
-    assert.equal(r.passed, false);
-    assert.equal(r.reason, 'phd-required');
+  test('PhD and research titles pass; the classifier decides degree and role', () => {
+    assert.equal(applyHardFilters(posting({ title: 'PhD Intern – Research', location: 'New York, NY' })).passed, true);
+    assert.equal(applyHardFilters(posting({ title: 'Research Scientist Intern', location: 'Seattle, WA' })).passed, true);
+    assert.equal(applyHardFilters(posting({ title: 'Platform Intern', location: 'San Jose, CA' })).passed, true);
   });
 
   test('SWE Intern title → passes', () => {

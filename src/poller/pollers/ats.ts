@@ -11,6 +11,7 @@ import {
 } from '../utils/description-fetchers';
 import { buildPosting } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
+import { listedCompanyTier } from '../../lib/scorer';
 import {
   pollWorkdayDirect, pollWorkdayViaPlaywright, overlayWorkdayFlags, saveWorkdayFlags,
   WorkdayHttpError, type InternFacets,
@@ -301,12 +302,23 @@ const ADAPTERS: Record<Exclude<ATSTarget['ats'], 'workday'>, Adapter> = {
 /** Source labels the ATS pollers write. */
 export const ATS_SOURCES = ['Greenhouse', 'Lever', 'Ashby', 'Workday', 'iCIMS', 'SmartRecruiters', 'Rippling', 'Workable'] as const;
 
+// Startups hire through Ashby, Greenhouse, and Lever; the enterprise ATSes
+// are dominated by employers nobody curated. Poll those only for companies
+// named in the scoring tiers.
+const CURATED_ONLY_ATS = new Set<ATSTarget['ats']>(['workday', 'icims', 'smartrecruiters']);
+
+export function shouldPoll(target: ATSTarget): boolean {
+  return !CURATED_ONLY_ATS.has(target.ats) || listedCompanyTier(target.name || target.slug) !== null;
+}
+
 export async function pollATS(): Promise<RawPosting[]> {
-  const targets = overlayWorkdayFlags(loadATSTargets());
+  const all = overlayWorkdayFlags(loadATSTargets());
+  const targets = all.filter(shouldPoll);
   if (targets.length === 0) {
     console.warn('[ats] No targets in data/ats-targets.json');
     return [];
   }
+  if (targets.length < all.length) console.log(`[ats] Skipping ${all.length - targets.length} uncurated Workday/iCIMS/SmartRecruiters tenants`);
   const now = new Date().toISOString();
   const results: RawPosting[] = [];
   const discoveredFacets = new Map<string, InternFacets>();

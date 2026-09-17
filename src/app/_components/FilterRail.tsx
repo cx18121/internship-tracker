@@ -6,10 +6,10 @@ import { Input } from "@/components/ui/input";
 import { KeywordChips } from "./KeywordChips";
 import { LOCATION_PRESETS } from "../_lib/constants";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
 import { activeFilterCount, type Filters } from "../_lib/filters";
+import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
 
 interface Props {
   filters: Filters;
@@ -26,9 +26,9 @@ interface Props {
 
 export const TIER_LABELS: Record<TierFilter, string> = {
   all: "All",
-  "solid-or-better": `Top ${ELITE_COUNT + TOP_COUNT + SOLID_COUNT}`,
-  "top-or-better": `Top ${ELITE_COUNT + TOP_COUNT}`,
-  elite: `Top ${ELITE_COUNT}`,
+  "solid-or-better": "Solid+",
+  "top-or-better": "Top+",
+  elite: "Elite",
 };
 
 function toggleArr<T>(arr: T[], v: T): T[] {
@@ -124,7 +124,27 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
         </div>
       </Section>
 
-      <Section label="Role">
+      <Section label="Type">
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(ROLE_TYPE_LABELS) as Array<keyof typeof ROLE_TYPE_LABELS>).map((t) => (
+            <Chip key={t} active={f.roleTypes.includes(t)} onClick={() => onChange({ roleTypes: toggleArr(f.roleTypes, t) })}>
+              {ROLE_TYPE_LABELS[t]}
+            </Chip>
+          ))}
+        </div>
+      </Section>
+
+      <Section label="Degree">
+        <div className="flex flex-wrap gap-1.5">
+          {(Object.keys(DEGREE_LABELS) as Array<keyof typeof DEGREE_LABELS>).map((d) => (
+            <Chip key={d} active={f.degrees.includes(d)} onClick={() => onChange({ degrees: toggleArr(f.degrees, d) })}>
+              {DEGREE_LABELS[d]}
+            </Chip>
+          ))}
+        </div>
+      </Section>
+
+      <Section label="Specialization">
         <div className="flex flex-wrap gap-1.5">
           {ROLE_SPECIALIZATIONS.map((r) => (
             <Chip

@@ -19,7 +19,7 @@ import { smartTrimDescription } from './description-trim';
 export function enrichForStorage(p: RawPosting, now: string): Internship {
   const company = canonicalizeCompany(stripEmojiPrefix(p.company));
   const link = stripUtm(p.link) || p.link;
-  const { score, scoreLabel, matchedKeywords } = scoreInternship({ title: p.title, company, location: p.location });
+  const { score, scoreLabel, matchedKeywords, companyTier } = scoreInternship({ title: p.title, company, location: p.location });
 
   // A source that states compensation (Handshake's card) is authoritative and
   // is never second-guessed by description parsing, which invented salaries
@@ -45,6 +45,7 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
     failedCheckCount: 0,
     normalizedKey: normalizeKey(company, p.title),
     season: p.season ?? deriveSeasonWithDefault(p.title),
+    companyTier,
     ...(description ? { description } : {}),
     ...(p.multiLocation ? { multiLocation: p.multiLocation } : {}),
     ...(salary?.text ? {

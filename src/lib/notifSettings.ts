@@ -1,5 +1,6 @@
 import { ROLE_SPECIALIZATIONS, isRoleId, type RoleId } from './role-taxonomy';
 import type { TierFilter } from './filter-spec';
+import { DEGREES, type Degree } from './classify/posting';
 
 /** Gates a new posting must pass before it is pushed to Discord. Browser-safe
  *  (no I/O); load/save live in app-state.ts. */
@@ -18,6 +19,8 @@ export interface NotifSettings {
   excludeKeywords: string[];
   /** Empty means no role gate. */
   roles: RoleId[];
+  /** Eligible degree levels to notify on; 'unknown' covers postings with no signal. Empty means all. */
+  degrees: Array<Degree | 'unknown'>;
   skipApplied: boolean;
   skipHidden: boolean;
 }
@@ -32,6 +35,7 @@ export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
   includeKeywords: [],
   excludeKeywords: [],
   roles: [],
+  degrees: [],
   skipApplied: true,
   skipHidden: true,
 };
@@ -57,6 +61,7 @@ export function parseNotifSettings(input: unknown, baseline: NotifSettings = DEF
     includeKeywords: list('includeKeywords'),
     excludeKeywords: list('excludeKeywords'),
     roles: 'roles' in b ? roleList(b.roles) : baseline.roles,
+    degrees: 'degrees' in b ? stringList(b.degrees).filter((x): x is Degree | 'unknown' => x === 'unknown' || (DEGREES as readonly string[]).includes(x)) : baseline.degrees,
     skipApplied: bool('skipApplied'),
     skipHidden: bool('skipHidden'),
   };

@@ -1,0 +1,58 @@
+import { classifyStructured } from './provider';
+
+export type RoleType = 'swe' | 'ml_ai' | 'data' | 'quant' | 'hardware_ee' | 'product_pm' | 'research_science' | 'other';
+export const ROLE_TYPES: readonly RoleType[] = ['swe', 'ml_ai', 'data', 'quant', 'hardware_ee', 'product_pm', 'research_science', 'other'];
+/** Role types a CS-student tracker keeps. The rest are archived at re-evaluation. */
+export const TECHNICAL_ROLE_TYPES: readonly RoleType[] = ['swe', 'ml_ai', 'data', 'quant', 'hardware_ee', 'research_science'];
+
+export type Degree = 'bs' | 'ms' | 'phd';
+export const DEGREES: readonly Degree[] = ['bs', 'ms', 'phd'];
+
+export interface PostingClassification {
+  roleType: RoleType;
+  /** Eligible degree levels. Empty when the posting gives no signal. */
+  degrees: Degree[];
+  isInternship: boolean;
+  usEligible: 'yes' | 'no' | 'unclear';
+}
+
+const MODEL = process.env.CLASSIFY_POSTING_MODEL || 'claude-haiku-4-5-20251001';
+
+const SYSTEM = `You classify internship postings for a tracker used by US computer-science students at bachelor's, master's, and PhD level. Read the title and description and record:
+- role: swe (software, backend, frontend, full-stack, mobile, embedded, firmware, platform, infra, devops, security, systems, QA/test automation engineering), ml_ai (machine learning, AI, data science, applied science, research engineer), data (data engineering, analytics engineering, BI with real technical work), quant (quant research, trading, quant dev), hardware_ee (chip design, RF, electrical, mechanical, manufacturing, process engineering), product_pm (product or program management), research_science (non-engineering scientific research: biology, chemistry, physics), other (marketing, sales, HR, finance, operations, design, content, legal, generic business analytics).
+- degrees: the degree levels explicitly eligible. Include bs when undergraduates or bachelor's students are mentioned or when the posting says "students" without restriction and is clearly an undergrad-style internship. Include ms when master's or graduate students are mentioned. Include phd only when PhD students are explicitly eligible or the role is a PhD research internship. If the text gives no degree signal at all, return an empty array. Do not infer eligibility that is not stated.
+- is_internship: false when the posting is actually full-time, a contract role, a professional fellowship, an apprenticeship, or a program for experienced hires.
+- us_eligible: yes when the role is in the US or US-remote; no when it is clearly outside the US or restricted to non-US candidates; unclear otherwise.`;
+
+const SCHEMA = {
+  type: 'object' as const,
+  properties: {
+    role: { type: 'string', enum: ROLE_TYPES },
+    degrees: { type: 'array', items: { type: 'string', enum: DEGREES } },
+    is_internship: { type: 'boolean' },
+    us_eligible: { type: 'string', enum: ['yes', 'no', 'unclear'] },
+  },
+  required: ['role', 'degrees', 'is_internship', 'us_eligible'],
+};
+
+export interface PostingInput {
+  title: string;
+  company: string;
+  location: string;
+  description?: string;
+}
+
+const MAX_DESCRIPTION_CHARS = 2500;
+
+export async function classifyPosting(input: PostingInput): Promise<PostingClassification> {
+  const user = [
+    `Company: ${input.company}`,
+    `Title: ${input.title}`,
+    `Location: ${input.location || '(none)'}`,
+    `Description:\n${(input.description || '(none)').slice(0, MAX_DESCRIPTION_CHARS)}`,
+  ].join('\n');
+  const r = await classifyStructured<{ role: RoleType; degrees: Degree[]; is_internship: boolean; us_eligible: 'yes' | 'no' | 'unclear' }>({
+    model: MODEL, system: SYSTEM, user, schema: SCHEMA, maxTokens: 200,
+  });
+  return { roleType: r.role, degrees: [...new Set(r.degrees)], isInternship: r.is_internship, usEligible: r.us_eligible };
+}

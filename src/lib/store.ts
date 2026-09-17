@@ -1,6 +1,8 @@
 import type { PoolClient } from 'pg';
 import { getPool } from './db';
 import type { Internship, ScoreLabel } from './types';
+import type { RoleType, Degree, PostingClassification } from './classify/posting';
+import type { CompanyTier, CompanyProfile } from './classify/company';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
 
@@ -37,6 +39,12 @@ interface Row {
   normalized_key: string | null;
   hidden: boolean;
   season: string[] | null;
+  role_type: RoleType | null;
+  degrees: Degree[] | null;
+  us_eligible: 'yes' | 'no' | 'unclear' | null;
+  is_internship: boolean | null;
+  company_tier: CompanyTier | null;
+  classified_at: Date | null;
 }
 
 const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
@@ -66,6 +74,12 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['normalized_key', i => i.normalizedKey],
   ['hidden', i => i.hidden],
   ['season', i => JSON.stringify(i.season)],
+  ['role_type', i => i.roleType ?? null],
+  ['degrees', i => i.degrees ? JSON.stringify(i.degrees) : null],
+  ['us_eligible', i => i.usEligible ?? null],
+  ['is_internship', i => i.isInternship ?? null],
+  ['company_tier', i => i.companyTier ?? null],
+  ['classified_at', i => i.classifiedAt ?? null],
 ];
 
 const COL_NAMES = COLUMNS.map(([c]) => c);
@@ -105,6 +119,12 @@ function fromRow(r: Row): Internship {
     salaryUnit: r.salary_unit ?? undefined,
     normalizedKey: r.normalized_key ?? '',
     season: r.season ?? [],
+    roleType: r.role_type ?? undefined,
+    degrees: r.degrees ?? undefined,
+    usEligible: r.us_eligible ?? undefined,
+    isInternship: r.is_internship ?? undefined,
+    companyTier: r.company_tier ?? undefined,
+    classifiedAt: iso(r.classified_at),
   };
 }
 
@@ -388,6 +408,64 @@ export async function archiveInternshipsByIds(ids: string[]): Promise<number> {
 
 export async function deleteInternship(id: string): Promise<void> {
   await getPool().query('DELETE FROM internships WHERE id = $1', [id]);
+}
+
+// ---------------------------------------------------------------------------
+// Classification
+// ---------------------------------------------------------------------------
+
+export async function getCompanyProfiles(keys: string[]): Promise<Map<string, CompanyProfile & { tier: CompanyTier }>> {
+  if (keys.length === 0) return new Map();
+  const { rows } = await getPool().query<{ company_key: string; tier: CompanyTier; sector: string | null; known: boolean; reason: string | null }>(
+    'SELECT company_key, tier, sector, known, reason FROM company_profiles WHERE company_key = ANY($1::text[])', [keys],
+  );
+  return new Map(rows.map(r => [r.company_key, { tier: r.tier, sector: r.sector ?? '', known: r.known, reason: r.reason ?? '' }]));
+}
+
+export async function saveCompanyProfile(key: string, company: string, p: CompanyProfile, model: string): Promise<void> {
+  await getPool().query(
+    `INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+     ON CONFLICT (company_key) DO UPDATE SET company = EXCLUDED.company, tier = EXCLUDED.tier, sector = EXCLUDED.sector,
+       known = EXCLUDED.known, reason = EXCLUDED.reason, model = EXCLUDED.model, classified_at = now()`,
+    [key, company, p.tier, p.sector, p.known, p.reason, model],
+  );
+}
+
+export interface ClassificationUpdate extends PostingClassification {
+  companyTier: CompanyTier;
+  score: number;
+  scoreLabel: ScoreLabel;
+  matchedKeywords: string[];
+}
+
+export async function saveClassification(id: string, c: ClassificationUpdate): Promise<void> {
+  await getPool().query(
+    `UPDATE internships SET role_type = $2, degrees = $3, us_eligible = $4, is_internship = $5, company_tier = $6,
+       score = $7, score_label = $8, matched_keywords = $9, classified_at = now() WHERE id = $1`,
+    [id, c.roleType, JSON.stringify(c.degrees), c.usEligible, c.isInternship, c.companyTier, c.score, c.scoreLabel, JSON.stringify(c.matchedKeywords)],
+  );
+}
+
+export async function updateScores(rows: Array<{ id: string; score: number; scoreLabel: ScoreLabel; matchedKeywords: string[]; companyTier: CompanyTier }>): Promise<void> {
+  if (rows.length === 0) return;
+  await withTxn(async (client) => {
+    for (const r of rows) {
+      await client.query('UPDATE internships SET score = $2, score_label = $3, matched_keywords = $4, company_tier = $5 WHERE id = $1',
+        [r.id, r.score, r.scoreLabel, JSON.stringify(r.matchedKeywords), r.companyTier]);
+    }
+  });
+}
+
+export async function updateDescription(id: string, description: string): Promise<void> {
+  await getPool().query('UPDATE internships SET description = $2 WHERE id = $1', [id, description]);
+}
+
+export async function getUnclassified(limit: number): Promise<Internship[]> {
+  const { rows } = await getPool().query<Row>(
+    'SELECT * FROM internships WHERE archived = false AND classified_at IS NULL ORDER BY seen_at DESC LIMIT $1', [limit],
+  );
+  return rows.map(fromRow);
 }
 
 // ---------------------------------------------------------------------------

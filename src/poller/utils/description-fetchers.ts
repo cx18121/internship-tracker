@@ -9,12 +9,10 @@
 //   - `fetchDescriptionByUrl` — URL-based dispatcher used by the SimplifyJobs
 //     poller, which only has an apply link.
 //
-// Workday is not handled here — its fetcher takes (baseHost, tenant, board,
-// externalPath) and is called only from ats.ts's pollWorkday. No duplication
-// to consolidate.
 
 import axios from 'axios';
 import { stripHtml } from './html';
+import { extractLinkedInJobId } from '../linkedin-revalidate';
 
 const TIMEOUT_MS = 8000;
 // Memory floor on fetched description size. The real storage cap (2000 chars,
@@ -149,6 +147,60 @@ export async function fetchRipplingDescription(slug: string, jobId: string): Pro
   }
 }
 
+/**
+ * Workday public job URLs look like
+ *   https://{tenant}.{wd}.myworkdayjobs.com/[{locale}/]{board}/job/{location}/{slug}_{req}
+ *   https://{wd}.myworkdaysite.com/recruiting/{tenant}/{board}/job/...
+ * The CXS detail endpoint is /wday/cxs/{tenant}/{board}/job/{location}/{slug}_{req}.
+ */
+export function workdayDetailUrl(url: string): string | null {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  const host = u.hostname;
+  const parts = u.pathname.split('/').filter(Boolean);
+  const jobIdx = parts.indexOf('job');
+  if (jobIdx < 0) return null;
+  let tenant: string | undefined;
+  let board: string | undefined;
+  if (host.endsWith('.myworkdayjobs.com')) {
+    tenant = host.split('.')[0];
+    // optional locale segment (en-US) before the board
+    const before = parts.slice(0, jobIdx).filter(p => !/^[a-z]{2}-[A-Z]{2}$/.test(p));
+    board = before[before.length - 1];
+  } else if (host.endsWith('.myworkdaysite.com') && parts[0] === 'recruiting') {
+    tenant = parts[1];
+    board = parts[jobIdx - 1];
+  }
+  if (!tenant || !board) return null;
+  return `https://${host}/wday/cxs/${tenant}/${board}/${parts.slice(jobIdx).join('/')}`;
+}
+
+export async function fetchWorkdayDescriptionByUrl(url: string): Promise<string> {
+  const detail = workdayDetailUrl(url);
+  if (!detail) return '';
+  try {
+    const { data } = await axios.get(detail, { timeout: TIMEOUT_MS, headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
+    return stripHtml(data?.jobPostingInfo?.jobDescription ?? '').slice(0, MAX_DESC_LEN);
+  } catch {
+    return '';
+  }
+}
+
+/** LinkedIn's guest job endpoint serves the JD server-side without auth. */
+export async function fetchLinkedInDescription(url: string): Promise<string> {
+  const id = extractLinkedInJobId(url);
+  if (!id) return '';
+  try {
+    const { data: html } = await axios.get<string>(`https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/${id}`, {
+      timeout: TIMEOUT_MS, headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html' }, responseType: 'text',
+    });
+    const m = html.match(/show-more-less-html__markup[^>]*>([\s\S]*?)<\/div>/);
+    return m ? stripHtml(m[1]).slice(0, MAX_DESC_LEN) : '';
+  } catch {
+    return '';
+  }
+}
+
 // ── URL dispatcher ─────────────────────────────────────────────────────────
 
 /**
@@ -172,6 +224,12 @@ export async function fetchDescriptionByUrl(url: string): Promise<string> {
   // ats.rippling.com/[locale/]{slug}/jobs/{uuid}
   m = url.match(/ats\.rippling\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([^/?#]+)\/jobs\/([0-9a-f-]+)/i);
   if (m) return fetchRipplingDescription(m[1], m[2]);
+
+  m = url.match(/jobs\.smartrecruiters\.com\/([^/?#]+)\/(\d+)/);
+  if (m) return fetchSmartRecruitersDescription(m[1], m[2]);
+
+  if (/myworkday(jobs|site)\.com/.test(url)) return fetchWorkdayDescriptionByUrl(url);
+  if (/linkedin\.com/.test(url)) return fetchLinkedInDescription(url);
 
   return '';
 }

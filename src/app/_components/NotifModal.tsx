@@ -10,9 +10,10 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { ELITE_COUNT, TOP_COUNT, SOLID_COUNT } from "@/lib/tiers";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { KeywordChips } from "./KeywordChips";
+import { TIER_LABELS } from "./FilterRail";
+import { DEGREE_LABELS } from "../_lib/labels";
 import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "@/lib/filter-spec";
 import type { NotifSettings } from "@/lib/notifSettings";
@@ -38,12 +39,7 @@ interface Props {
   error: string | null;
 }
 
-const TIER_OPTIONS: { value: TierFilter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "solid-or-better", label: `Top ${ELITE_COUNT + TOP_COUNT + SOLID_COUNT}` },
-  { value: "top-or-better", label: `Top ${ELITE_COUNT + TOP_COUNT}` },
-  { value: "elite", label: `Top ${ELITE_COUNT}` },
-];
+const TIER_OPTIONS = (Object.keys(TIER_LABELS) as TierFilter[]).map((value) => ({ value, label: TIER_LABELS[value] }));
 
 function Section({
   label,
@@ -242,6 +238,16 @@ export function NotifModal({
                   </Chip>
                 ))
               )}
+            </div>
+          </Section>
+
+          <Section label="Degree" hint="empty = all">
+            <div className="flex flex-wrap gap-1.5">
+              {(Object.keys(DEGREE_LABELS) as Array<keyof typeof DEGREE_LABELS>).map((d) => (
+                <Chip key={d} active={s.degrees.includes(d)} onClick={() => onChange({ degrees: toggle(s.degrees, d) })}>
+                  {DEGREE_LABELS[d]}
+                </Chip>
+              ))}
             </div>
           </Section>
 

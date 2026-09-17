@@ -1,4 +1,6 @@
 import type { Salary } from './salary';
+import type { RoleType, Degree } from './classify/posting';
+import type { CompanyTier } from './classify/company';
 
 export type ScoreLabel = 'A' | 'B' | 'C' | 'D' | 'F';
 
@@ -60,6 +62,14 @@ export interface Internship {
   normalizedKey: string;
   /** Season tokens like "summer-2027". Always at least one. */
   season: string[];
+  /** Model classification. Absent until the row has been classified. */
+  roleType?: RoleType;
+  /** Eligible degree levels; empty array means the posting gave no signal. */
+  degrees?: Degree[];
+  usEligible?: 'yes' | 'no' | 'unclear';
+  isInternship?: boolean;
+  companyTier?: CompanyTier;
+  classifiedAt?: string;
 }
 
 /**

@@ -40,6 +40,7 @@ function InternshipRowImpl({
   isOwner,
 }: Props) {
   const primarySeason = (item.season ?? [])[0];
+  const gradOnly = !!item.degrees && item.degrees.length > 0 && !item.degrees.includes("bs");
 
   return (
     <div
@@ -74,6 +75,11 @@ function InternshipRowImpl({
           />
           <span className="sr-only">Source: {item.source}.</span>
           <span className="font-medium text-white truncate">{item.company}</span>
+          {item.companyTier === "hot" && (
+            <span className="shrink-0 text-[9.5px] px-1 rounded bg-orange-500/15 text-orange-300 border border-orange-500/25" title="High-growth startup">
+              hot
+            </span>
+          )}
         </span>
         {/* Title appears under company on mobile only; desktop has its own column */}
         <span className="md:hidden block text-[11.5px] text-white/55 truncate mt-0.5">
@@ -104,9 +110,16 @@ function InternshipRowImpl({
         <span className="truncate">{item.location || "—"}</span>
       </span>
 
-      {/* Season — desktop only */}
-      <span className="hidden md:inline justify-self-start text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/55 truncate max-w-full">
-        {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
+      {/* Season — desktop only. Graduate-only roles carry a degree tag. */}
+      <span className="hidden md:flex items-center gap-1 min-w-0">
+        <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/55 truncate">
+          {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
+        </span>
+        {gradOnly && (
+          <span className="shrink-0 text-[9.5px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25" title={`Eligible: ${item.degrees!.join(", ").toUpperCase()}`}>
+            {item.degrees!.map((d) => d.toUpperCase()).join("/")}
+          </span>
+        )}
       </span>
 
       {/* Posted — visible on both viewports. >30d-old posts use a muted amber

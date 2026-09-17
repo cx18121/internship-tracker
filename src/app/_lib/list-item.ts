@@ -6,6 +6,7 @@ export const LIST_FIELDS = [
   "id", "title", "company", "location", "link", "source",
   "postedAt", "seenAt", "score", "scoreLabel", "matchedKeywords",
   "applied", "appliedAt", "hidden", "salaryText", "season",
+  "roleType", "degrees", "companyTier",
 ] as const satisfies ReadonlyArray<keyof Internship>;
 
 export type ListItem = Pick<Internship, (typeof LIST_FIELDS)[number]>;

@@ -23,6 +23,7 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
     includeKeywords: f.includeKeywords,
     excludeKeywords: f.excludeKeywords,
     roles: f.roles,
+    degrees: f.degrees,
   });
 }
 
