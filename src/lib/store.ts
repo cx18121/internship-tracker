@@ -3,6 +3,7 @@ import { getPool } from './db';
 import type { Internship, ScoreLabel } from './types';
 import type { RoleType, Degree, PostingClassification } from './classify/posting';
 import type { CompanyTier, CompanyProfile } from './classify/company';
+import type { Metro } from './metros';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
 
@@ -28,7 +29,8 @@ interface Row {
   archived: boolean;
   failed_check_count: number;
   last_checked_at: Date | null;
-  multi_location: string[] | null;
+  locations: string[] | null;
+  metros: Metro[] | null;
   salary_text: string | null;
   salary_min: number | null;
   salary_max: number | null;
@@ -59,7 +61,8 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['archived', i => i.archived],
   ['failed_check_count', i => i.failedCheckCount],
   ['last_checked_at', i => i.lastCheckedAt ?? null],
-  ['multi_location', i => i.multiLocation ? JSON.stringify(i.multiLocation) : null],
+  ['locations', i => JSON.stringify(i.locations)],
+  ['metros', i => JSON.stringify(i.metros)],
   ['salary_text', i => i.salaryText ?? null],
   ['salary_min', i => i.salaryMin ?? null],
   ['salary_max', i => i.salaryMax ?? null],
@@ -100,7 +103,8 @@ function fromRow(r: Row): Internship {
     archived: r.archived,
     failedCheckCount: r.failed_check_count,
     lastCheckedAt: iso(r.last_checked_at),
-    multiLocation: r.multi_location ?? undefined,
+    locations: r.locations ?? (r.location ? [r.location] : []),
+    metros: r.metros ?? [],
     salaryText: r.salary_text ?? undefined,
     salaryMin: r.salary_min ?? undefined,
     salaryMax: r.salary_max ?? undefined,
@@ -303,15 +307,17 @@ const BACKFILL_SQL = `
     salary_min       = COALESCE(salary_min,  $7),
     salary_max       = COALESCE(salary_max,  $8),
     salary_unit      = COALESCE(salary_unit, $9),
-    multi_location   = COALESCE(multi_location, $10),
-    normalized_key   = COALESCE(normalized_key, $11)
-  WHERE id = $12`;
+    locations        = $10,
+    metros           = $11,
+    location         = $12,
+    normalized_key   = COALESCE(normalized_key, $13)
+  WHERE id = $14`;
 
 function backfillArgs(i: Internship, targetId: string): unknown[] {
   return [
     i.seenAt, i.score, i.scoreLabel, JSON.stringify(i.matchedKeywords),
     i.description ?? null, i.salaryText ?? null, i.salaryMin ?? null, i.salaryMax ?? null, i.salaryUnit ?? null,
-    i.multiLocation ? JSON.stringify(i.multiLocation) : null, i.normalizedKey, targetId,
+    JSON.stringify(i.locations), JSON.stringify(i.metros), i.location, i.normalizedKey, targetId,
   ];
 }
 
@@ -418,12 +424,12 @@ export async function saveClassification(id: string, c: ClassificationUpdate): P
   );
 }
 
-export async function updateScores(rows: Array<{ id: string; score: number; scoreLabel: ScoreLabel; matchedKeywords: string[]; companyTier: CompanyTier }>): Promise<void> {
+export async function updateScores(rows: Array<{ id: string; score: number; scoreLabel: ScoreLabel; matchedKeywords: string[]; companyTier: CompanyTier; metros: Metro[] }>): Promise<void> {
   if (rows.length === 0) return;
   await withTxn(async (client) => {
     for (const r of rows) {
-      await client.query('UPDATE internships SET score = $2, score_label = $3, matched_keywords = $4, company_tier = $5 WHERE id = $1',
-        [r.id, r.score, r.scoreLabel, JSON.stringify(r.matchedKeywords), r.companyTier]);
+      await client.query('UPDATE internships SET score = $2, score_label = $3, matched_keywords = $4, company_tier = $5, metros = $6 WHERE id = $1',
+        [r.id, r.score, r.scoreLabel, JSON.stringify(r.matchedKeywords), r.companyTier, JSON.stringify(r.metros)]);
     }
   });
 }

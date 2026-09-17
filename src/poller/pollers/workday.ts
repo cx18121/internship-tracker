@@ -30,7 +30,7 @@ interface WorkdayPosting {
   locationsText?: string;
 }
 interface WorkdayDetailResponse {
-  jobPostingInfo?: { jobDescription?: string };
+  jobPostingInfo?: { jobDescription?: string; location?: string; additionalLocations?: string[] };
 }
 
 export interface WorkdayClient {
@@ -164,24 +164,26 @@ async function pollTenant(target: ATSTarget, client: WorkdayClient, now: string)
   }
   const interns = postings.filter(j => isInternTitle(j.title || ''));
 
-  // Descriptions live only on the per-job detail endpoint.
-  const descriptions = new Map<string, string>();
+  // The list endpoint gives a count ("2 Locations") or a campus name; the
+  // detail endpoint has the description and the real location list.
+  const details = new Map<string, WorkdayDetailResponse['jobPostingInfo']>();
   await pool(interns, 5, async (j) => {
     const detail = await client.get(j.externalPath).catch(() => null);
-    descriptions.set(j.externalPath, stripHtml(detail?.jobPostingInfo?.jobDescription ?? ''));
+    details.set(j.externalPath, detail?.jobPostingInfo);
   });
 
   result.postings = interns.map(j => {
-    // Some tenants echo a campus or the company name as locationsText.
-    const rawLoc = j.locationsText || '';
+    const info = details.get(j.externalPath);
+    const listed = j.locationsText && !/^\d+ locations?$/i.test(j.locationsText) && j.locationsText !== t.company ? j.locationsText : '';
+    const locations = info?.location ? [info.location, ...(info.additionalLocations ?? [])] : [listed || 'United States'];
     return buildPosting({
       title: j.title || '',
       company: t.company,
-      location: rawLoc && rawLoc !== t.company ? rawLoc : 'United States',
+      locations,
       link: `${t.boardUrl}${j.externalPath}`,
       source: 'Workday',
       now,
-      description: descriptions.get(j.externalPath),
+      description: stripHtml(info?.jobDescription ?? ''),
     });
   });
   return result;

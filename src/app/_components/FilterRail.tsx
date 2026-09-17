@@ -1,11 +1,11 @@
 "use client";
 
 import { Input } from "@/components/ui/input";
-import { LOCATION_PRESETS } from "../_lib/constants";
 import { formatSeasonLabel } from "@/lib/seasons";
 import type { TierFilter } from "../_lib/types";
 import { activeFilterCount, type Filters } from "../_lib/filters";
 import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
+import { METROS, METRO_LABELS, type Metro } from "@/lib/metros";
 
 interface Props {
   filters: Filters;
@@ -14,6 +14,7 @@ interface Props {
   // Derived from the loaded corpus.
   sources: string[] | null;
   seasonCounts: Array<[string, number]>;
+  metroCounts: Partial<Record<Metro, number>>;
 }
 
 export const TIER_LABELS: Record<TierFilter, string> = {
@@ -81,7 +82,7 @@ function Chip({
   );
 }
 
-export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCounts }: Props) {
+export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCounts, metroCounts }: Props) {
   const count = activeFilterCount(f);
 
   return (
@@ -199,18 +200,20 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
 
       <Section label="Location">
         <div className="flex flex-wrap gap-1.5 mb-2">
-          {LOCATION_PRESETS.map((l) => (
+          {METROS.map((m) => (
             <Chip
-              key={l}
-              active={f.locations.includes(l)}
-              onClick={() => onChange({ locations: toggleArr(f.locations, l) })}
+              key={m}
+              active={f.metros.includes(m)}
+              dimmed={!metroCounts[m]}
+              onClick={() => onChange({ metros: toggleArr(f.metros, m) })}
             >
-              {l}
+              {METRO_LABELS[m]}{" "}
+              <span className="text-white/45 tabular-nums">{metroCounts[m] ?? 0}</span>
             </Chip>
           ))}
         </div>
         <Input
-          placeholder="Other location…"
+          placeholder="City or state…"
           value={f.locationText}
           onChange={(e) => onChange({ locationText: e.target.value })}
           className="h-7 text-[12px] bg-white/[0.04] border-white/10"

@@ -17,7 +17,6 @@ CREATE TABLE IF NOT EXISTS internships (
   archived             BOOLEAN     NOT NULL DEFAULT false,
   failed_check_count   INTEGER     NOT NULL DEFAULT 0,
   last_checked_at      TIMESTAMPTZ,
-  multi_location       JSONB,
   salary_text          TEXT,
   salary_min           NUMERIC,
   salary_max           NUMERIC,

@@ -29,6 +29,8 @@ const fixture = (over: Partial<Internship> & { id: string }): Internship => {
     title: 'Test Intern',
     company: 'TestCo',
     location: 'Remote',
+    locations: ['Remote'],
+    metros: ['remote'],
     link: `https://example.com/${over.id}`,
     source: 'test',
     postedAt: now,

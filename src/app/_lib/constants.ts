@@ -1,5 +1,3 @@
-export const LOCATION_PRESETS = ["Remote", "NYC", "SF", "Seattle", "Boston", "Austin"];
-
 export const PAGE_SIZE = 50;
 
 // In grouped (by-company) list view, pagination is by company rather than by

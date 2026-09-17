@@ -1,6 +1,7 @@
 import type { Salary } from './salary';
 import type { RoleType, Degree } from './classify/posting';
 import type { CompanyTier } from './classify/company';
+import type { Metro } from './metros';
 
 export type ScoreLabel = 'A' | 'B' | 'C' | 'D' | 'F';
 
@@ -12,8 +13,8 @@ export type ScoreLabel = 'A' | 'B' | 'C' | 'D' | 'F';
 export interface RawPosting {
   title: string;
   company: string;
-  /** '' when the source reports no location. */
-  location: string;
+  /** Every location the posting lists; empty when the source reports none. */
+  locations: string[];
   link: string;
   source: string;
   /** ISO timestamp. Poll time when the source reports no publication date. */
@@ -24,7 +25,6 @@ export interface RawPosting {
   season?: string[];
   /** Only when the source states compensation explicitly. */
   salary?: Salary;
-  multiLocation?: string[];
 }
 
 /** A stored row. Mirrors the `internships` table. */
@@ -32,7 +32,10 @@ export interface Internship {
   id: string;           // md5(company + title + stripUtm(link))
   title: string;
   company: string;
+  /** First listed location, for display. */
   location: string;
+  locations: string[];
+  metros: Metro[];
   description?: string;
   link: string;
   source: string;
@@ -46,7 +49,6 @@ export interface Internship {
   /** 1 once a direct link check found the posting gone; rediscovery then leaves it archived. */
   failedCheckCount: number;
   lastCheckedAt?: string;
-  multiLocation?: string[];
   salaryText?: string;
   salaryMin?: number;
   salaryMax?: number;

@@ -7,7 +7,7 @@ import type { Internship } from '../lib/types';
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse('2026-09-16T12:00:00Z');
 const row = (over: Partial<Internship>): Internship => ({
-  id: 'x', title: 'Software Engineer Intern', company: 'Co', location: 'Austin, TX', link: 'https://x', source: 'Greenhouse',
+  id: 'x', title: 'Software Engineer Intern', company: 'Co', location: 'Austin, TX', locations: ['Austin, TX'], metros: ['austin'], link: 'https://x', source: 'Greenhouse',
   postedAt: new Date(now).toISOString(), seenAt: new Date(now).toISOString(), score: 60, scoreLabel: 'B', matchedKeywords: [],
   archived: false, failedCheckCount: 0, normalizedKey: 'co::x', season: ['summer-2027'], ...over,
 });
@@ -27,7 +27,7 @@ describe('staleReason', () => {
     assert.equal(staleReason(row({ season: ['summer-2026'] }), now), 'expired season');
   });
   test('non-US location is archived', () => {
-    assert.equal(staleReason(row({ location: 'London, United Kingdom' }), now), 'non-US location');
+    assert.equal(staleReason(row({ location: 'London, United Kingdom', locations: ['London, United Kingdom'] }), now), 'non-US location');
   });
   test('classified non-technical role is archived; unclassified rows are not judged on role', () => {
     const classified = row({ classifiedAt: new Date(now).toISOString(), roleType: 'other', degrees: [], usEligible: 'yes', isInternship: true });

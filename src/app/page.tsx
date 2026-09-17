@@ -128,7 +128,7 @@ export default function InternshipsPage() {
     ? Object.entries(stats.bySource).filter(([, n]) => n > 0).map(([src]) => src).sort()
     : null;
 
-  const { filtered, seasonCounts } = useMemo(
+  const { filtered, seasonCounts, metroCounts } = useMemo(
     () => evaluateFilters(internships, effectiveFilters, view.sort),
     [internships, effectiveFilters, view.sort],
   );
@@ -143,7 +143,7 @@ export default function InternshipsPage() {
   const paginated = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage]);
   const pagedGroups = useMemo(() => groups?.slice((safePage - 1) * GROUPS_PER_PAGE, safePage * GROUPS_PER_PAGE) ?? null, [groups, safePage]);
 
-  const railProps = { filters, onChange: updateFilters, onClearAll: clearFilters, sources: dynamicSources, seasonCounts };
+  const railProps = { filters, onChange: updateFilters, onClearAll: clearFilters, sources: dynamicSources, seasonCounts, metroCounts };
 
   return (
     <div className="min-h-screen">

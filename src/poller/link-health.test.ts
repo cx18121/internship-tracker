@@ -6,7 +6,7 @@ import type { Internship } from '../lib/types';
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse('2026-09-16T12:00:00Z');
 const row = (over: Partial<Internship>): Internship => ({
-  id: 'x', title: 'T', company: 'C', location: 'L', link: 'https://x', source: 'SimplifyJobs',
+  id: 'x', title: 'T', company: 'C', location: 'L', locations: ['L'], metros: [], link: 'https://x', source: 'SimplifyJobs',
   postedAt: '', seenAt: '', score: 0, scoreLabel: null, matchedKeywords: [], archived: false,
   failedCheckCount: 0, normalizedKey: '', season: [], ...over,
 });

@@ -6,6 +6,7 @@ import { DATE_WINDOWS } from "../_lib/constants";
 import type { Filters } from "../_lib/filters";
 import { TIER_LABELS } from "./FilterRail";
 import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
+import { METRO_LABELS } from "@/lib/metros";
 
 /**
  * Renders a removable pill for each active filter so the user can see and
@@ -72,8 +73,8 @@ export function ActiveFilterChips({ filters: f, onChange, onClearAll }: Props) {
     chips.push(<Pill key={`type-${t}`} label={ROLE_TYPE_LABELS[t] ?? t} onClear={() => onChange({ roleTypes: without(f.roleTypes, t) })} />);
   for (const d of f.degrees)
     chips.push(<Pill key={`deg-${d}`} label={DEGREE_LABELS[d]} onClear={() => onChange({ degrees: without(f.degrees, d) })} />);
-  for (const l of f.locations)
-    chips.push(<Pill key={`loc-${l}`} label={l} onClear={() => onChange({ locations: without(f.locations, l) })} />);
+  for (const m of f.metros)
+    chips.push(<Pill key={`metro-${m}`} label={METRO_LABELS[m]} onClear={() => onChange({ metros: without(f.metros, m) })} />);
   if (f.locationText)
     chips.push(<Pill key="loc-text" label={`Location: ${f.locationText}`} onClear={() => onChange({ locationText: "" })} />);
   if (chips.length === 0) return null;

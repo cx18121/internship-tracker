@@ -1,5 +1,6 @@
 import type { Internship, TierFilter, DateWindow, SortBy } from "./types";
 import { ROLE_TYPES, DEGREES, type RoleType, type Degree } from "@/lib/classify/posting";
+import { METROS, type Metro } from "@/lib/metros";
 import { applyFilterSpec } from "@/lib/filter-spec";
 import { seasonSortKey } from "@/lib/seasons";
 import { DATE_WINDOWS } from "./constants";
@@ -11,7 +12,7 @@ export interface Filters {
   sources: string[];
   minScore: number;
   locationText: string;
-  locations: string[];
+  metros: Metro[];
   tier: TierFilter;
   seasons: string[];
   roleTypes: RoleType[];
@@ -24,7 +25,7 @@ export const DEFAULT_FILTERS: Filters = {
   sources: [],
   minScore: 0,
   locationText: "",
-  locations: [],
+  metros: [],
   tier: "all",
   seasons: [],
   roleTypes: [],
@@ -48,7 +49,7 @@ const CODECS: { [K in keyof Filters]: Codec<K> } = {
   sources: { param: "sources", parse: list, serialize: (v) => v.join(","), counted: true },
   minScore: { param: "minScore", parse: (s) => (Number.isFinite(+s) && +s > 0 ? +s : undefined), serialize: String, counted: true },
   locationText: { param: "location", parse: (s) => s, serialize: (v) => v, counted: true },
-  locations: { param: "locs", parse: list, serialize: (v) => v.join(","), counted: true },
+  metros: { param: "metro", parse: (s) => list(s).filter((x): x is Metro => (METROS as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
   tier: { param: "tier", parse: oneOf(["all", "solid-or-better", "top-or-better", "elite"] as const), serialize: (v) => v, counted: true },
   seasons: { param: "seasons", parse: list, serialize: (v) => v.join(","), counted: true },
   roleTypes: { param: "type", parse: (s) => list(s).filter((x): x is RoleType => (ROLE_TYPES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
@@ -90,6 +91,8 @@ export interface FilterResult {
   filtered: Internship[];
   /** Season token → count over rows passing every filter except season. */
   seasonCounts: Array<[string, number]>;
+  /** Metro → count over rows passing every filter except metro. */
+  metroCounts: Partial<Record<Metro, number>>;
 }
 
 /** One pass over the corpus that produces the list and the season chip counts. */
@@ -107,13 +110,18 @@ export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy,
 
   const filtered: Internship[] = [];
   const seasonCounts = new Map<string, number>();
+  const metroCounts: Partial<Record<Metro, number>> = {};
 
   for (const i of items) {
-    if (q && !`${i.company} ${i.title} ${i.location}`.toLowerCase().includes(q)) continue;
-    if (!matchesLocation(i.location, f)) continue;
+    const locs = i.locations ?? [i.location];
+    if (q && !`${i.company} ${i.title} ${locs.join(' ')}`.toLowerCase().includes(q)) continue;
+    if (f.locationText && !locs.some((l) => l.toLowerCase().includes(f.locationText.toLowerCase()))) continue;
     if (!applyFilterSpec(i, spec)) continue;
-    for (const t of i.season) seasonCounts.set(t, (seasonCounts.get(t) ?? 0) + 1);
-    if (f.seasons.length === 0 || i.season.some((t) => f.seasons.includes(t))) filtered.push(i);
+    const seasonOk = f.seasons.length === 0 || i.season.some((t) => f.seasons.includes(t));
+    const metroOk = f.metros.length === 0 || (i.metros ?? []).some((m) => f.metros.includes(m));
+    if (metroOk) for (const t of i.season) seasonCounts.set(t, (seasonCounts.get(t) ?? 0) + 1);
+    if (seasonOk) for (const m of i.metros ?? []) metroCounts[m] = (metroCounts[m] ?? 0) + 1;
+    if (seasonOk && metroOk) filtered.push(i);
   }
 
   filtered.sort(sortBy === "posted"
@@ -123,12 +131,6 @@ export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy,
   return {
     filtered,
     seasonCounts: [...seasonCounts.entries()].sort(([a], [b]) => seasonSortKey(a).localeCompare(seasonSortKey(b))),
+    metroCounts,
   };
-}
-
-function matchesLocation(location: string, f: Filters): boolean {
-  if (f.locations.length === 0 && !f.locationText) return true;
-  const loc = location.toLowerCase();
-  if (f.locations.some((l) => loc.includes(l.toLowerCase()))) return true;
-  return !!f.locationText && loc.includes(f.locationText.toLowerCase());
 }

@@ -64,10 +64,10 @@ describe('buildPosting', () => {
     const row = buildPosting({
       ...SEED_DEFAULTS,
       upstreamPostedAt: '2026-04-01T00:00:00.000Z',
-      location: 'San Francisco, CA',
+      locations: ['San Francisco, CA'],
     });
     assert.equal(row.postedAt, '2026-04-01T00:00:00.000Z');
-    assert.equal(row.location, 'San Francisco, CA');
+    assert.deepEqual(row.locations, ['San Francisco, CA']);
   });
 
   test('buildPosting: postedAt falls back to now when upstream is null', () => {
@@ -96,5 +96,13 @@ describe('buildPosting', () => {
   test('buildPosting: valid upstream date is preserved', () => {
     const row = buildPosting({ ...SEED_DEFAULTS, upstreamPostedAt: '2026-04-01T00:00:00.000Z' });
     assert.equal(row.postedAt, '2026-04-01T00:00:00.000Z');
+  });
+});
+
+describe('buildPosting locations', () => {
+  test('merges location and locations, trims, drops empties and duplicates', async () => {
+    const { buildPosting } = await import('./build-row');
+    const row = buildPosting({ title: 'T', company: 'C', link: 'https://x', source: 'S', now: '2026-01-01T00:00:00.000Z', location: ' Austin, TX ', locations: ['Austin, TX', '', null, 'Remote'] });
+    assert.deepEqual(row.locations, ['Austin, TX', 'Remote']);
   });
 });

@@ -19,6 +19,7 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
     excludeSources: f.excludedSources,
     roleTypes: f.roleTypes,
     degrees: f.degrees,
+    metros: f.metros,
   });
 }
 

@@ -1,5 +1,6 @@
 import type { TierFilter, DegreeFilter } from './filter-spec';
 import { DEGREES, ROLE_TYPES, type RoleType } from './classify/posting';
+import { METROS, type Metro } from './metros';
 
 /** Gates a new posting must pass before it is pushed to Discord. Browser-safe
  *  (no I/O); load/save live in app-state.ts. */
@@ -17,6 +18,8 @@ export interface NotifSettings {
   roleTypes: RoleType[];
   /** Eligible degree levels to notify on; 'unknown' covers postings with no signal. Empty means all. */
   degrees: DegreeFilter[];
+  /** Metros to notify on. Empty means anywhere. */
+  metros: Metro[];
 }
 
 export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
@@ -28,6 +31,7 @@ export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
   excludeNonUS: false,
   roleTypes: [],
   degrees: [],
+  metros: [],
 };
 
 /**
@@ -51,6 +55,7 @@ export function parseNotifSettings(input: unknown, baseline: NotifSettings = DEF
     excludeNonUS: bool('excludeNonUS'),
     roleTypes: list('roleTypes', (x): x is RoleType => (ROLE_TYPES as readonly string[]).includes(x)),
     degrees: list('degrees', (x): x is DegreeFilter => x === 'unknown' || (DEGREES as readonly string[]).includes(x)),
+    metros: list('metros', (x): x is Metro => (METROS as readonly string[]).includes(x)),
   };
 }
 

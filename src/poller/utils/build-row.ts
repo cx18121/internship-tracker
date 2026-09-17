@@ -8,7 +8,9 @@ export interface PostingSeed {
   title: string;
   company: string;
   link: string;
+  /** One or more raw location strings; empties are dropped. */
   location?: string | null;
+  locations?: Array<string | null | undefined>;
   source: string;
   /** Publication timestamp the source reports. Falls back to `now` when
    *  missing or unparseable (JobSpy emits "5 days ago", which Postgres
@@ -22,7 +24,6 @@ export interface PostingSeed {
   descriptionHtml?: string | null;
   season?: string[];
   salary?: RawPosting['salary'];
-  multiLocation?: string[];
 }
 
 function isStorableDate(v: string | null | undefined): v is string {
@@ -31,16 +32,16 @@ function isStorableDate(v: string | null | undefined): v is string {
 
 export function buildPosting(seed: PostingSeed): RawPosting {
   const description = (seed.descriptionHtml ? stripHtml(seed.descriptionHtml) : seed.description ?? '').trim().slice(0, MAX_RAW_DESCRIPTION);
+  const locations = [...new Set([seed.location, ...(seed.locations ?? [])].map(l => (l ?? '').trim()).filter(Boolean))];
   return {
     title: seed.title,
     company: seed.company,
-    location: seed.location ?? '',
+    locations,
     link: seed.link,
     source: seed.source,
     postedAt: isStorableDate(seed.upstreamPostedAt) ? seed.upstreamPostedAt : seed.now,
     ...(description ? { description } : {}),
     ...(seed.season && seed.season.length > 0 ? { season: seed.season } : {}),
     ...(seed.salary?.text ? { salary: seed.salary } : {}),
-    ...(seed.multiLocation && seed.multiLocation.length > 1 ? { multiLocation: seed.multiLocation } : {}),
   };
 }

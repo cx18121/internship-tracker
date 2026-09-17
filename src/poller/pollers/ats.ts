@@ -50,7 +50,7 @@ const pollGreenhouse: Adapter = async (target, now) => {
     .map(j => buildPosting({
       title: stripHtml(j.title ?? ''),
       company,
-      location: j.location?.name,
+      locations: (j.location?.name ?? '').split(';'),
       link: j.absolute_url || `https://boards.greenhouse.io/${target.slug}/jobs/${j.id}`,
       source: 'Greenhouse',
       upstreamPostedAt: j.updated_at,
@@ -244,12 +244,11 @@ const pollRippling: Adapter = async (target, now) => {
   return grouped.map(({ job, locations }) => buildPosting({
     title: job.name ?? '',
     company,
-    location: locations[0] ?? '',
+    locations,
     link: job.url || `https://ats.rippling.com/${target.slug}/jobs/${job.uuid}`,
     source: 'Rippling',
     now,
     description: descriptions.get(job.uuid),
-    multiLocation: locations,
   }));
 };
 

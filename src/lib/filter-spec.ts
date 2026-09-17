@@ -5,10 +5,11 @@
 import { isElite, isTopOrBetter, isSolidOrBetter } from './tiers';
 import type { Internship } from './types';
 import type { RoleType, Degree } from './classify/posting';
+import type { Metro } from './metros';
 
 /** The fields a filter reads. Satisfied by a stored Internship and by the list-view payload. */
 export type Filterable = Pick<Internship, 'company' | 'title' | 'source' | 'season'> &
-  Partial<Pick<Internship, 'score' | 'postedAt' | 'companyTier' | 'roleType' | 'degrees'>>;
+  Partial<Pick<Internship, 'score' | 'postedAt' | 'companyTier' | 'roleType' | 'degrees' | 'metros'>>;
 
 export type TierFilter = 'all' | 'elite' | 'top-or-better' | 'solid-or-better';
 export type DegreeFilter = Degree | 'unknown';
@@ -26,6 +27,8 @@ export interface FilterSpec {
   roleTypes?: readonly RoleType[];
   /** 'unknown' matches rows with no degree signal. */
   degrees?: readonly DegreeFilter[];
+  /** Pass if any of the posting's metros is listed. */
+  metros?: readonly Metro[];
 }
 
 export function applyFilterSpec(i: Filterable, spec: FilterSpec): boolean {
@@ -44,6 +47,7 @@ export function applyFilterSpec(i: Filterable, spec: FilterSpec): boolean {
   }
 
   if (spec.roleTypes?.length && !spec.roleTypes.includes(i.roleType ?? 'other')) return false;
+  if (spec.metros?.length && !(i.metros ?? []).some(m => spec.metros!.includes(m))) return false;
   if (spec.degrees?.length) {
     const d = i.degrees ?? [];
     if (d.length === 0 ? !spec.degrees.includes('unknown') : !d.some(x => spec.degrees!.includes(x))) return false;

@@ -4,7 +4,7 @@ import { evaluateFilters, DEFAULT_FILTERS, type Filters } from './filters';
 import type { Internship } from './types';
 
 const item = (over: Partial<Internship> & { id: string }): Internship => ({
-  title: 'SWE', company: 'C', location: 'L', link: `https://x/${over.id}`, source: 'X',
+  title: 'SWE', company: 'C', location: 'L', locations: [over.location ?? 'L'], metros: [], link: `https://x/${over.id}`, source: 'X',
   postedAt: '2026-01-01', seenAt: '2026-01-01', score: 0, scoreLabel: null,
   season: ['summer-2027'],
   ...over,
@@ -33,6 +33,17 @@ describe('filter-pipeline (evaluateFilters)', () => {
     assert.deepEqual(ids(corpus, { q: 'acme' }), ['a']);
     assert.deepEqual(ids(corpus, { q: 'frontend' }), ['b']);
     assert.deepEqual(ids(corpus, { q: 'sf' }), ['b']);
+  });
+
+  test('metro chips match any listed metro and count the other chips', () => {
+    const corpus = [
+      item({ id: 'a', locations: ['SF', 'New York, NY'], metros: ['bay', 'nyc'] }),
+      item({ id: 'b', locations: ['Austin, TX'], metros: ['austin'] }),
+    ];
+    assert.deepEqual(ids(corpus, { metros: ['nyc'] }), ['a']);
+    const r = evaluateFilters(corpus, { ...DEFAULT_FILTERS, metros: ['austin'] }, 'score');
+    assert.equal(r.metroCounts.bay, 1, 'metro counts ignore the metro filter itself');
+    assert.deepEqual(ids(corpus, { locationText: 'york' }), ['a']);
   });
 
   test('type and degree chips gate on the classifier fields', () => {
@@ -64,8 +75,5 @@ describe('filter-pipeline (evaluateFilters)', () => {
     // locationText substring: 'york' matches, 'boston' does not.
     assert.deepEqual(ids(corpus, { locationText: 'york' }), ['r']);
     assert.deepEqual(ids(corpus, { locationText: 'boston' }), []);
-    // locations: a matching chip passes, a non-matching chip fails.
-    assert.deepEqual(ids(corpus, { locations: ['new york'] }), ['r']);
-    assert.deepEqual(ids(corpus, { locations: ['remote'] }), []);
   });
 });

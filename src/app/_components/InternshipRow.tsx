@@ -88,7 +88,10 @@ function InternshipRowImpl({ item }: Props) {
       {/* Location — desktop only */}
       <span className="hidden md:flex text-[12px] text-white/50 truncate items-center gap-1 min-w-0">
         {item.location && <MapPin className="h-3 w-3 shrink-0 text-white/40" />}
-        <span className="truncate">{item.location || "—"}</span>
+        <span className="truncate" title={item.locations?.join(" · ")}>{item.location || "—"}</span>
+        {item.locations && item.locations.length > 1 && (
+          <span className="shrink-0 text-[10px] text-white/40 tabular-nums">+{item.locations.length - 1}</span>
+        )}
       </span>
 
       {/* Season — desktop only. Graduate-only roles carry a degree tag. */}

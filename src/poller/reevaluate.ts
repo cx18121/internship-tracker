@@ -2,6 +2,7 @@ import type { Internship } from '../lib/types';
 import { getInternships, archiveInternshipsByIds, updateDescription, updateScores, getUnclassified, getCompanyProfiles } from '../lib/store';
 import { isExpiredSeasonTokens } from '../lib/seasons';
 import { scoreInternship } from '../lib/scorer';
+import { metrosFor } from '../lib/metros';
 import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason, companyKey } from './classify';
 import { fetchDescriptionByUrl } from './utils/description-fetchers';
@@ -31,7 +32,7 @@ export function staleReason(i: Internship, now = Date.now()): string | null {
   const age = now - new Date(i.seenAt).getTime();
   if (age > (POLLED_SOURCES.has(i.source) ? POLLED_STALE_MS : FEED_STALE_MS)) return 'not seen';
   if (isExpiredSeasonTokens(i.season)) return 'expired season';
-  if (classifyLocation(i.location) === 'non_us') return 'non-US location';
+  if (i.locations.length > 0 && i.locations.every(l => classifyLocation(l) === 'non_us')) return 'non-US location';
   if (i.classifiedAt && i.roleType && i.degrees && i.usEligible && i.isInternship !== undefined) {
     const r = archiveReason({ roleType: i.roleType, degrees: i.degrees, usEligible: i.usEligible, isInternship: i.isInternship });
     if (r) return r;
@@ -78,15 +79,16 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   const outcome = await classifyRows(unclassified);
   result.classified = unclassified.length - outcome.failed;
 
-  // Rescore already-classified rows so config or company-tier changes reach them.
+  // Rescore already-classified rows so config, company-tier, or metro-table changes reach them.
   const classifiedRows = remaining.filter(i => i.classifiedAt && !unclassified.some(u => u.id === i.id));
   const tiers = await getCompanyProfiles([...new Set(classifiedRows.map(i => companyKey(i.company)))]);
   const updates = [];
   for (const i of classifiedRows) {
     const companyTier = tiers.get(companyKey(i.company))?.tier ?? i.companyTier;
     const s = scoreInternship({ title: i.title, company: i.company, location: i.location, roleType: i.roleType, companyTier });
-    if (s.score !== i.score || s.companyTier !== i.companyTier) {
-      updates.push({ id: i.id, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords, companyTier: s.companyTier });
+    const metros = metrosFor(i.locations);
+    if (s.score !== i.score || s.companyTier !== i.companyTier || metros.join() !== i.metros.join()) {
+      updates.push({ id: i.id, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords, companyTier: s.companyTier, metros });
     }
   }
   await updateScores(updates);

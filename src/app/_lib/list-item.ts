@@ -5,7 +5,7 @@ import type { Internship } from "@/lib/types";
 export const LIST_FIELDS = [
   "id", "title", "company", "location", "link", "source",
   "postedAt", "seenAt", "score", "scoreLabel", "salaryText", "season",
-  "roleType", "degrees", "companyTier",
+  "roleType", "degrees", "companyTier", "locations", "metros",
 ] as const satisfies ReadonlyArray<keyof Internship>;
 
 export type ListItem = Pick<Internship, (typeof LIST_FIELDS)[number]>;

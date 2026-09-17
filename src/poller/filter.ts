@@ -57,7 +57,7 @@ interface Rule {
 const RULES: readonly Rule[] = [
   // Empty/ambiguous locations come back as 'unknown' from classifyLocation
   // and pass — manual review beats blanket-rejecting unstructured strings.
-  { reason: 'non-us',       rejects: ({ posting }) => classifyLocation(posting.location) === 'non_us' },
+  { reason: 'non-us',       rejects: ({ posting }) => posting.locations.length > 0 && posting.locations.every(l => classifyLocation(l) === 'non_us') },
   { reason: 'not-intern',   rejects: ({ posting }) => !INTERN_SIGNAL_RE.test(posting.title) },
   // Obvious non-technical titles are dropped here so they never cost a
   // classifier call. Everything else is kept and the classifier decides role
@@ -75,7 +75,7 @@ export function applyHardFilters(posting: RawPosting): FilterResult {
   const ctx: FilterContext = {
     posting,
     titleLower,
-    combined: `${titleLower} ${posting.location.toLowerCase()}`,
+    combined: `${titleLower} ${posting.locations.join(' ').toLowerCase()}`,
   };
   for (const rule of RULES) {
     if (rule.rejects(ctx)) return { passed: false, reason: rule.reason };

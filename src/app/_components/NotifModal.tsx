@@ -13,6 +13,7 @@ import {
 import { formatSeasonLabel } from "@/lib/seasons";
 import { TIER_LABELS } from "./FilterRail";
 import { DEGREE_LABELS, ROLE_TYPE_LABELS } from "../_lib/labels";
+import { METROS, METRO_LABELS } from "@/lib/metros";
 import type { TierFilter } from "@/lib/filter-spec";
 import type { NotifSettings } from "@/lib/notifSettings";
 
@@ -231,7 +232,14 @@ export function NotifModal({
             </div>
           </Section>
 
-          <Section label="Location">
+          <Section label="Location" hint="empty = anywhere" className="sm:col-span-2">
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {METROS.map((m) => (
+                <Chip key={m} active={s.metros.includes(m)} onClick={() => onChange({ metros: toggle(s.metros, m) })}>
+                  {METRO_LABELS[m]}
+                </Chip>
+              ))}
+            </div>
             <Toggle on={s.excludeNonUS} onChange={(b) => onChange({ excludeNonUS: b })} label="Skip non-US postings" />
           </Section>
 

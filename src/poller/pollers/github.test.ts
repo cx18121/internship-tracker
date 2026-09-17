@@ -19,7 +19,7 @@ describe('SimplifyJobs row parser', () => {
     assert.equal(rows.length, 1, 'should parse exactly one row');
     assert.equal(rows[0].company, 'Rippling');
     assert.equal(rows[0].title, 'Software Engineer Intern - Backend Focused - Winter 2027');
-    assert.equal(rows[0].location, 'New York, NY');
+    assert.deepEqual(rows[0].locations, ['New York, NY']);
     assert.ok(
       rows[0].link.startsWith('https://ats.rippling.com/rippling/jobs/35b3ba25'),
       `expected the direct ATS link, got ${rows[0].link}`,
@@ -41,7 +41,7 @@ describe('SimplifyJobs row parser', () => {
 </tr>`;
     const rows = parseRows(html);
     assert.equal(rows.length, 1, 'should parse exactly one row');
-    assert.equal(rows[0].location, 'NYC', 'location must not absorb the season column');
+    assert.deepEqual(rows[0].locations, ['NYC'], 'location must not absorb the season column');
     assert.equal(rows[0].season, 'Fall 2026', 'must capture the season column so the row is not mis-defaulted');
     assert.ok(
       rows[0].link.startsWith('https://job-boards.greenhouse.io/sevenresearch/jobs/4895047008'),
@@ -54,5 +54,13 @@ describe('SimplifyJobs row parser', () => {
 <tr><td>Company</td><td>Role</td><td>Location</td><td>Application</td></tr>
 <tr><td><strong><a href="https://x">↳</a></strong></td><td>Extra Loc Intern</td><td>Austin, TX</td><td><a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a></td></tr>`;
     assert.equal(parseRows(html).length, 0, 'header + ↳ continuation rows must be dropped');
+  });
+});
+
+describe('parseRows locations', () => {
+  test('a two-location cell separated by <br> yields two locations, not one glued string', async () => {
+    const { parseRows } = await import('./github');
+    const html = `<tr><td><strong>Acme</strong></td><td>SWE Intern</td><td>SF<br>Mountain View, CA</td><td>Summer 2027</td><td><a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a></td><td>1d</td></tr>`;
+    assert.deepEqual(parseRows(html)[0].locations, ['SF', 'Mountain View, CA']);
   });
 });

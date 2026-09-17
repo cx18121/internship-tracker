@@ -6,6 +6,7 @@ import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
 import { deriveSeasonWithDefault } from '../../lib/seasons';
+import { metrosFor } from '../../lib/metros';
 
 /**
  * Promote a poller's RawPosting into the stored Internship. This is the only
@@ -18,7 +19,8 @@ import { deriveSeasonWithDefault } from '../../lib/seasons';
 export function enrichForStorage(p: RawPosting, now: string): Internship {
   const company = canonicalizeCompany(stripEmojiPrefix(p.company));
   const link = stripUtm(p.link) || p.link;
-  const { score, scoreLabel, matchedKeywords, companyTier } = scoreInternship({ title: p.title, company, location: p.location });
+  const location = p.locations[0] ?? '';
+  const { score, scoreLabel, matchedKeywords, companyTier } = scoreInternship({ title: p.title, company, location });
 
   // A source that states compensation is authoritative; otherwise parse
   // the title and full description.
@@ -29,7 +31,9 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
     id: createHash('md5').update(`${company}${p.title}${link}`).digest('hex'),
     title: p.title,
     company,
-    location: p.location,
+    location,
+    locations: p.locations,
+    metros: metrosFor(p.locations),
     link,
     source: p.source,
     postedAt: p.postedAt,
@@ -43,7 +47,6 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
     season: p.season ?? deriveSeasonWithDefault(p.title),
     companyTier,
     ...(description ? { description } : {}),
-    ...(p.multiLocation ? { multiLocation: p.multiLocation } : {}),
     ...(salary?.text ? {
       salaryText: salary.text,
       salaryMin: salary.min ?? undefined,

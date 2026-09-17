@@ -8,7 +8,7 @@ const NOW = '2026-06-04T00:00:00.000Z';
 const raw = (over: Partial<RawPosting>): RawPosting => ({
   title: 'SWE Intern',
   company: 'Acme',
-  location: '',
+  locations: [],
   link: 'https://x.com/a',
   source: 'Greenhouse',
   postedAt: NOW,

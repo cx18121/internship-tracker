@@ -100,7 +100,7 @@ function extractHref(html: string): string {
   return hrefMatches[0]?.[1] || '';
 }
 
-export function parseRows(html: string): { company: string; title: string; location: string; link: string; season?: string; multiLocation?: string[] }[] {
+export function parseRows(html: string): { company: string; title: string; locations: string[]; link: string; season?: string }[] {
   const results = [];
 
   // Match all <tr> blocks
@@ -131,7 +131,8 @@ export function parseRows(html: string): { company: string; title: string; locat
     // "State College, PAReston, VA" (PA + Reston with no space/comma).
     // The full list is preserved in multiLocation for the UI.
     const multiLoc = parseMultiLocation(locationRaw);
-    const location = multiLoc?.locations[0] || stripHtml(locationRaw);
+    // Two-location cells use <br> with no <details> wrapper.
+    const locations = multiLoc?.locations ?? locationRaw.split(/<br\s*\/?>/i).map(s => stripHtml(s).trim()).filter(Boolean);
     const applicationCell = cells[cells.length - 2];
     const link = extractHref(applicationCell);
     const seasonCell = cells.length >= 6 ? stripHtml(cells[3]) : '';
@@ -139,12 +140,8 @@ export function parseRows(html: string): { company: string; title: string; locat
     if (company === '↳') continue; // continuation row for multi-location, skip
     if (!company || !title || company.toLowerCase() === 'company') continue;
 
-    const row: { company: string; title: string; location: string; link: string; season?: string; multiLocation?: string[] } =
-      { company, title, location, link };
+    const row: { company: string; title: string; locations: string[]; link: string; season?: string } = { company, title, locations, link };
     if (seasonCell) row.season = seasonCell;
-    if (multiLoc) {
-      row.multiLocation = multiLoc.locations;
-    }
     results.push(row);
   }
 
@@ -189,12 +186,11 @@ export async function pollGitHub(): Promise<RawPosting[]> {
   const results: RawPosting[] = rows.map(row => buildPosting({
     title: row.title,
     company: row.company,
-    location: row.location,
+    locations: row.locations,
     link: row.link,
     source: 'SimplifyJobs',
     now,
     season: row.season ? parseSeason(row.season) : undefined,
-    multiLocation: row.multiLocation,
   }));
 
   // Best-effort description backfill via the linked ATS — Greenhouse/Lever/Ashby covered.

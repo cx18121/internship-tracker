@@ -6,7 +6,7 @@ import type { Internship } from '@/lib/types';
 describe('pickListFields', () => {
   test('pickListFields keeps UI/consumer fields and drops heavy unused ones', () => {
     const full: Internship = {
-      id: 'x1', title: 'SWE Intern', company: 'Acme', location: 'NYC',
+      id: 'x1', title: 'SWE Intern', company: 'Acme', location: 'NYC', locations: ['NYC'], metros: ['nyc'],
       link: 'https://a.co/x1', source: 'Greenhouse', postedAt: '2026-01-01',
       seenAt: '2026-01-02', score: 88, scoreLabel: 'A',
       matchedKeywords: ['backend'],
