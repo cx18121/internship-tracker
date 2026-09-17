@@ -1,11 +1,11 @@
 import type { Internship } from '../lib/types';
-import { getInternships, archiveInternshipsByIds, updateDescription, updateScores, getUnclassified, getCompanyProfiles } from '../lib/store';
+import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, updateScores, getUnclassified, getCompanyProfiles } from '../lib/store';
 import { isExpiredSeasonTokens, openSeasonTokens } from '../lib/seasons';
 import { scoreInternship } from '../lib/scorer';
 import { metrosFor } from '../lib/metros';
 import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason, companyKey } from './classify';
-import { fetchDescriptionByUrl } from './utils/description-fetchers';
+import { fetchDescriptionByUrl, fetchWorkdayDetailByUrl } from './utils/description-fetchers';
 import { pool } from '../lib/concurrency';
 import { POLLED_SOURCES } from './sources';
 import { checkFeedLinks } from './link-health';
@@ -63,9 +63,27 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   const remaining = active.filter(i => !archivedIds.has(i.id));
   console.log(`[reevaluate] ${active.length} active, archived ${archivedIds.size} ${JSON.stringify(result.archived)}`);
 
-  // Descriptions: the final link usually resolves to an ATS we can read.
-  const missing = remaining.filter(i => !i.description && !i.classifiedAt).slice(0, caps.descriptions);
+  // Workday rows kept alive by a feed never see the Workday poller, so their
+  // location is still the list endpoint's "N Locations" count. The detail
+  // call that supplies the description also supplies the real locations.
+  const isCount = (l: string) => /^\d+ locations?$/i.test(l);
+  const needsWorkdayDetail = (i: Internship) => /myworkday(jobs|site)\.com/.test(i.link) && (!i.description || i.locations.some(isCount));
+  // Unclassified rows first so the classifier sees the text.
+  const missing = remaining
+    .filter(i => !i.description || needsWorkdayDetail(i))
+    .sort((a, b) => Number(!!a.classifiedAt) - Number(!!b.classifiedAt))
+    .slice(0, caps.descriptions);
   await pool(missing, 6, async (i) => {
+    if (needsWorkdayDetail(i)) {
+      const d = await fetchWorkdayDetailByUrl(i.link);
+      if (d.locations.length > 0 && i.locations.some(isCount)) {
+        i.locations = d.locations;
+        i.metros = metrosFor(d.locations);
+        await updateLocations(i.id, i.locations, i.metros);
+      }
+      if (d.description && !i.description) { await updateDescription(i.id, d.description); i.description = d.description; result.descriptionsFetched++; }
+      return;
+    }
     const desc = await fetchDescriptionByUrl(i.link);
     if (!desc) return;
     await updateDescription(i.id, desc);

@@ -170,15 +170,31 @@ export function workdayDetailUrl(url: string): string | null {
   return `https://${host}/wday/cxs/${tenant}/${board}/${parts.slice(jobIdx).join('/')}`;
 }
 
-export async function fetchWorkdayDescriptionByUrl(url: string): Promise<string> {
+export interface WorkdayDetail {
+  description: string;
+  /** Real location list; empty when the detail call fails. */
+  locations: string[];
+}
+
+export async function fetchWorkdayDetailByUrl(url: string): Promise<WorkdayDetail> {
   const detail = workdayDetailUrl(url);
-  if (!detail) return '';
+  if (!detail) return { description: '', locations: [] };
   try {
-    const { data } = await axios.get(detail, { timeout: TIMEOUT_MS, headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } });
-    return stripHtml(data?.jobPostingInfo?.jobDescription ?? '').slice(0, MAX_DESC_LEN);
+    const { data } = await axios.get<{ jobPostingInfo?: { jobDescription?: string; location?: string; additionalLocations?: string[] } }>(
+      detail, { timeout: TIMEOUT_MS, headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } },
+    );
+    const info = data?.jobPostingInfo;
+    return {
+      description: stripHtml(info?.jobDescription ?? '').slice(0, MAX_DESC_LEN),
+      locations: info?.location ? [info.location, ...(info.additionalLocations ?? [])] : [],
+    };
   } catch {
-    return '';
+    return { description: '', locations: [] };
   }
+}
+
+export async function fetchWorkdayDescriptionByUrl(url: string): Promise<string> {
+  return (await fetchWorkdayDetailByUrl(url)).description;
 }
 
 /** LinkedIn's guest job endpoint serves the JD server-side without auth. */

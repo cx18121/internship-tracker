@@ -436,6 +436,10 @@ export async function updateDescription(id: string, description: string): Promis
   await getPool().query('UPDATE internships SET description = $2 WHERE id = $1', [id, description]);
 }
 
+export async function updateLocations(id: string, locations: string[], metros: Metro[]): Promise<void> {
+  await getPool().query('UPDATE internships SET locations = $2, metros = $3, location = $4 WHERE id = $1', [id, JSON.stringify(locations), JSON.stringify(metros), locations[0] ?? '']);
+}
+
 export async function getUnclassified(limit: number): Promise<Internship[]> {
   const { rows } = await getPool().query<Row>(
     'SELECT * FROM internships WHERE archived = false AND classified_at IS NULL ORDER BY seen_at DESC LIMIT $1', [limit],
