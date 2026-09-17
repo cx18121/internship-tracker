@@ -40,7 +40,7 @@ export async function classifyRows(rows: Internship[]): Promise<ClassifyOutcome>
   const tiers = await resolveCompanyTiers(rows);
 
   const kept: Internship[] = [];
-  const toArchive: string[] = [];
+  const toArchive = new Map<string, string[]>();
   let failed = 0;
 
   await pool(rows, 6, async (row) => {
@@ -56,11 +56,13 @@ export async function classifyRows(rows: Internship[]): Promise<ClassifyOutcome>
     const s = scoreInternship({ title: row.title, company: row.company, location: row.location, roleType: c.roleType, companyTier });
     await saveClassification(row.id, { ...c, companyTier: s.companyTier, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords });
     const updated: Internship = { ...row, ...c, companyTier: s.companyTier, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords };
-    if (archiveReason(c)) toArchive.push(row.id);
+    const reason = archiveReason(c);
+    if (reason) toArchive.set(reason, [...(toArchive.get(reason) ?? []), row.id]);
     else kept.push(updated);
   });
 
-  const archived = await archiveInternshipsByIds(toArchive);
+  let archived = 0;
+  for (const [reason, ids] of toArchive) archived += await archiveInternshipsByIds(ids, reason);
   console.log(`[classify] ${rows.length} rows: kept ${kept.length}, archived ${archived}, failed ${failed}`);
   return { kept, archived, failed, skipped: false };
 }

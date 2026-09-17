@@ -292,13 +292,15 @@ export interface StoreResult {
 }
 
 // Rediscovery of a stored row (same id, or same company+title via another
-// source). Bumps seen_at, un-archives unless link checks failed, re-scores
-// with the current config, and backfills fields that were null. User state
-// and the stored link are preserved.
+// source). Bumps seen_at, re-scores with the current config, and backfills
+// fields that were null. A row archived because no poller had seen it comes
+// back; one rejected by the classifier, the season rule, or a dead-link check
+// stays archived. The stored link is preserved.
 const BACKFILL_SQL = `
   UPDATE internships SET
     seen_at          = $1,
-    archived         = CASE WHEN failed_check_count > 0 THEN archived ELSE false END,
+    archived         = CASE WHEN failed_check_count > 0 OR (archive_reason IS NOT NULL AND archive_reason <> 'not seen') THEN archived ELSE false END,
+    archive_reason   = CASE WHEN failed_check_count > 0 OR (archive_reason IS NOT NULL AND archive_reason <> 'not seen') THEN archive_reason ELSE NULL END,
     score            = $2,
     score_label      = $3,
     matched_keywords = $4,
@@ -371,9 +373,9 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
   }));
 }
 
-export async function archiveInternshipsByIds(ids: string[]): Promise<number> {
+export async function archiveInternshipsByIds(ids: string[], reason: string): Promise<number> {
   if (ids.length === 0) return 0;
-  const result = await getPool().query('UPDATE internships SET archived = true WHERE id = ANY($1::text[])', [ids]);
+  const result = await getPool().query('UPDATE internships SET archived = true, archive_reason = $2 WHERE id = ANY($1::text[])', [ids, reason]);
   return result.rowCount ?? 0;
 }
 

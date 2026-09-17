@@ -51,16 +51,17 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   result.linksArchived = (await checkFeedLinks()).archived;
   const active = await getInternships();
 
-  const toArchive: string[] = [];
+  const toArchive = new Map<string, string[]>();
   for (const i of active) {
     const reason = staleReason(i);
     if (!reason) continue;
-    toArchive.push(i.id);
+    toArchive.set(reason, [...(toArchive.get(reason) ?? []), i.id]);
     result.archived[reason] = (result.archived[reason] ?? 0) + 1;
   }
-  await archiveInternshipsByIds(toArchive);
-  const remaining = active.filter(i => !toArchive.includes(i.id));
-  console.log(`[reevaluate] ${active.length} active, archived ${toArchive.length} ${JSON.stringify(result.archived)}`);
+  for (const [reason, ids] of toArchive) await archiveInternshipsByIds(ids, reason);
+  const archivedIds = new Set([...toArchive.values()].flat());
+  const remaining = active.filter(i => !archivedIds.has(i.id));
+  console.log(`[reevaluate] ${active.length} active, archived ${archivedIds.size} ${JSON.stringify(result.archived)}`);
 
   // Descriptions: the final link usually resolves to an ATS we can read.
   const missing = remaining.filter(i => !i.description && !i.classifiedAt).slice(0, caps.descriptions);

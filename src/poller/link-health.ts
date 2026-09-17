@@ -91,7 +91,7 @@ export async function checkFeedLinks(): Promise<{ checked: number; archived: num
     (async () => { for (const i of linkedin) { await run(i); await new Promise(r => setTimeout(r, 1200)); } })(),
   ]);
   await markLinkChecked(checked, gone);
-  const archived = await archiveInternshipsByIds(gone);
+  const archived = await archiveInternshipsByIds(gone, 'link gone');
   console.log(`[link-health] checked ${checked.length}/${due.length} feed rows, archived ${archived}, unknown ${unknown}`);
   return { checked: checked.length, archived, unknown };
 }
