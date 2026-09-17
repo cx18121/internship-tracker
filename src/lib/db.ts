@@ -26,6 +26,9 @@ export function getPool(): Pool {
     statement_timeout: 60000,       // server cancels any single query running >60s
     query_timeout: 60000,           // client-side guard for the same
   });
+  // An idle client dropped by the server surfaces here; without a listener
+  // it is an unhandled 'error' event and kills the process.
+  _pool.on('error', (err) => console.warn('[db] idle client error:', err.message));
   return _pool;
 }
 
