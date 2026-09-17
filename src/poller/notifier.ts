@@ -8,7 +8,6 @@ import { classifyLocation } from './iso-locations';
 const SOURCE_EMOJIS: Record<string, string> = {
   SimplifyJobs: '⭐',
   LinkedIn: '💼',
-  Handshake: '🤝',
 };
 
 function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
@@ -17,12 +16,8 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   return applyFilterSpec(i, {
     tier: f.tierFilter,
     seasons: f.seasons,
-    appliedFilter: f.skipApplied ? 'not-applied' : 'all',
-    excludeHidden: f.skipHidden,
     excludeSources: f.excludedSources,
-    includeKeywords: f.includeKeywords,
-    excludeKeywords: f.excludeKeywords,
-    roles: f.roles,
+    roleTypes: f.roleTypes,
     degrees: f.degrees,
   });
 }
@@ -99,14 +94,15 @@ async function discordPost(body: object): Promise<boolean> {
 function buildPostingEmbed(posting: Internship): object {
   const sourceEmoji = SOURCE_EMOJIS[posting.source];
   const fields = [
-    { name: 'Score', value: `${posting.scoreLabel ?? '—'} (${posting.score ?? 0})`, inline: true },
+    { name: 'Score', value: `${posting.scoreLabel ?? '—'} (${posting.score ?? 0})${posting.companyTier && posting.companyTier !== 'other' ? ` · ${posting.companyTier}` : ''}`, inline: true },
     { name: 'Location', value: posting.location || 'Unknown', inline: true },
     { name: 'Source', value: posting.source, inline: true },
   ];
+  if (posting.degrees && posting.degrees.length > 0 && !posting.degrees.includes('bs')) {
+    fields.push({ name: 'Degree', value: posting.degrees.map(d => d.toUpperCase()).join(' / '), inline: true });
+  }
   if (posting.salaryText) fields.push({ name: 'Salary', value: posting.salaryText, inline: true });
 
-  // Button styles: 5 = link (needs url), 3 = success, 4 = danger (need
-  // custom_id; clicks POST to /api/discord/interactions).
   return {
     embeds: [{
       title: `${sourceEmoji ? sourceEmoji + ' ' : ''}${posting.company} — ${posting.title}`,
@@ -115,14 +111,7 @@ function buildPostingEmbed(posting: Internship): object {
       fields,
       footer: { text: posting.id },
     }],
-    components: [{
-      type: 1,
-      components: [
-        { type: 2, style: 5, label: 'Apply', url: posting.link },
-        { type: 2, style: 3, emoji: { name: '✅' }, custom_id: `applied:${posting.id}` },
-        { type: 2, style: 4, emoji: { name: '❌' }, custom_id: `hidden:${posting.id}` },
-      ],
-    }],
+    components: [{ type: 1, components: [{ type: 2, style: 5, label: 'Apply', url: posting.link }] }],
   };
 }
 

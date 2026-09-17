@@ -14,9 +14,7 @@ CREATE TABLE IF NOT EXISTS internships (
   score                INTEGER,
   score_label          TEXT,
   matched_keywords     JSONB       NOT NULL DEFAULT '[]'::jsonb,
-  applied              BOOLEAN     NOT NULL DEFAULT false,
   archived             BOOLEAN     NOT NULL DEFAULT false,
-  applied_at           TIMESTAMPTZ,
   failed_check_count   INTEGER     NOT NULL DEFAULT 0,
   first_failed_at      TIMESTAMPTZ,
   last_checked_at      TIMESTAMPTZ,
@@ -26,7 +24,6 @@ CREATE TABLE IF NOT EXISTS internships (
   salary_max           NUMERIC,
   salary_unit          TEXT,
   normalized_key       TEXT,
-  hidden               BOOLEAN     NOT NULL DEFAULT false,
   season               JSONB
 );
 
@@ -37,4 +34,3 @@ CREATE INDEX IF NOT EXISTS idx_internships_archived       ON internships(archive
 CREATE INDEX IF NOT EXISTS idx_internships_score_label    ON internships(score_label);
 CREATE INDEX IF NOT EXISTS idx_internships_company        ON internships(company);
 CREATE INDEX IF NOT EXISTS idx_internships_normalized_key ON internships(normalized_key);
-CREATE INDEX IF NOT EXISTS idx_internships_hidden         ON internships(hidden);

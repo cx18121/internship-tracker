@@ -11,10 +11,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { KeywordChips } from "./KeywordChips";
 import { TIER_LABELS } from "./FilterRail";
-import { DEGREE_LABELS } from "../_lib/labels";
-import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
+import { DEGREE_LABELS, ROLE_TYPE_LABELS } from "../_lib/labels";
 import type { TierFilter } from "@/lib/filter-spec";
 import type { NotifSettings } from "@/lib/notifSettings";
 
@@ -31,8 +29,6 @@ interface Props {
   /** Options derived from the current corpus, for chips. */
   seasonOptions: SeasonOption[];
   sources: string[];
-  knownKeywords: Set<string>;
-  availableRoles: Set<RoleId>;
   onSave: () => void;
   saving: boolean;
   saved: boolean;
@@ -134,7 +130,7 @@ function toggle<T>(list: T[], v: T): T[] {
 }
 
 export function NotifModal({
-  open, onOpenChange, settings, onChange, seasonOptions, sources, knownKeywords, availableRoles,
+  open, onOpenChange, settings, onChange, seasonOptions, sources,
   onSave, saving, saved, error,
 }: Props) {
   const s = settings;
@@ -177,29 +173,13 @@ export function NotifModal({
             </div>
           </Section>
 
-          <Section label="Role" hint="empty = all" className="sm:col-span-2">
+          <Section label="Type" hint="empty = all" className="sm:col-span-2">
             <div className="flex flex-wrap gap-1.5">
-              {ROLE_SPECIALIZATIONS.map((r) => {
-                const active = s.roles.includes(r.id);
-                const unknown = !availableRoles.has(r.id);
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => onChange({ roles: toggle(s.roles, r.id) })}
-                    title={unknown ? "No postings currently match this role" : undefined}
-                    className={`px-2 py-1 rounded-md text-[11px] border transition-colors ${
-                      active
-                        ? "border-white/30 bg-white/10 text-white"
-                        : unknown
-                          ? "border-white/[0.06] bg-transparent text-white/25 hover:border-white/15"
-                          : "border-white/10 bg-transparent text-white/55 hover:border-white/20 hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    {r.label}
-                  </button>
-                );
-              })}
+              {(Object.keys(ROLE_TYPE_LABELS) as Array<keyof typeof ROLE_TYPE_LABELS>).map((t) => (
+                <Chip key={t} active={s.roleTypes.includes(t)} onClick={() => onChange({ roleTypes: toggle(s.roleTypes, t) })}>
+                  {ROLE_TYPE_LABELS[t]}
+                </Chip>
+              ))}
             </div>
           </Section>
 
@@ -253,33 +233,6 @@ export function NotifModal({
 
           <Section label="Location">
             <Toggle on={s.excludeNonUS} onChange={(b) => onChange({ excludeNonUS: b })} label="Skip non-US postings" />
-          </Section>
-
-          <Section label="Include keywords" hint="match scorer tags">
-            <KeywordChips
-              values={s.includeKeywords}
-              onValuesChange={(next) => onChange({ includeKeywords: next })}
-              placeholder="e.g. React"
-              knownKeywords={knownKeywords}
-              tone="include"
-            />
-          </Section>
-
-          <Section label="Exclude keywords">
-            <KeywordChips
-              values={s.excludeKeywords}
-              onValuesChange={(next) => onChange({ excludeKeywords: next })}
-              placeholder="e.g. PhD"
-              knownKeywords={knownKeywords}
-              tone="exclude"
-            />
-          </Section>
-
-          <Section label="User state">
-            <div className="space-y-2">
-              <Toggle on={s.skipApplied} onChange={(b) => onChange({ skipApplied: b })} label="Skip applied postings" />
-              <Toggle on={s.skipHidden} onChange={(b) => onChange({ skipHidden: b })} label="Skip hidden postings" />
-            </div>
           </Section>
 
           <Section label="Alerts" className="sm:col-span-2">

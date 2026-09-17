@@ -25,9 +25,7 @@ interface Row {
   score: number | null;
   score_label: ScoreLabel | null;
   matched_keywords: string[];
-  applied: boolean;
   archived: boolean;
-  applied_at: Date | null;
   failed_check_count: number;
   first_failed_at: Date | null;
   last_checked_at: Date | null;
@@ -37,7 +35,6 @@ interface Row {
   salary_max: number | null;
   salary_unit: Salary['unit'];
   normalized_key: string | null;
-  hidden: boolean;
   season: string[] | null;
   role_type: RoleType | null;
   degrees: Degree[] | null;
@@ -60,9 +57,7 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['score', i => i.score],
   ['score_label', i => i.scoreLabel],
   ['matched_keywords', i => JSON.stringify(i.matchedKeywords)],
-  ['applied', i => i.applied],
   ['archived', i => i.archived],
-  ['applied_at', i => i.appliedAt ?? null],
   ['failed_check_count', i => i.failedCheckCount],
   ['first_failed_at', i => i.firstFailedAt ?? null],
   ['last_checked_at', i => i.lastCheckedAt ?? null],
@@ -72,7 +67,6 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['salary_max', i => i.salaryMax ?? null],
   ['salary_unit', i => i.salaryUnit ?? null],
   ['normalized_key', i => i.normalizedKey],
-  ['hidden', i => i.hidden],
   ['season', i => JSON.stringify(i.season)],
   ['role_type', i => i.roleType ?? null],
   ['degrees', i => i.degrees ? JSON.stringify(i.degrees) : null],
@@ -105,9 +99,6 @@ function fromRow(r: Row): Internship {
     score: r.score,
     scoreLabel: r.score_label,
     matchedKeywords: r.matched_keywords ?? [],
-    applied: r.applied,
-    appliedAt: iso(r.applied_at),
-    hidden: r.hidden,
     archived: r.archived,
     failedCheckCount: r.failed_check_count,
     firstFailedAt: iso(r.first_failed_at),
@@ -166,7 +157,6 @@ export interface ListFilters {
   minScore?: number;
   label?: string;
   includeArchived?: boolean;
-  includeHidden?: boolean;
   sort?: 'newest' | 'posted' | 'score';
   search?: string;
 }
@@ -177,7 +167,6 @@ export async function getInternships(filters: ListFilters = {}): Promise<Interns
   const p = (v: unknown) => { params.push(v); return `$${params.length}`; };
 
   if (!filters.includeArchived) where.push('archived = false');
-  if (!filters.includeHidden) where.push('hidden = false');
   if (filters.sources && filters.sources.length > 0) {
     where.push(`LOWER(source) = ANY(${p(filters.sources.map(s => s.toLowerCase()))}::text[])`);
   } else if (filters.source) {
@@ -304,7 +293,7 @@ export interface StoreResult {
 // Rediscovery of a stored row (same id, or same company+title via another
 // source). Bumps seen_at, un-archives unless link checks failed, re-scores
 // with the current config, and backfills fields that were null. User state
-// (applied, hidden, applied_at) and the stored link are preserved.
+// and the stored link are preserved.
 const BACKFILL_SQL = `
   UPDATE internships SET
     seen_at          = $1,
@@ -379,27 +368,6 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
   }));
 }
 
-/** null clears a nullable column; undefined leaves it untouched. */
-export type InternshipPatch = Partial<Pick<Internship, 'applied' | 'hidden' | 'link'>> & { appliedAt?: string | null };
-
-const PATCH_COLUMNS: Record<keyof InternshipPatch, string> = {
-  applied: 'applied',
-  appliedAt: 'applied_at',
-  hidden: 'hidden',
-  link: 'link',
-};
-
-export async function patchInternship(id: string, patch: InternshipPatch): Promise<Internship | null> {
-  const entries = (Object.keys(patch) as Array<keyof InternshipPatch>).filter(k => patch[k] !== undefined);
-  if (entries.length === 0) return getInternship(id);
-  const sets = entries.map((k, idx) => `${PATCH_COLUMNS[k]} = $${idx + 2}`);
-  const { rows } = await getPool().query<Row>(
-    `UPDATE internships SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
-    [id, ...entries.map(k => patch[k] ?? null)],
-  );
-  return rows[0] ? fromRow(rows[0]) : null;
-}
-
 export async function archiveInternshipsByIds(ids: string[]): Promise<number> {
   if (ids.length === 0) return 0;
   const result = await getPool().query('UPDATE internships SET archived = true WHERE id = ANY($1::text[])', [ids]);
@@ -420,6 +388,12 @@ export async function getCompanyProfiles(keys: string[]): Promise<Map<string, Co
     'SELECT company_key, tier, sector, known, reason FROM company_profiles WHERE company_key = ANY($1::text[])', [keys],
   );
   return new Map(rows.map(r => [r.company_key, { tier: r.tier, sector: r.sector ?? '', known: r.known, reason: r.reason ?? '' }]));
+}
+
+/** Lower-cased names of companies the classifier judged worth following. */
+export async function getPromotedCompanyKeys(): Promise<Set<string>> {
+  const { rows } = await getPool().query<{ company_key: string }>("SELECT company_key FROM company_profiles WHERE tier IN ('elite', 'top', 'hot')");
+  return new Set(rows.map(r => r.company_key));
 }
 
 export async function saveCompanyProfile(key: string, company: string, p: CompanyProfile, model: string): Promise<void> {

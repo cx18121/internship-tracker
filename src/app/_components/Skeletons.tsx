@@ -82,43 +82,6 @@ export function ListSkeleton() {
 
 const CARD_LINES = Array.from({ length: 6 });
 
-export function CardSkeleton() {
-  return (
-    <div
-      className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3"
-      aria-busy="true"
-      aria-label="Loading internships"
-    >
-      {CARD_LINES.map((_, i) => (
-        <div
-          key={i}
-          className="flex flex-col gap-2.5 p-3.5 rounded-lg border border-white/[0.06] bg-[oklch(0.16_0.005_260)]"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="flex-1 space-y-2">
-              <Bar className="w-2/5" />
-              <Bar className="w-3/4 h-2" />
-            </div>
-            <div className="flex flex-col items-end gap-1.5 shrink-0">
-              <Bar className="w-10" />
-              <Bar className="w-12 h-2" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <Bar className="w-16 h-2" />
-            <Bar className="w-12 h-2" />
-            <Bar className="w-14 h-2" />
-          </div>
-          <div className="flex gap-1.5 pt-1">
-            <Bar className="w-12 h-5 rounded-md" />
-            <Bar className="w-20 h-5 rounded-md" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 interface EmptyStateProps {
   hasActiveFilters: boolean;
   onClearFilters: () => void;

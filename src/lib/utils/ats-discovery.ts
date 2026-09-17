@@ -27,7 +27,7 @@ interface Denylist { denied: DenylistEntry[] }
  * Slugs that must never be auto-added by `saveDiscoveredTargets` and that
  * should be actively pruned from ats-targets.json if they're already there.
  * Tracks dead Workday tenants and other boards that keep getting re-discovered
- * from SimplifyJobs / Handshake links after deliberate removal.
+ * from SimplifyJobs links after deliberate removal.
  *
  * Returns an empty set if the file is missing or malformed — the deny-list
  * is curation negation, optional by default.

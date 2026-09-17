@@ -6,7 +6,7 @@ import type { Internship } from './types';
 const item = (over: Partial<Internship> & { id: string }): Internship => ({
   title: 'SWE', company: 'C', location: 'L', link: `https://x/${over.id}`, source: 'X',
   postedAt: '2026-01-01', seenAt: '2026-01-01', score: 0, scoreLabel: null,
-  matchedKeywords: [], applied: false, hidden: false, season: ['summer-2027'],
+  season: ['summer-2027'],
   ...over,
 });
 
@@ -25,16 +25,25 @@ describe('filter-pipeline (evaluateFilters)', () => {
     assert.deepEqual(ids(corpus, { sources: ['Greenhouse'], minScore: 50 }), ['a', 'c']);
   });
 
-  test('search matches company/title/location, hidden excluded unless showHidden', () => {
+  test('search matches company, title, and location', () => {
     const corpus = [
       item({ id: 'a', title: 'Backend Intern', company: 'Acme', location: 'NYC', score: 50 }),
-      item({ id: 'b', title: 'Frontend Intern', company: 'Beta', location: 'SF', score: 60, hidden: true }),
+      item({ id: 'b', title: 'Frontend Intern', company: 'Beta', location: 'SF', score: 60 }),
     ];
-    // Search "acme" hits company on row a only.
-    assert.deepEqual(ids(corpus, { q: 'acme', showHidden: false }), ['a']);
-    // Hidden row b is excluded by default, included when showHidden.
-    assert.deepEqual(ids(corpus, { q: '', showHidden: false }), ['a']);
-    assert.deepEqual(ids(corpus, { q: '', showHidden: true }).sort(), ['a', 'b']);
+    assert.deepEqual(ids(corpus, { q: 'acme' }), ['a']);
+    assert.deepEqual(ids(corpus, { q: 'frontend' }), ['b']);
+    assert.deepEqual(ids(corpus, { q: 'sf' }), ['b']);
+  });
+
+  test('type and degree chips gate on the classifier fields', () => {
+    const corpus = [
+      item({ id: 'a', roleType: 'swe', degrees: ['bs'] }),
+      item({ id: 'b', roleType: 'hardware_ee', degrees: ['ms', 'phd'] }),
+      item({ id: 'c', roleType: 'swe', degrees: [] }),
+    ];
+    assert.deepEqual(ids(corpus, { roleTypes: ['swe'] }).sort(), ['a', 'c']);
+    assert.deepEqual(ids(corpus, { degrees: ['phd'] }), ['b']);
+    assert.deepEqual(ids(corpus, { degrees: ['unknown'] }), ['c']);
   });
 
   test('sortBy posted orders by postedAt desc', () => {

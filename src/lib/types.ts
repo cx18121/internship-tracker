@@ -22,7 +22,7 @@ export interface RawPosting {
   description?: string;
   /** Only when the source states a season explicitly (SimplifyJobs README column). */
   season?: string[];
-  /** Only when the source states compensation explicitly (Handshake card). */
+  /** Only when the source states compensation explicitly. */
   salary?: Salary;
   multiLocation?: string[];
 }
@@ -42,9 +42,6 @@ export interface Internship {
   /** null = never scored (test fixtures). */
   scoreLabel: ScoreLabel | null;
   matchedKeywords: string[];
-  applied: boolean;
-  appliedAt?: string;
-  hidden: boolean;
   archived: boolean;
   /**
    * Link revalidation. 404/410/451/401 on check → archive. Transient

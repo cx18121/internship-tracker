@@ -21,10 +21,9 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
   const link = stripUtm(p.link) || p.link;
   const { score, scoreLabel, matchedKeywords, companyTier } = scoreInternship({ title: p.title, company, location: p.location });
 
-  // A source that states compensation (Handshake's card) is authoritative and
-  // is never second-guessed by description parsing, which invented salaries
-  // for unpaid roles. Other sources parse title + full description.
-  const salary = p.salary ?? (p.source === 'Handshake' ? null : parseSalary(`${p.title} ${p.description ?? ''}`));
+  // A source that states compensation is authoritative; otherwise parse
+  // the title and full description.
+  const salary = p.salary ?? parseSalary(`${p.title} ${p.description ?? ''}`);
   const description = smartTrimDescription(p.description);
 
   return {
@@ -39,8 +38,6 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
     score,
     scoreLabel,
     matchedKeywords,
-    applied: false,
-    hidden: false,
     archived: false,
     failedCheckCount: 0,
     normalizedKey: normalizeKey(company, p.title),

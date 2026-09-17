@@ -9,7 +9,7 @@ const now = Date.parse('2026-09-16T12:00:00Z');
 const row = (over: Partial<Internship>): Internship => ({
   id: 'x', title: 'Software Engineer Intern', company: 'Co', location: 'Austin, TX', link: 'https://x', source: 'Greenhouse',
   postedAt: new Date(now).toISOString(), seenAt: new Date(now).toISOString(), score: 60, scoreLabel: 'B', matchedKeywords: [],
-  applied: false, hidden: false, archived: false, failedCheckCount: 0, normalizedKey: 'co::x', season: ['summer-2027'], ...over,
+  archived: false, failedCheckCount: 0, normalizedKey: 'co::x', season: ['summer-2027'], ...over,
 });
 
 describe('staleReason', () => {

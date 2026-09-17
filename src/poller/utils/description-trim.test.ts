@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { smartTrimDescription, HANDSHAKE_PROMO_BANNER_SOURCE } from './description-trim';
+import { smartTrimDescription } from './description-trim';
 
 describe('smartTrim', () => {
   test('smartTrim: empty input returns empty string', () => {
@@ -98,20 +98,4 @@ describe('smartTrim', () => {
     }
   });
 
-  test('HANDSHAKE_PROMO_BANNER_SOURCE: RegExp built from source matches exact banner', () => {
-    const re = new RegExp(HANDSHAKE_PROMO_BANNER_SOURCE, 'gi');
-    const banner = "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you. Everything the website does for on-the-go career support. Plus reminders so you never miss a thing.";
-    assert.ok(re.test(banner), 'Banner regex should match the exact stable wording');
-  });
-
-  test('HANDSHAKE_PROMO_BANNER_SOURCE: handles variable whitespace between sentences', () => {
-    // Build a fresh RegExp per variant — global flag's lastIndex is stateful.
-    const variants = [
-      "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you.  Everything the website does for on-the-go career support.\nPlus reminders so you never miss a thing.",
-      "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you.\n\nEverything the website does for on-the-go career support.\n\nPlus reminders so you never miss a thing",
-    ];
-    for (const v of variants) {
-      assert.ok(new RegExp(HANDSHAKE_PROMO_BANNER_SOURCE, 'gi').test(v), `Should match variant: ${v.slice(0, 40)}...`);
-    }
-  });
 });

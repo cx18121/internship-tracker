@@ -1,12 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { KeywordChips } from "./KeywordChips";
 import { LOCATION_PRESETS } from "../_lib/constants";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { ROLE_SPECIALIZATIONS, type RoleId } from "@/lib/role-taxonomy";
 import type { TierFilter } from "../_lib/types";
 import { activeFilterCount, type Filters } from "../_lib/filters";
 import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
@@ -18,10 +14,6 @@ interface Props {
   // Derived from the loaded corpus.
   sources: string[] | null;
   seasonCounts: Array<[string, number]>;
-  /** Keywords present on at least one loaded posting; others are dimmed. */
-  knownKeywords: Set<string>;
-  /** Roles matching at least one loaded posting; others are dimmed. */
-  availableRoles: Set<RoleId>;
 }
 
 export const TIER_LABELS: Record<TierFilter, string> = {
@@ -89,9 +81,8 @@ function Chip({
   );
 }
 
-export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCounts, knownKeywords, availableRoles }: Props) {
+export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCounts }: Props) {
   const count = activeFilterCount(f);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   return (
     <aside className="space-y-6 text-[13px]">
@@ -139,22 +130,6 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
           {(Object.keys(DEGREE_LABELS) as Array<keyof typeof DEGREE_LABELS>).map((d) => (
             <Chip key={d} active={f.degrees.includes(d)} onClick={() => onChange({ degrees: toggleArr(f.degrees, d) })}>
               {DEGREE_LABELS[d]}
-            </Chip>
-          ))}
-        </div>
-      </Section>
-
-      <Section label="Specialization">
-        <div className="flex flex-wrap gap-1.5">
-          {ROLE_SPECIALIZATIONS.map((r) => (
-            <Chip
-              key={r.id}
-              active={f.roles.includes(r.id)}
-              dimmed={!availableRoles.has(r.id)}
-              onClick={() => onChange({ roles: toggleArr(f.roles, r.id) })}
-              title={!availableRoles.has(r.id) ? "No postings match this role in the current corpus" : undefined}
-            >
-              {r.label}
             </Chip>
           ))}
         </div>
@@ -242,43 +217,6 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
         />
       </Section>
 
-      <div className="border-t border-white/[0.06] pt-4">
-        <button
-          type="button"
-          onClick={() => setAdvancedOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-white/40 hover:text-white/70 transition-colors"
-          aria-expanded={advancedOpen}
-        >
-          <ChevronRight
-            className={`h-3 w-3 transition-transform ${advancedOpen ? "rotate-90" : ""}`}
-          />
-          Advanced
-        </button>
-
-        {advancedOpen && (
-          <div className="space-y-5 mt-4">
-            <Section label="Include keywords">
-              <KeywordChips
-                values={f.include}
-                onValuesChange={(v) => onChange({ include: v })}
-                placeholder="e.g. React"
-                knownKeywords={knownKeywords}
-                tone="include"
-              />
-            </Section>
-
-            <Section label="Exclude keywords">
-              <KeywordChips
-                values={f.exclude}
-                onValuesChange={(v) => onChange({ exclude: v })}
-                placeholder="e.g. PhD"
-                knownKeywords={knownKeywords}
-                tone="exclude"
-              />
-            </Section>
-          </div>
-        )}
-      </div>
     </aside>
   );
 }

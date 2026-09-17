@@ -11,7 +11,7 @@
 
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { deduplicateAndStore, patchInternship, deleteInternship } from '../src/lib/store';
+import { deduplicateAndStore, deleteInternship } from '../src/lib/store';
 import { closePool } from '../src/lib/db';
 import type { Internship } from '../src/lib/types';
 
@@ -36,8 +36,6 @@ const fixture = (over: Partial<Internship> & { id: string }): Internship => {
     score: 50,
     scoreLabel: 'C',
     matchedKeywords: [],
-    applied: false,
-    hidden: false,
     archived: false,
     failedCheckCount: 0,
     normalizedKey: `testco::${over.id}`,
@@ -62,32 +60,6 @@ describe('Dedup', { skip }, () => {
 
       const r2 = await deduplicateAndStore([internship]);
       assert.equal(r2.newInternships.length, 0, 'Second insert: expected 0 new (duplicate)');
-    } finally {
-      await deleteInternship(testId);
-    }
-  });
-});
-
-describe('Application tracking', { skip }, () => {
-  test('patchInternship stores applied + appliedAt', async () => {
-    const testId = `test-apptrack-${Date.now()}`;
-    const internship = fixture({
-      id: testId,
-      title: 'App Tracking Test Intern',
-      company: 'TrackCo',
-      location: 'New York, NY',
-      link: 'https://example.com/test-apptrack',
-      score: 60,
-    });
-    try {
-      await deduplicateAndStore([internship]);
-
-      const now = new Date().toISOString();
-      const patched = await patchInternship(testId, { applied: true, appliedAt: now });
-
-      assert.ok(patched, 'patchInternship should return the updated internship');
-      assert.equal(patched!.applied, true, 'applied should be true');
-      assert.equal(patched!.appliedAt, now, 'appliedAt should match');
     } finally {
       await deleteInternship(testId);
     }

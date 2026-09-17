@@ -1,6 +1,5 @@
 import { getInternships } from "@/lib/store";
 import { pickListFields } from "@/app/_lib/list-item";
-import { isOwnerRequest } from "@/lib/owner";
 import { cachedJsonResponse } from "@/lib/cachedResponse";
 
 export const dynamic = "force-dynamic";
@@ -32,13 +31,8 @@ export async function GET(request: Request) {
   const sort: "newest" | "posted" | "score" =
     sortParam === "newest" || sortParam === "posted" ? sortParam : "score";
   const q = sp.get("q")?.trim() || undefined;
-  // Hidden postings are owner-only state. Non-owners get them stripped from
-  // the response regardless of the query param, so a friend can't reveal what
-  // the owner hid by passing ?includeHidden=1.
-  const wantsHidden = sp.get("includeHidden") === "1" || sp.get("hidden") === "1";
-  const includeHidden = wantsHidden && isOwnerRequest(request);
 
-  const all = await getInternships({ source, sources, minScore, label, sort, search: q, includeHidden });
+  const all = await getInternships({ source, sources, minScore, label, sort, search: q });
   const sliced = limit !== undefined ? all.slice(offset, offset + limit) : all.slice(offset);
   return cachedJsonResponse(request, sliced.map(pickListFields));
 }

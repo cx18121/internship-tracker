@@ -6,7 +6,7 @@ import type { Internship } from '../_lib/types';
 const item = (over: Partial<Internship> & { id: string }): Internship => ({
   title: 'T', company: 'C', location: 'L', link: `https://x/${over.id}`, source: 'X',
   postedAt: '2026-01-01', seenAt: '2026-01-01', score: 0, scoreLabel: null,
-  matchedKeywords: [], applied: false, hidden: false, season: ['summer-2027'],
+  season: ['summer-2027'],
   ...over,
 });
 
@@ -14,7 +14,7 @@ describe('groupInternships', () => {
   test('groupInternships: score sort orders companies by avg score desc', () => {
     const corpus = [
       item({ id: 'a1', company: 'Acme', score: 80 }),
-      item({ id: 'a2', company: 'Acme', score: 90, applied: true }),
+      item({ id: 'a2', company: 'Acme', score: 90 }),
       item({ id: 'b1', company: 'Beta', score: 95 }),
       item({ id: 'c1', company: 'Cyon', score: 50 }),
     ];
@@ -22,7 +22,6 @@ describe('groupInternships', () => {
     assert.deepEqual(out.map(g => g.company), ['Beta', 'Acme', 'Cyon']); // avg 95, 85, 50
     const acme = out.find(g => g.company === 'Acme')!;
     assert.equal(acme.avgScore, 85);
-    assert.equal(acme.appliedCount, 1);
   });
 
   test('groupInternships: posted sort orders companies by newest posting, ignoring score', () => {
@@ -65,12 +64,11 @@ describe('groupInternships', () => {
     // must still treat them as ONE company.
     const corpus = [
       item({ id: 'q1', company: 'Quadric', score: 80 }),
-      item({ id: 'q2', company: 'QUADRIC', score: 90, applied: true }),
+      item({ id: 'q2', company: 'QUADRIC', score: 90 }),
     ];
     const out = groupInternships(corpus, 'score');
     assert.equal(out.length, 1, 'casing variants must collapse to one group');
     assert.equal(out[0].items.length, 2);
-    assert.equal(out[0].appliedCount, 1);
     // Display picks the non-ALL-CAPS casing when counts tie.
     assert.equal(out[0].company, 'Quadric');
   });

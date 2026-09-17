@@ -6,7 +6,7 @@
  *
  *   1. MERGE_FILES — config that ships with the image but ALSO accretes at
  *      runtime (e.g., ats-targets.json gets new entries from saveDiscoveredTargets
- *      in the handshake/github pollers). Image wins on key collision; volume-only
+ *      in the github poller). Image wins on key collision; volume-only
  *      entries are preserved.
  *
  *   2. OVERWRITE_FILES — pure config, no runtime mutation. Always overwrite

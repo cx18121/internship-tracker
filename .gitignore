@@ -19,7 +19,6 @@ next-env.d.ts.bak
 # SQLite + auth state
 *.db
 *.db-*
-data/handshake-auth.json
 data/notif-settings.json
 data/source-alerts.json
 data/resume.pdf

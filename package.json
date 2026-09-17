@@ -14,7 +14,6 @@
     "test:full": "tsx scripts/test-with-server.ts",
     "test:ci": "tsx scripts/seed-test-db.ts && tsx scripts/test-with-server.ts",
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
-    "handshake:login": "npx tsx src/poller/handshake-login.ts",
     "discover:ats": "npx tsx scripts/exa-discover-ats.ts",
     "discover:ats:hn": "npx tsx scripts/hn-discover-ats.ts"
   },
@@ -32,7 +31,6 @@
     "react-dom": "19.2.4",
     "tailwind-merge": "^3.5.0",
     "tsx": "^4.21.0",
-    "tweetnacl": "^1.0.3",
     "world-countries": "^5.1.0"
   },
   "devDependencies": {

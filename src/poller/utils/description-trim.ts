@@ -20,16 +20,6 @@
 const DEFAULT_MAX = 2000;
 const MIN_END_MARKER_POS = 300;
 
-// Handshake's mobile-app promo banner ("Describe your goals, preferences,
-// or background, and we'll find the best jobs tailored to you. Everything
-// the website does for on-the-go career support. Plus reminders so you
-// never miss a thing.") sits inside the [data-hook="job-details-page"]
-// wrapper and gets captured as part of the description. Word-for-word
-// stable across postings. Exported as a regex *source* so the in-browser
-// page.evaluate context (handshake.ts) and the cleanup-script backfill
-// can both build their own RegExp from one source-of-truth pattern.
-export const HANDSHAKE_PROMO_BANNER_SOURCE =
-  "Describe your goals, preferences, or background, and we'll find the best jobs tailored to you\\.\\s*Everything the website does for on-the-go career support\\.\\s*Plus reminders so you never miss a thing\\.?";
 // Marketing prefixes can be long — Workday and Greenhouse postings frequently
 // run 1500-1700 chars of company pitch before the role section. Allow skip
 // up to this many chars; beyond that, the description is mostly marketing

@@ -1,6 +1,5 @@
 import type { RawPosting } from '../lib/types';
 import { pollGitHub } from './pollers/github';
-import { pollHandshake } from './pollers/handshake';
 import { pollJobSpy } from './pollers/jobspy';
 import { pollATS, ATS_SOURCES } from './pollers/ats';
 import { pollYCWaaS } from './pollers/yc-waas';
@@ -25,18 +24,14 @@ const FAST: SourceRun[] = [
   { label: 'SimplifyJobs', poll: pollGitHub, sources: ['SimplifyJobs'] },
 ];
 
-// Slow tier runs three lanes concurrently. Playwright pollers run one at a
-// time because each browser costs 500MB to 1GB on the Railway container.
+// Slow tier: ATS boards and YC over HTTP in parallel, JobSpy (a Python
+// subprocess scraping LinkedIn) alongside.
 const SLOW_HTTP: SourceRun[] = [
   { label: 'ATS portals', poll: pollATS, sources: ATS_SOURCES },
   { label: 'YC WaaS', poll: pollYCWaaS, sources: ['YC WaaS'] },
 ];
-const SLOW_PLAYWRIGHT: SourceRun[] = [
-  { label: 'Handshake', poll: pollHandshake, sources: ['Handshake'] },
-];
 const SLOW_SUBPROCESS: SourceRun[] = [
-  // JobSpy spans Indeed, LinkedIn, Glassdoor, ZipRecruiter; only the ones
-  // that returned rows count as fetched.
+  // Only the JobSpy sub-sources that returned rows count as fetched.
   { label: 'JobSpy', poll: pollJobSpy },
 ];
 
@@ -72,7 +67,6 @@ export async function runCycle(tier: CycleTier = 'all'): Promise<void> {
   if (tier !== 'fast') {
     await Promise.all([
       Promise.all(SLOW_HTTP.map(run => runSource(run, collected))),
-      runSerial(SLOW_PLAYWRIGHT, collected),
       runSerial(SLOW_SUBPROCESS, collected),
     ]);
   }

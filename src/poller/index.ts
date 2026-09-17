@@ -9,7 +9,7 @@ import { withTimeout, TimeoutError } from './utils/with-timeout';
 
 // Two-tier polling:
 //   Fast tier (default 15 min) — SimplifyJobs only. Seconds per run.
-//   Slow tier (default 60 min) — Handshake, ATS sweeps, JobSpy, YC WaaS.
+//   Slow tier (default 60 min) — ATS sweeps, JobSpy (LinkedIn), YC WaaS.
 //                                 Minutes per run; the dominant compute cost.
 const POLL_INTERVAL_MS_FAST = parseInt(process.env.POLL_INTERVAL_MS_FAST || '900000', 10);
 const POLL_INTERVAL_MS_SLOW = parseInt(process.env.POLL_INTERVAL_MS_SLOW || '3600000', 10);

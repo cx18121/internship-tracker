@@ -46,7 +46,7 @@ export function staleReason(i: Internship, now = Date.now()): string | null {
  */
 export async function reevaluate(caps: { descriptions: number; classify: number } = DEFAULT_CAPS): Promise<ReevaluateResult> {
   const result: ReevaluateResult = { archived: {}, descriptionsFetched: 0, classified: 0, rescored: 0 };
-  const active = await getInternships({ includeHidden: true });
+  const active = await getInternships();
 
   const toArchive: string[] = [];
   for (const i of active) {

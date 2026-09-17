@@ -2,14 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Internship, Stats, Sources } from "../_lib/types";
-import { ownerHeader } from "../_lib/ownerHeader";
 
-/**
- * Loads the full corpus once (all filtering is client-side) plus the
- * filter-independent stats and sources. Only owners receive hidden rows;
- * the server verifies the owner header regardless of the query flag.
- */
-export function useInternshipsData(isOwner: boolean, enabled: boolean) {
+/** Loads the full corpus once (all filtering is client-side) plus stats and sources. */
+export function useInternshipsData(enabled: boolean) {
   const [internships, setInternships] = useState<Internship[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [sources, setSources] = useState<Sources | null>(null);
@@ -19,7 +14,7 @@ export function useInternshipsData(isOwner: boolean, enabled: boolean) {
 
   const fetchList = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch(`/api/internships${isOwner ? "?includeHidden=1" : ""}`, { signal, headers: ownerHeader() });
+      const res = await fetch("/api/internships", { signal });
       if (res.status === 503) { setOffline(true); return; }
       setOffline(false);
       if (res.ok) setInternships(await res.json());
@@ -27,7 +22,7 @@ export function useInternshipsData(isOwner: boolean, enabled: boolean) {
       if ((err as { name?: string })?.name === "AbortError") return;
       setOffline(true);
     }
-  }, [isOwner]);
+  }, []);
 
   const fetchStatsAndSources = useCallback(async () => {
     try {
@@ -55,5 +50,5 @@ export function useInternshipsData(isOwner: boolean, enabled: boolean) {
     setRefreshing(false);
   }, [fetchList, fetchStatsAndSources]);
 
-  return { internships, setInternships, stats, sources, offline, loading, refreshing, refresh };
+  return { internships, stats, sources, offline, loading, refreshing, refresh };
 }

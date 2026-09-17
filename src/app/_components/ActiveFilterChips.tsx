@@ -2,7 +2,6 @@
 
 import { X } from "lucide-react";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { ROLE_SPECIALIZATIONS } from "@/lib/role-taxonomy";
 import { DATE_WINDOWS } from "../_lib/constants";
 import type { Filters } from "../_lib/filters";
 import { TIER_LABELS } from "./FilterRail";
@@ -69,10 +68,6 @@ export function ActiveFilterChips({ filters: f, onChange, onClearAll }: Props) {
     chips.push(<Pill key={`src-${s}`} label={s} onClear={() => onChange({ sources: without(f.sources, s) })} />);
   for (const t of f.seasons)
     chips.push(<Pill key={`season-${t}`} label={formatSeasonLabel(t)} onClear={() => onChange({ seasons: without(f.seasons, t) })} />);
-  for (const r of f.roles) {
-    const role = ROLE_SPECIALIZATIONS.find((x) => x.id === r);
-    if (role) chips.push(<Pill key={`role-${r}`} label={`Role: ${role.label}`} onClear={() => onChange({ roles: without(f.roles, r) })} />);
-  }
   for (const t of f.roleTypes)
     chips.push(<Pill key={`type-${t}`} label={ROLE_TYPE_LABELS[t] ?? t} onClear={() => onChange({ roleTypes: without(f.roleTypes, t) })} />);
   for (const d of f.degrees)
@@ -81,11 +76,6 @@ export function ActiveFilterChips({ filters: f, onChange, onClearAll }: Props) {
     chips.push(<Pill key={`loc-${l}`} label={l} onClear={() => onChange({ locations: without(f.locations, l) })} />);
   if (f.locationText)
     chips.push(<Pill key="loc-text" label={`Location: ${f.locationText}`} onClear={() => onChange({ locationText: "" })} />);
-  for (const k of f.include)
-    chips.push(<Pill key={`kw-${k}`} label={`+${k}`} onClear={() => onChange({ include: without(f.include, k) })} />);
-  for (const k of f.exclude)
-    chips.push(<Pill key={`xkw-${k}`} label={`−${k}`} tone="danger" onClear={() => onChange({ exclude: without(f.exclude, k) })} />);
-
   if (chips.length === 0) return null;
 
   return (

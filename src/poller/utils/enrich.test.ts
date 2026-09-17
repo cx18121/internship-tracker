@@ -18,7 +18,7 @@ const raw = (over: Partial<RawPosting>): RawPosting => ({
 describe('Enrich salary precedence', () => {
   test('Scraper-provided salary is forwarded, not overwritten by description parse', () => {
     const row = enrichForStorage(raw({
-      source: 'Handshake',
+      source: 'YC WaaS',
       salary: { text: '$25/hr', min: 25, max: 25, unit: 'hourly' },
       description: 'We manage $200,000-$300,000/yr portfolios.',
     }), NOW);
@@ -26,15 +26,7 @@ describe('Enrich salary precedence', () => {
     assert.equal(row.salaryUnit, 'hourly');
   });
 
-  test('Handshake row with no scraper salary does not invent one from description', () => {
-    const row = enrichForStorage(raw({
-      title: 'AI Specialist', company: 'A Free Bird', link: 'https://x.com/b', source: 'Handshake',
-      description: 'Stipend pool of $100,000-$150,000/yr shared across the cohort.',
-    }), NOW);
-    assert.equal(row.salaryText, undefined);
-  });
-
-  test('Non-Handshake row still parses salary from description', () => {
+  test('Row without a stated salary parses one from title and description', () => {
     const row = enrichForStorage(raw({
       title: 'SWE Intern $30/hr', link: 'https://x.com/c', source: 'Greenhouse',
     }), NOW);

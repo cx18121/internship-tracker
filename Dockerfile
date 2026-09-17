@@ -1,10 +1,5 @@
 # syntax=docker/dockerfile:1
-# Slim Node base + Firefox only. Handshake's auth flow specifically needs
-# Firefox to evade Cornell SSO + Handshake's headless-Chrome bot detection
-# (see feedback memory), so we standardize the other Playwright pollers on
-# Firefox too rather than ship two browsers. Dropping Chromium saves another
-# ~250MB image size + cold-start time on top of the WebKit-drop from the
-# previous commit.
+# Slim Node base + one browser (Firefox) for the CSRF-protected Workday tenants.
 FROM node:22-slim
 
 # Python (for JobSpy) + curl/ca-certs (for `playwright install` to download

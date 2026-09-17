@@ -1,6 +1,5 @@
-import { ROLE_SPECIALIZATIONS, isRoleId, type RoleId } from './role-taxonomy';
-import type { TierFilter } from './filter-spec';
-import { DEGREES, type Degree } from './classify/posting';
+import type { TierFilter, DegreeFilter } from './filter-spec';
+import { DEGREES, ROLE_TYPES, type RoleType } from './classify/posting';
 
 /** Gates a new posting must pass before it is pushed to Discord. Browser-safe
  *  (no I/O); load/save live in app-state.ts. */
@@ -14,15 +13,10 @@ export interface NotifSettings {
   excludedSources: string[];
   /** Postings classified 'unknown' still notify. */
   excludeNonUS: boolean;
-  /** Matched against the scorer's matchedKeywords, not free text. */
-  includeKeywords: string[];
-  excludeKeywords: string[];
-  /** Empty means no role gate. */
-  roles: RoleId[];
+  /** Classified role types to notify on. Empty means all. */
+  roleTypes: RoleType[];
   /** Eligible degree levels to notify on; 'unknown' covers postings with no signal. Empty means all. */
-  degrees: Array<Degree | 'unknown'>;
-  skipApplied: boolean;
-  skipHidden: boolean;
+  degrees: DegreeFilter[];
 }
 
 export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
@@ -32,12 +26,8 @@ export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
   seasons: [],
   excludedSources: [],
   excludeNonUS: false,
-  includeKeywords: [],
-  excludeKeywords: [],
-  roles: [],
+  roleTypes: [],
   degrees: [],
-  skipApplied: true,
-  skipHidden: true,
 };
 
 /**
@@ -47,35 +37,25 @@ export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
  */
 export function parseNotifSettings(input: unknown, baseline: NotifSettings = DEFAULT_NOTIF_SETTINGS): NotifSettings {
   const b: Record<string, unknown> = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
-  const bool = (k: keyof NotifSettings) => (typeof b[k] === 'boolean' ? (b[k] as boolean) : (baseline[k] as boolean));
-  const list = (k: keyof NotifSettings) => (k in b ? stringList(b[k]) : (baseline[k] as string[]));
+  const bool = (k: 'sourceDownAlerts' | 'excludeNonUS') => (typeof b[k] === 'boolean' ? (b[k] as boolean) : baseline[k]);
+  const list = <T extends string>(k: keyof NotifSettings, keep: (x: string) => x is T): T[] =>
+    k in b ? stringList(b[k]).filter(keep) : (baseline[k] as T[]);
   return {
     minScore: typeof b.minScore === 'number' && Number.isFinite(b.minScore)
       ? Math.max(0, Math.min(100, Math.round(b.minScore)))
       : baseline.minScore,
     sourceDownAlerts: bool('sourceDownAlerts'),
     tierFilter: isTierFilter(b.tierFilter) ? b.tierFilter : baseline.tierFilter,
-    seasons: list('seasons').map(x => x.toLowerCase()).filter(x => /^(summer|fall|winter|spring|year)-\d{4}$/.test(x)),
-    excludedSources: list('excludedSources'),
+    seasons: list('seasons', (x): x is string => /^(summer|fall|winter|spring)-\d{4}$/.test(x.toLowerCase())).map(x => x.toLowerCase()),
+    excludedSources: list('excludedSources', (x): x is string => true),
     excludeNonUS: bool('excludeNonUS'),
-    includeKeywords: list('includeKeywords'),
-    excludeKeywords: list('excludeKeywords'),
-    roles: 'roles' in b ? roleList(b.roles) : baseline.roles,
-    degrees: 'degrees' in b ? stringList(b.degrees).filter((x): x is Degree | 'unknown' => x === 'unknown' || (DEGREES as readonly string[]).includes(x)) : baseline.degrees,
-    skipApplied: bool('skipApplied'),
-    skipHidden: bool('skipHidden'),
+    roleTypes: list('roleTypes', (x): x is RoleType => (ROLE_TYPES as readonly string[]).includes(x)),
+    degrees: list('degrees', (x): x is DegreeFilter => x === 'unknown' || (DEGREES as readonly string[]).includes(x)),
   };
 }
 
 function isTierFilter(t: unknown): t is TierFilter {
   return t === 'all' || t === 'elite' || t === 'top-or-better' || t === 'solid-or-better';
-}
-
-function roleList(s: unknown): RoleId[] {
-  if (!Array.isArray(s)) return [];
-  const out = new Set<RoleId>();
-  for (const x of s) if (typeof x === 'string' && isRoleId(x)) out.add(x);
-  return [...out].slice(0, ROLE_SPECIALIZATIONS.length);
 }
 
 function stringList(s: unknown): string[] {

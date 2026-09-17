@@ -34,17 +34,12 @@ interface Props {
   // never split across pages.
   groups: Group[] | null;
   sortBy: SortBy;
-  pendingIds: Set<string>;
-  onToggleApplied: (id: string, current: boolean) => void;
-  onHide: (id: string, hidden: boolean) => void;
-  isOwner: boolean;
 }
 
 export interface Group {
   company: string;
   items: Internship[];
   avgScore: number;
-  appliedCount: number;
 }
 
 const latestPostedAt = (roles: Internship[]): number =>
@@ -87,7 +82,6 @@ export function groupInternships(items: Internship[], sortBy: SortBy): Group[] {
       company,
       items: roles,
       avgScore: roles.length > 0 ? Math.round(totalScore / roles.length) : 0,
-      appliedCount: roles.filter((r) => r.applied).length,
     });
   }
   if (sortBy === "posted") {
@@ -129,56 +123,21 @@ function ColumnHeader({ sortBy }: { sortBy: SortBy }): React.JSX.Element {
   );
 }
 
-function InternshipListImpl({
-  items,
-  groups,
-  sortBy,
-  pendingIds,
-  onToggleApplied,
-  onHide,
-  isOwner,
-}: Props) {
+function InternshipListImpl({ items, groups, sortBy }: Props) {
   if (groups === null) {
     return (
       <div className="flex flex-col gap-0.5">
         <ColumnHeader sortBy={sortBy} />
-        {items.map((item) => (
-          <InternshipRow
-            key={item.id}
-            item={item}
-            pending={pendingIds.has(item.id)}
-            onToggleApplied={onToggleApplied}
-            onHide={onHide}
-            isOwner={isOwner}
-          />
-        ))}
+        {items.map((item) => <InternshipRow key={item.id} item={item} />)}
       </div>
     );
   }
-
-  // Grouped mode — render company sections with collapsible role lists.
-  return (
-    <GroupedList
-      groups={groups}
-      sortBy={sortBy}
-      pendingIds={pendingIds}
-      onToggleApplied={onToggleApplied}
-      onHide={onHide}
-      isOwner={isOwner}
-    />
-  );
+  return <GroupedList groups={groups} sortBy={sortBy} />;
 }
 
 export const InternshipList = memo(InternshipListImpl);
 
-function GroupedList({
-  groups,
-  sortBy,
-  pendingIds,
-  onToggleApplied,
-  onHide,
-  isOwner,
-}: Omit<Props, "items"> & { groups: Group[] }): React.JSX.Element {
+function GroupedList({ groups, sortBy }: { groups: Group[]; sortBy: SortBy }): React.JSX.Element {
   // Every group renders a section header — including single-role companies —
   // and they all start expanded. User can collapse any of them via the header.
   const [closed, setClosed] = useState<Set<string>>(new Set());
@@ -212,24 +171,10 @@ function GroupedList({
                 {g.items.length} role{g.items.length !== 1 ? "s" : ""}
               </span>
               <span className="text-[11px] text-white/45 tabular-nums">avg {g.avgScore}</span>
-              {g.appliedCount > 0 && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/12 text-emerald-300 border border-emerald-500/25 tabular-nums">
-                  {g.appliedCount} applied
-                </span>
-              )}
             </button>
             {open && (
               <div className="flex flex-col gap-0.5 px-1 pb-1.5">
-                {g.items.map((item) => (
-                  <InternshipRow
-                    key={item.id}
-                    item={item}
-                    pending={pendingIds.has(item.id)}
-                    onToggleApplied={onToggleApplied}
-                    onHide={onHide}
-                    isOwner={isOwner}
-                  />
-                ))}
+                {g.items.map((item) => <InternshipRow key={item.id} item={item} />)}
               </div>
             )}
           </div>

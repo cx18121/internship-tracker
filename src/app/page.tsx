@@ -16,31 +16,24 @@ import {
   Bell,
   ChevronLeft,
   ChevronRight,
-  LayoutGrid,
-  List,
   Layers,
   SlidersHorizontal,
   Search,
   X,
-  Eye,
 } from "lucide-react";
 
-import { InternshipCard } from "./_components/InternshipCard";
 import { InternshipList, groupInternships } from "./_components/InternshipList";
 import { NotifModal } from "./_components/NotifModal";
 import { StatusPill } from "./_components/StatusPill";
 import { FilterRail } from "./_components/FilterRail";
 import { MobileFilterSheet } from "./_components/MobileFilterSheet";
-import { ListSkeleton, CardSkeleton, EmptyState } from "./_components/Skeletons";
+import { ListSkeleton, EmptyState } from "./_components/Skeletons";
 import { ActiveFilterChips } from "./_components/ActiveFilterChips";
-import type { AppliedFilter, SortBy } from "./_lib/types";
+import type { SortBy } from "./_lib/types";
 import { PAGE_SIZE, GROUPS_PER_PAGE, DATE_WINDOWS } from "./_lib/constants";
-import { lsGet, lsSet, LS_NOTES_KEY } from "./_lib/storage";
-import { ROLE_SPECIALIZATIONS, postingMatchesRole, type RoleId } from "@/lib/role-taxonomy";
 import {
   DEFAULT_FILTERS, activeFilterCount, evaluateFilters, filtersFromParams, writeFiltersToParams, type Filters,
 } from "./_lib/filters";
-import { useOptimisticPatch } from "./_hooks/useOptimisticPatch";
 import { useNotifSettings } from "./_hooks/useNotifSettings";
 import { useDebouncedValue } from "./_hooks/useDebouncedValue";
 import { useIsOwner } from "./_hooks/useIsOwner";
@@ -49,19 +42,16 @@ import { useInternshipsData } from "./_hooks/useInternshipsData";
 interface View {
   sort: SortBy;
   page: number;
-  mode: "card" | "list";
   group: boolean;
 }
-const DEFAULT_VIEW: View = { sort: "score", page: 1, mode: "list", group: false };
+const DEFAULT_VIEW: View = { sort: "score", page: 1, group: false };
 
 function viewFromParams(sp: URLSearchParams): View {
   const sort = sp.get("sort");
   const page = Number(sp.get("page"));
-  const mode = sp.get("view");
   return {
     sort: sort === "posted" || sort === "newest" ? "posted" : "score",
     page: Number.isFinite(page) && page > 1 ? page : 1,
-    mode: mode === "card" ? "card" : "list",
     group: sp.get("group") === "1",
   };
 }
@@ -69,23 +59,19 @@ function viewFromParams(sp: URLSearchParams): View {
 function writeViewToParams(v: View, params: URLSearchParams): void {
   if (v.sort !== "score") params.set("sort", v.sort);
   if (v.page > 1) params.set("page", String(v.page));
-  if (v.mode !== "list") params.set("view", v.mode);
-  if (v.mode === "list" && v.group) params.set("group", "1");
+  if (v.group) params.set("group", "1");
 }
 
 export default function InternshipsPage() {
   const isOwner = useIsOwner();
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS);
   const [view, setView] = useState<View>(DEFAULT_VIEW);
-  const [notesMap, setNotesMap] = useState<Record<string, string>>({});
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   // URL sync and the first fetch wait until state is restored from the URL.
   const [hydrated, setHydrated] = useState(false);
 
-  const data = useInternshipsData(isOwner, hydrated);
-  const { internships, setInternships, stats, sources, offline, loading, refreshing, refresh } = data;
-  const { pendingIds, patch } = useOptimisticPatch();
+  const { internships, stats, sources, offline, loading, refreshing, refresh } = useInternshipsData(hydrated);
   const notif = useNotifSettings();
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -117,9 +103,8 @@ export default function InternshipsPage() {
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Restore state from URL and localStorage on mount.
+  // Restore state from the URL on mount.
   useEffect(() => {
-    setNotesMap(lsGet<Record<string, string>>(LS_NOTES_KEY, {}));
     const sp = new URLSearchParams(window.location.search);
     setFilters(filtersFromParams(sp));
     setView(viewFromParams(sp));
@@ -139,59 +124,18 @@ export default function InternshipsPage() {
     window.history.replaceState({}, "", qs ? `${window.location.pathname}?${qs}` : window.location.pathname);
   }, [hydrated, effectiveFilters, view]);
 
-  const patchField = useCallback((id: string, next: { applied?: boolean; hidden?: boolean }, current: typeof next) => {
-    const appliedAt = next.applied === undefined ? {} : { appliedAt: next.applied ? new Date().toISOString() : null };
-    return patch(
-      id,
-      { ...next, ...appliedAt },
-      () => setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, ...next, ...(appliedAt.appliedAt !== undefined ? { appliedAt: appliedAt.appliedAt ?? undefined } : {}) } : i))),
-      () => setInternships((prev) => prev.map((i) => (i.id === id ? { ...i, ...current } : i))),
-    );
-  }, [patch, setInternships]);
-
-  const toggleApplied = useCallback((id: string, current: boolean) => {
-    void patchField(id, { applied: !current }, { applied: current });
-  }, [patchField]);
-  const handleHide = useCallback((id: string, hidden: boolean) => {
-    void patchField(id, { hidden: !hidden }, { hidden });
-  }, [patchField]);
-
-  const updateNote = useCallback((id: string, note: string) => {
-    setNotesMap((prev) => {
-      const next = { ...prev, [id]: note };
-      if (!note) delete next[id];
-      lsSet(LS_NOTES_KEY, next);
-      return next;
-    });
-  }, []);
-
   const dynamicSources: string[] | null = stats?.bySource
     ? Object.entries(stats.bySource).filter(([, n]) => n > 0).map(([src]) => src).sort()
     : null;
 
-  // Keyword and role chips outside these sets are dimmed: they would match nothing.
-  const knownKeywords = useMemo(() => {
-    const set = new Set<string>();
-    for (const i of internships) for (const k of i.matchedKeywords) set.add(k.toLowerCase());
-    return set;
-  }, [internships]);
-  const availableRoles = useMemo(() => {
-    const set = new Set<RoleId>();
-    for (const role of ROLE_SPECIALIZATIONS) {
-      if (internships.some((i) => postingMatchesRole(i.matchedKeywords, role.id))) set.add(role.id);
-    }
-    return set;
-  }, [internships]);
-
-  const { filtered, seasonCounts, tabCounts, hiddenCount } = useMemo(
+  const { filtered, seasonCounts } = useMemo(
     () => evaluateFilters(internships, effectiveFilters, view.sort),
     [internships, effectiveFilters, view.sort],
   );
   const filterCount = activeFilterCount(effectiveFilters);
 
   // Grouped list view paginates by company so a company's roles never split.
-  const isGroupedList = view.mode === "list" && view.group;
-  const groups = useMemo(() => (isGroupedList ? groupInternships(filtered, view.sort) : null), [isGroupedList, filtered, view.sort]);
+  const groups = useMemo(() => (view.group ? groupInternships(filtered, view.sort) : null), [view.group, filtered, view.sort]);
   const pageUnitCount = groups ? groups.length : filtered.length;
   const perPage = groups ? GROUPS_PER_PAGE : PAGE_SIZE;
   const totalPages = Math.max(1, Math.ceil(pageUnitCount / perPage));
@@ -199,10 +143,7 @@ export default function InternshipsPage() {
   const paginated = useMemo(() => filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE), [filtered, safePage]);
   const pagedGroups = useMemo(() => groups?.slice((safePage - 1) * GROUPS_PER_PAGE, safePage * GROUPS_PER_PAGE) ?? null, [groups, safePage]);
 
-  const railProps = {
-    filters, onChange: updateFilters, onClearAll: clearFilters,
-    sources: dynamicSources, seasonCounts, knownKeywords, availableRoles,
-  };
+  const railProps = { filters, onChange: updateFilters, onClearAll: clearFilters, sources: dynamicSources, seasonCounts };
 
   return (
     <div className="min-h-screen">
@@ -238,28 +179,7 @@ export default function InternshipsPage() {
               )}
             </button>
 
-            <div className="flex items-center rounded-md border border-white/10 bg-white/[0.04] p-0.5">
-              <button
-                onClick={() => updateView({ mode: "list" })}
-                className={`p-1.5 rounded transition-colors ${
-                  view.mode === "list" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
-                }`}
-                title="List view"
-              >
-                <List className="h-3.5 w-3.5" />
-              </button>
-              <button
-                onClick={() => updateView({ mode: "card" })}
-                className={`p-1.5 rounded transition-colors ${
-                  view.mode === "card" ? "bg-white/15 text-white" : "text-white/40 hover:text-white/70"
-                }`}
-                title="Card view"
-              >
-                <LayoutGrid className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {view.mode === "list" && (
-              <button
+            <button
                 onClick={() => updateView({ group: !view.group, page: 1 })}
                 className={`p-1.5 rounded border transition-colors ${
                   view.group
@@ -270,7 +190,6 @@ export default function InternshipsPage() {
               >
                 <Layers className="h-3.5 w-3.5" />
               </button>
-            )}
             {isOwner && (
               <Button
                 variant="outline"
@@ -357,34 +276,6 @@ export default function InternshipsPage() {
               </div>
 
               <div className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] p-0.5">
-                {(["all", "not-applied", "applied"] as AppliedFilter[]).map((tab) => {
-                  const count =
-                    tab === "all" ? tabCounts.all : tab === "applied" ? tabCounts.applied : tabCounts.open;
-                  const active = filters.applied === tab;
-                  return (
-                    <button
-                      key={tab}
-                      onClick={() => updateFilters({ applied: tab })}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] transition-colors ${
-                        active
-                          ? "bg-white/15 text-white"
-                          : "text-white/55 hover:text-white/70"
-                      }`}
-                    >
-                      <span>{tab === "not-applied" ? "Open" : tab === "applied" ? "Applied" : "All"}</span>
-                      <span
-                        className={`tabular-nums text-[10px] ${
-                          active ? "text-white/65" : "text-white/55"
-                        }`}
-                      >
-                        {count.toLocaleString()}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div className="flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] p-0.5">
                 {DATE_WINDOWS.map((w) => (
                   <button
                     key={w.value}
@@ -421,20 +312,6 @@ export default function InternshipsPage() {
                 {filterCount > 0 && !loading && (
                   <span className="text-white/55"> · filtered</span>
                 )}
-                {hiddenCount > 0 && !loading && (
-                  <>
-                    <span className="text-white/45"> · </span>
-                    <button
-                      onClick={() => updateFilters({ showHidden: !filters.showHidden })}
-                      className="inline-flex items-center gap-1 text-white/55 hover:text-white/85 transition-colors normal-nums underline-offset-4 hover:underline"
-                      title={filters.showHidden ? "Hide hidden postings" : "Show hidden postings"}
-                    >
-                      <Eye className="h-3 w-3" />
-                      {hiddenCount} hidden
-                      {filters.showHidden && <span className="text-emerald-300/80"> · shown</span>}
-                    </button>
-                  </>
-                )}
               </span>
             </div>
 
@@ -443,11 +320,7 @@ export default function InternshipsPage() {
 
             {/* Listings */}
             {loading ? (
-              view.mode === "list" ? (
-                <ListSkeleton />
-              ) : (
-                <CardSkeleton />
-              )
+              <ListSkeleton />
             ) : filtered.length === 0 ? (
               <EmptyState
                 hasActiveFilters={filterCount > 0}
@@ -457,32 +330,7 @@ export default function InternshipsPage() {
               />
             ) : (
               <>
-                {view.mode === "list" ? (
-                  <InternshipList
-                    items={paginated}
-                    groups={pagedGroups}
-                    sortBy={view.sort}
-                    pendingIds={pendingIds}
-                    onToggleApplied={toggleApplied}
-                    onHide={handleHide}
-                    isOwner={isOwner}
-                  />
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3">
-                    {paginated.map((item) => (
-                      <InternshipCard
-                        key={item.id}
-                        item={item}
-                        notes={notesMap[item.id] ?? ""}
-                        pending={pendingIds.has(item.id)}
-                        onNotesChange={updateNote}
-                        onToggleApplied={toggleApplied}
-                        onHide={handleHide}
-                        isOwner={isOwner}
-                      />
-                    ))}
-                  </div>
-                )}
+                <InternshipList items={paginated} groups={pagedGroups} sortBy={view.sort} />
 
                 {pageUnitCount > 0 && (
                   <div className="sticky bottom-0 z-10 flex items-center justify-center gap-3 pt-4 pb-3 mt-2 bg-gradient-to-t from-[oklch(0.13_0.005_260)] via-[oklch(0.13_0.005_260_/_0.95)] to-transparent">
@@ -506,7 +354,7 @@ export default function InternshipsPage() {
                       </span>
                       {" of "}
                       <span className="text-white/85">{pageUnitCount.toLocaleString()}</span>
-                      {isGroupedList ? " companies" : ""}
+                      {groups ? " companies" : ""}
                     </span>
                     {totalPages > 1 && (
                       <Button
@@ -539,8 +387,6 @@ export default function InternshipsPage() {
         onChange={notif.update}
         seasonOptions={seasonCounts.map(([token, count]) => ({ token, count }))}
         sources={dynamicSources ?? []}
-        knownKeywords={knownKeywords}
-        availableRoles={availableRoles}
         onSave={notif.save}
         saving={notif.saving}
         saved={notif.saved}

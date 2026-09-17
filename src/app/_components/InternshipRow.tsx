@@ -1,7 +1,7 @@
 "use client";
 
 import { memo } from "react";
-import { ExternalLink, MapPin, Check, Eye, EyeOff } from "lucide-react";
+import { ExternalLink, MapPin } from "lucide-react";
 import type { Internship } from "../_lib/types";
 import {
   SCORE_BADGE,
@@ -23,33 +23,14 @@ export const LIST_GRID_COLS =
 
 interface Props {
   item: Internship;
-  pending?: boolean;
-  // id-based so the parent passes stable handlers (no per-row closures),
-  // keeping memo(InternshipRow) effective even when InternshipList re-renders
-  // (e.g. on a pendingIds change). The row supplies its own item values.
-  onToggleApplied: (id: string, current: boolean) => void;
-  onHide: (id: string, hidden: boolean) => void;
-  isOwner: boolean;
 }
 
-function InternshipRowImpl({
-  item,
-  pending = false,
-  onToggleApplied,
-  onHide,
-  isOwner,
-}: Props) {
+function InternshipRowImpl({ item }: Props) {
   const primarySeason = (item.season ?? [])[0];
   const gradOnly = !!item.degrees && item.degrees.length > 0 && !item.degrees.includes("bs");
 
   return (
-    <div
-      className={`rounded border transition-colors ${
-        item.applied
-          ? "border-transparent bg-transparent opacity-55 hover:opacity-100"
-          : "border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1]"
-      }`}
-    >
+    <div className="rounded border border-white/[0.05] bg-white/[0.015] hover:border-white/[0.1] transition-colors">
       <div
         className={`group grid ${LIST_GRID_COLS} items-center gap-2 md:gap-3 px-2.5 md:px-3 py-2 hover:bg-white/[0.025] transition-colors text-[13px] rounded`}
       >
@@ -164,38 +145,6 @@ function InternshipRowImpl({
           <ExternalLink className="h-3 w-3" />
           <span className="hidden md:inline">Apply</span>
         </a>
-        {isOwner && (
-          <>
-            <button
-              onClick={() => onToggleApplied(item.id, item.applied)}
-              disabled={pending}
-              aria-label={item.applied ? "Mark unapplied" : "Mark applied"}
-              aria-pressed={item.applied}
-              aria-busy={pending}
-              className={`h-8 w-8 md:h-6 md:w-6 inline-flex items-center justify-center rounded transition-colors disabled:opacity-50 disabled:cursor-wait ${
-                item.applied
-                  ? "bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
-                  : "bg-transparent text-white/35 hover:text-white/70 hover:bg-white/[0.05]"
-              }`}
-              title={item.applied ? "Mark unapplied" : "Mark applied"}
-            >
-              {item.applied ? <Check className="h-3.5 w-3.5" /> : <span className="text-[14px] leading-none">○</span>}
-            </button>
-            {/* Hide / Unhide — visible on hover/focus on desktop, always on mobile
-                so touch users can also dismiss postings (list is the default
-                mobile view). Label and icon flip based on current state. */}
-            <button
-              onClick={() => onHide(item.id, item.hidden)}
-              disabled={pending}
-              aria-label={item.hidden ? "Unhide posting" : "Hide posting"}
-              aria-pressed={item.hidden}
-              className="inline-flex h-8 w-8 md:h-6 md:w-6 items-center justify-center rounded text-white/45 hover:text-white/80 hover:bg-white/[0.06] md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-opacity disabled:opacity-50 disabled:cursor-wait"
-              title={item.hidden ? "Unhide this posting" : "Hide this posting"}
-            >
-              {item.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}
-            </button>
-          </>
-        )}
         </div>
       </div>
 

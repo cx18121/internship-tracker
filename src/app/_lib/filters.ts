@@ -1,5 +1,4 @@
-import type { Internship, AppliedFilter, TierFilter, DateWindow, SortBy } from "./types";
-import { isRoleId, type RoleId } from "@/lib/role-taxonomy";
+import type { Internship, TierFilter, DateWindow, SortBy } from "./types";
 import { ROLE_TYPES, DEGREES, type RoleType, type Degree } from "@/lib/classify/posting";
 import { applyFilterSpec } from "@/lib/filter-spec";
 import { seasonSortKey } from "@/lib/seasons";
@@ -13,16 +12,11 @@ export interface Filters {
   minScore: number;
   locationText: string;
   locations: string[];
-  include: string[];
-  exclude: string[];
-  applied: AppliedFilter;
   tier: TierFilter;
   seasons: string[];
-  roles: RoleId[];
   roleTypes: RoleType[];
   degrees: Array<Degree | "unknown">;
   when: DateWindow;
-  showHidden: boolean;
 }
 
 export const DEFAULT_FILTERS: Filters = {
@@ -31,16 +25,11 @@ export const DEFAULT_FILTERS: Filters = {
   minScore: 0,
   locationText: "",
   locations: [],
-  include: [],
-  exclude: [],
-  applied: "all",
   tier: "all",
   seasons: [],
-  roles: [],
   roleTypes: [],
   degrees: [],
   when: "all",
-  showHidden: false,
 };
 
 interface Codec<K extends keyof Filters> {
@@ -60,16 +49,11 @@ const CODECS: { [K in keyof Filters]: Codec<K> } = {
   minScore: { param: "minScore", parse: (s) => (Number.isFinite(+s) && +s > 0 ? +s : undefined), serialize: String, counted: true },
   locationText: { param: "location", parse: (s) => s, serialize: (v) => v, counted: true },
   locations: { param: "locs", parse: list, serialize: (v) => v.join(","), counted: true },
-  include: { param: "include", parse: list, serialize: (v) => v.join(","), counted: true },
-  exclude: { param: "exclude", parse: list, serialize: (v) => v.join(","), counted: true },
-  applied: { param: "applied", parse: oneOf(["all", "applied", "not-applied"] as const), serialize: (v) => v, counted: false },
   tier: { param: "tier", parse: oneOf(["all", "solid-or-better", "top-or-better", "elite"] as const), serialize: (v) => v, counted: true },
   seasons: { param: "seasons", parse: list, serialize: (v) => v.join(","), counted: true },
-  roles: { param: "roles", parse: (s) => list(s).filter(isRoleId), serialize: (v) => v.join(","), counted: true },
   roleTypes: { param: "type", parse: (s) => list(s).filter((x): x is RoleType => (ROLE_TYPES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
   degrees: { param: "degree", parse: (s) => list(s).filter((x): x is Degree | "unknown" => x === "unknown" || (DEGREES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
   when: { param: "when", parse: oneOf(DATE_WINDOWS.map((d) => d.value)), serialize: (v) => v, counted: true },
-  showHidden: { param: "showHidden", parse: (s) => s === "1", serialize: () => "1", counted: false },
 };
 
 const KEYS = Object.keys(CODECS) as Array<keyof Filters>;
@@ -106,51 +90,31 @@ export interface FilterResult {
   filtered: Internship[];
   /** Season token → count over rows passing every filter except season. */
   seasonCounts: Array<[string, number]>;
-  /** Counts over rows passing every filter except the applied tab. */
-  tabCounts: { all: number; applied: number; open: number };
-  hiddenCount: number;
 }
 
-/** One pass over the corpus that produces the list, the season chip counts,
- *  and the applied-tab counts. */
+/** One pass over the corpus that produces the list and the season chip counts. */
 export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy, now = Date.now()): FilterResult {
   const q = f.q.trim().toLowerCase();
   const days = DATE_WINDOWS.find((d) => d.value === f.when)?.days ?? null;
   const spec = {
     tier: f.tier,
-    excludeHidden: !f.showHidden,
     includeSources: f.sources,
     minScore: f.minScore,
     postedAfter: days == null ? undefined : now - days * 24 * 60 * 60 * 1000,
-    includeKeywords: f.include,
-    excludeKeywords: f.exclude,
-    roles: f.roles,
     roleTypes: f.roleTypes,
     degrees: f.degrees,
   };
 
   const filtered: Internship[] = [];
   const seasonCounts = new Map<string, number>();
-  const tabCounts = { all: 0, applied: 0, open: 0 };
-  let hiddenCount = 0;
 
   for (const i of items) {
-    if (i.hidden) hiddenCount++;
     if (q && !`${i.company} ${i.title} ${i.location}`.toLowerCase().includes(q)) continue;
     if (!matchesLocation(i.location, f)) continue;
     if (!applyFilterSpec(i, spec)) continue;
-
-    const seasonOk = f.seasons.length === 0 || i.season.some((t) => f.seasons.includes(t));
-    const appliedOk = f.applied === "all" || (f.applied === "applied") === i.applied;
-
-    if (appliedOk) for (const t of i.season) seasonCounts.set(t, (seasonCounts.get(t) ?? 0) + 1);
-    if (seasonOk) {
-      tabCounts.all++;
-      if (i.applied) tabCounts.applied++;
-    }
-    if (seasonOk && appliedOk) filtered.push(i);
+    for (const t of i.season) seasonCounts.set(t, (seasonCounts.get(t) ?? 0) + 1);
+    if (f.seasons.length === 0 || i.season.some((t) => f.seasons.includes(t))) filtered.push(i);
   }
-  tabCounts.open = tabCounts.all - tabCounts.applied;
 
   filtered.sort(sortBy === "posted"
     ? (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime()
@@ -159,8 +123,6 @@ export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy,
   return {
     filtered,
     seasonCounts: [...seasonCounts.entries()].sort(([a], [b]) => seasonSortKey(a).localeCompare(seasonSortKey(b))),
-    tabCounts,
-    hiddenCount,
   };
 }
 

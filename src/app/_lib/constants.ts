@@ -30,7 +30,6 @@ export const SCORE_BADGE_FALLBACK = "bg-white/5 text-white/40 border border-whit
 
 export const SOURCE_BADGE: Record<string, string> = {
   SimplifyJobs:    "bg-blue-500/20 text-blue-400 border border-blue-500/30",
-  Handshake:       "bg-purple-500/20 text-purple-400 border border-purple-500/30",
   Greenhouse:      "bg-green-500/20 text-green-400 border border-green-500/30",
   Lever:           "bg-teal-500/20 text-teal-400 border border-teal-500/30",
   Ashby:           "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30",
@@ -50,7 +49,6 @@ export const SOURCE_BADGE_FALLBACK = "bg-white/5 text-white/40 border border-whi
 // to indicate provenance without consuming a whole column.
 export const SOURCE_DOT: Record<string, string> = {
   SimplifyJobs:    "bg-blue-400",
-  Handshake:       "bg-purple-400",
   Greenhouse:      "bg-green-400",
   Lever:           "bg-teal-400",
   Ashby:           "bg-cyan-400",

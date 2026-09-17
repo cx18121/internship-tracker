@@ -12,6 +12,9 @@ import {
 import { buildPosting } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
 import { listedCompanyTier } from '../../lib/scorer';
+import { getPromotedCompanyKeys } from '../../lib/store';
+import { canonicalizeCompany } from '../../lib/canonicalize-company';
+import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import {
   pollWorkdayDirect, pollWorkdayViaPlaywright, overlayWorkdayFlags, saveWorkdayFlags,
   WorkdayHttpError, type InternFacets,
@@ -304,16 +307,19 @@ export const ATS_SOURCES = ['Greenhouse', 'Lever', 'Ashby', 'Workday', 'iCIMS', 
 
 // Startups hire through Ashby, Greenhouse, and Lever; the enterprise ATSes
 // are dominated by employers nobody curated. Poll those only for companies
-// named in the scoring tiers.
+// in the scoring tiers or judged elite/top/hot by the classifier.
 const CURATED_ONLY_ATS = new Set<ATSTarget['ats']>(['workday', 'icims', 'smartrecruiters']);
 
-export function shouldPoll(target: ATSTarget): boolean {
-  return !CURATED_ONLY_ATS.has(target.ats) || listedCompanyTier(target.name || target.slug) !== null;
+export function shouldPoll(target: ATSTarget, promoted: Set<string> = new Set()): boolean {
+  if (!CURATED_ONLY_ATS.has(target.ats)) return true;
+  const name = target.name || target.slug;
+  return listedCompanyTier(name) !== null || promoted.has(canonicalizeCompany(stripEmojiPrefix(name)).toLowerCase());
 }
 
 export async function pollATS(): Promise<RawPosting[]> {
   const all = overlayWorkdayFlags(loadATSTargets());
-  const targets = all.filter(shouldPoll);
+  const promoted = await getPromotedCompanyKeys().catch(() => new Set<string>());
+  const targets = all.filter(t => shouldPoll(t, promoted));
   if (targets.length === 0) {
     console.warn('[ats] No targets in data/ats-targets.json');
     return [];
