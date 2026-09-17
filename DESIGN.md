@@ -40,7 +40,7 @@ Never use values below `0.42` lightness for anything semantic. `text-white/30` a
 
 ### Status / score palette
 
-Used for score labels, source health states, applied state. Each color sits at lightness ~0.72 (mid-light against dark surfaces) with chroma 0.13–0.16. Background variants use the same hue at lightness ~0.20 with low chroma for the tint.
+Used for score labels, tier tags, source health states. Each color sits at lightness ~0.72 (mid-light against dark surfaces) with chroma 0.13–0.16. Background variants use the same hue at lightness ~0.20 with low chroma for the tint.
 
 | Role | Hue | Fg example | Bg example |
 |---|---|---|---|
@@ -123,11 +123,7 @@ Padding `4px 10px`, `--radius-md`, `caption` typography. Hit target stays comfor
 
 ### Posting row (dense list view)
 
-Grid layout, single line per posting, fixed column template across the viewport so columns align visually. Score badge first, company + title taking the middle, location + season + posted-date trailing, actions on the right. Hover lifts the row one surface step. Applied rows drop to `opacity: 0.5`.
-
-### Posting card (when needed)
-
-Used for the user's flagged / starred postings or in a single-column "scratchpad" mode. Two-column grid otherwise (`grid-cols-2`) on `xl:` and up, single column below `lg:`. Internal anatomy: top row (company/title + score badge), meta row (location/source/salary chips), keyword chips, action row. Border `--border-subtle`, no shadow.
+Grid layout, single line per posting, fixed column template across the viewport so columns align visually. Score badge first, company + title taking the middle, location + season + posted-date trailing, actions on the right. Hover lifts the row one surface step. A `hot` tag follows the company name for classifier-judged high-growth startups; graduate-only roles carry an MS/PhD tag next to the season.
 
 ### Status pill (header)
 
@@ -149,13 +145,13 @@ Two-column desktop, single-column mobile.
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│ HEADER (one row, ~48px tall): title · status pill · view · ↻ 🔔│
+│ HEADER (one row, ~48px tall): title · status pill · group · ↻ 🔔│
 ├────────┬───────────────────────────────────────────────────────┤
-│        │ CONTROLS BAR: Applied tabs · Time window · Sort · count │
+│        │ CONTROLS BAR: Search · Time window · Sort · count      │
 │        ├───────────────────────────────────────────────────────┤
 │ RAIL   │                                                       │
 │ 240px  │ POSTINGS                                              │
-│        │ (list rows by default; cards when toggled)            │
+│        │ (list rows; grouped by company when toggled)          │
 │        │                                                       │
 └────────┴───────────────────────────────────────────────────────┘
 ```
@@ -164,7 +160,7 @@ Page max width: bump from `max-w-6xl` (1152px) to no fixed max on the main conte
 
 ### Mobile (`< md`)
 
-Rail collapses into a "Filters" sheet triggered from the header. Controls bar wraps. Posting cards stack single-column. Status pill stays in the header but the popover opens full-width.
+Rail collapses into a "Filters" sheet triggered from the header. Controls bar wraps. Status pill stays in the header but the popover opens full-width.
 
 ## Motion
 

@@ -38,7 +38,6 @@ data/notif-settings.json
 data/poll-stats.json
 data/portal-snapshots.json
 data/seen.json
-data/linkedin-check-history.json
 data/simplify-resolved.json
 data/source-alerts.json
 data/source-fetch-history.json

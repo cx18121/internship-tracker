@@ -302,9 +302,6 @@ const ADAPTERS: Record<Exclude<ATSTarget['ats'], 'workday'>, Adapter> = {
   workable: pollWorkable,
 };
 
-/** Source labels the ATS pollers write. */
-export const ATS_SOURCES = ['Greenhouse', 'Lever', 'Ashby', 'Workday', 'iCIMS', 'SmartRecruiters', 'Rippling', 'Workable'] as const;
-
 // Startups hire through Ashby, Greenhouse, and Lever; the enterprise ATSes
 // are dominated by employers nobody curated. Poll those only for companies
 // in the scoring tiers or judged elite/top/hot by the classifier.

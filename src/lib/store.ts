@@ -27,7 +27,6 @@ interface Row {
   matched_keywords: string[];
   archived: boolean;
   failed_check_count: number;
-  first_failed_at: Date | null;
   last_checked_at: Date | null;
   multi_location: string[] | null;
   salary_text: string | null;
@@ -59,7 +58,6 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['matched_keywords', i => JSON.stringify(i.matchedKeywords)],
   ['archived', i => i.archived],
   ['failed_check_count', i => i.failedCheckCount],
-  ['first_failed_at', i => i.firstFailedAt ?? null],
   ['last_checked_at', i => i.lastCheckedAt ?? null],
   ['multi_location', i => i.multiLocation ? JSON.stringify(i.multiLocation) : null],
   ['salary_text', i => i.salaryText ?? null],
@@ -101,7 +99,6 @@ function fromRow(r: Row): Internship {
     matchedKeywords: r.matched_keywords ?? [],
     archived: r.archived,
     failedCheckCount: r.failed_check_count,
-    firstFailedAt: iso(r.first_failed_at),
     lastCheckedAt: iso(r.last_checked_at),
     multiLocation: r.multi_location ?? undefined,
     salaryText: r.salary_text ?? undefined,
@@ -443,87 +440,11 @@ export async function getUnclassified(limit: number): Promise<Internship[]> {
 }
 
 // ---------------------------------------------------------------------------
-// Link revalidation
+// Link health
 // ---------------------------------------------------------------------------
 
-const AGGREGATOR_DOMAINS = new Set([
-  'trabajo.org', 'recruit.net', 'jooble.org', 'jooble.com',
-  'indeed.co.uk', 'indeed.com.my', 'glassdoor.com.au',
-  'simplyhired.com', 'ziprecruiter.com', 'careerbliss.com',
-  'casalesadvantage.com', 'tarta.ai', 'talent.com', 'jobylon.com',
-  'jobrapido.com', 'jobsite.co.uk', 'cvlibrary.co.uk', 'totaljobs.com',
-  'monster.com', 'dice.com', 'careerbuilder.com', 'hotjobs.com',
-  'beyond.com', 'employmentguide.com', 'jobs2careers.com', 'neuvoo.com',
-  'careerjet.com', 'instahyre.com', 'workopolis.com', 'elut.ca',
-  'trovit.com', 'kariera.gr', 'jobbol.com',
-  'jobleads.com', 'learn4good.com',
-  'talent.apple.com', 'jobs.disneycareers.com',
-]);
-
-function isAggregatorLink(url: string): boolean {
-  try {
-    const host = new URL(url).hostname.toLowerCase().replace(/^www\./, '');
-    for (const agg of AGGREGATOR_DOMAINS) if (host === agg || host.endsWith('.' + agg)) return true;
-    return false;
-  } catch {
-    return true;
-  }
-}
-
-/** HTTP status of a HEAD request (GET on HEAD error); -1 on network error or timeout. */
-export async function checkLinkStatus(url: string, timeoutMs = 3000): Promise<number> {
-  const attempt = async (method: 'HEAD' | 'GET'): Promise<number> => {
-    const res = await fetch(url, { method, redirect: 'follow', signal: AbortSignal.timeout(timeoutMs) });
-    return res.status;
-  };
-  try {
-    return await attempt('HEAD');
-  } catch {
-    return attempt('GET').catch(() => -1);
-  }
-}
-
-// Statuses that mean the posting is gone. 403/429/5xx are transient.
-const GONE = new Set([401, 404, 410, 451]);
-
-export async function revalidateLinks(): Promise<{ checked: number; archived: number; errors: number }> {
-  const now = new Date().toISOString();
-  const active = await getInternships();
-  console.log(`[revalidate] ${active.length} active rows to check`);
-
-  const updates: Internship[] = [];
-  let archived = 0;
-  let errors = 0;
-
-  const BATCH = 20;
-  for (let i = 0; i < active.length; i += BATCH) {
-    await Promise.all(active.slice(i, i + BATCH).map(async (entry) => {
-      const status = isAggregatorLink(entry.link) ? 404 : await checkLinkStatus(entry.link);
-      entry.lastCheckedAt = now;
-      if (GONE.has(status)) {
-        entry.archived = true;
-        entry.failedCheckCount += 1;
-        entry.firstFailedAt ??= now;
-        archived++;
-      } else if (status === -1) {
-        errors++;
-      } else if (status < 400 && entry.failedCheckCount > 0) {
-        entry.failedCheckCount = 0;
-        entry.firstFailedAt = undefined;
-      }
-      updates.push(entry);
-    }));
-  }
-
-  await withTxn(async (client) => {
-    for (const r of updates) {
-      await client.query(
-        'UPDATE internships SET archived = $1, failed_check_count = $2, first_failed_at = $3, last_checked_at = $4 WHERE id = $5',
-        [r.archived, r.failedCheckCount, r.firstFailedAt ?? null, r.lastCheckedAt, r.id],
-      );
-    }
-  });
-
-  console.log(`[revalidate] checked=${active.length} archived=${archived} errors=${errors}`);
-  return { checked: active.length, archived, errors };
+/** Record a completed link check; rows in `gone` also get failed_check_count set so rediscovery does not un-archive them. */
+export async function markLinkChecked(ids: string[], gone: string[]): Promise<void> {
+  if (ids.length === 0) return;
+  await getPool().query('UPDATE internships SET last_checked_at = now(), failed_check_count = CASE WHEN id = ANY($2::text[]) THEN 1 ELSE 0 END WHERE id = ANY($1::text[])', [ids, gone]);
 }

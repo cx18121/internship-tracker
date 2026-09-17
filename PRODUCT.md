@@ -12,7 +12,7 @@ Context: he built this for himself because LinkedIn/Indeed/Handshake each leak t
 
 ## Product Purpose
 
-A personal internship tracker that aggregates SWE/ML internship postings across many sources (SimplifyJobs, JobSpy → Linkedin/Indeed, Greenhouse/Lever/Ashby/Workday ATS APIs, Handshake, YC WaaS), scores each posting against Charlie's preferences (role keywords, tech stack, company tiers, salary), and lets him triage them fast.
+A personal internship tracker that aggregates SWE/ML internship postings (SimplifyJobs, LinkedIn via JobSpy, Greenhouse/Lever/Ashby ATS boards, curated Workday tenants, YC WaaS), classifies each posting with a model (role type, degree eligibility, US eligibility) and each company once (elite/top/hot/solid), scores role-first with company as a lift, and shows a read-only list he can filter fast. It does not track applications.
 
 Success is measured by:
 - Time-to-first-relevant-posting (how long does opening the page take to "I see something worth applying to")
@@ -50,6 +50,6 @@ Emotionally: feels like a tool a senior engineer built for themselves, not a Saa
 
 Single-user tool, so generalized WCAG isn't the bar. Practical bar:
 - All text legible on the dark background — body text at least `text-white/70` over the standard `#0a0a0a`-ish background, never `text-white/30` for anything semantic.
-- Color is never the only signal. Score labels, applied state, source — all carry text or icon, not just hue.
-- Keyboard reachability for the core triage loop: open → filter → mark applied → open next. This isn't a strict a11y requirement for one user, but it's the operator-grade thing to do.
+- Color is never the only signal. Score labels, tier tags, source — all carry text or icon, not just hue.
+- Keyboard reachability for the core loop: `/` to search, filter, open. This isn't a strict a11y requirement for one user, but it's the operator-grade thing to do.
 - Respects `prefers-reduced-motion` for any decorative motion that gets added.

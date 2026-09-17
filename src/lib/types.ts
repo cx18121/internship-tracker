@@ -43,12 +43,8 @@ export interface Internship {
   scoreLabel: ScoreLabel | null;
   matchedKeywords: string[];
   archived: boolean;
-  /**
-   * Link revalidation. 404/410/451/401 on check → archive. Transient
-   * failures (403, 429, 5xx) don't increment. A passing check resets to 0.
-   */
+  /** 1 once a direct link check found the posting gone; rediscovery then leaves it archived. */
   failedCheckCount: number;
-  firstFailedAt?: string;
   lastCheckedAt?: string;
   multiLocation?: string[];
   salaryText?: string;

@@ -6,15 +6,14 @@ import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
 import { deriveSeasonWithDefault } from '../../lib/seasons';
-import { smartTrimDescription } from './description-trim';
 
 /**
  * Promote a poller's RawPosting into the stored Internship. This is the only
  * place a stored row is built, so id, normalizedKey, company, season, and
  * salary are all derived from the same values.
  *
- * The scorer runs against the full description; smartTrim runs after so
- * storage keeps only the UI-friendly subset.
+ * Descriptions are stored as fetched (capped in buildPosting); they feed the
+ * classifier and the salary parser and are not shown in the UI.
  */
 export function enrichForStorage(p: RawPosting, now: string): Internship {
   const company = canonicalizeCompany(stripEmojiPrefix(p.company));
@@ -24,7 +23,7 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
   // A source that states compensation is authoritative; otherwise parse
   // the title and full description.
   const salary = p.salary ?? parseSalary(`${p.title} ${p.description ?? ''}`);
-  const description = smartTrimDescription(p.description);
+  const description = p.description;
 
   return {
     id: createHash('md5').update(`${company}${p.title}${link}`).digest('hex'),

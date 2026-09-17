@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS internships (
   matched_keywords     JSONB       NOT NULL DEFAULT '[]'::jsonb,
   archived             BOOLEAN     NOT NULL DEFAULT false,
   failed_check_count   INTEGER     NOT NULL DEFAULT 0,
-  first_failed_at      TIMESTAMPTZ,
   last_checked_at      TIMESTAMPTZ,
   multi_location       JSONB,
   salary_text          TEXT,

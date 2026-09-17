@@ -42,7 +42,7 @@ export interface PostingInput {
   description?: string;
 }
 
-const MAX_DESCRIPTION_CHARS = 2500;
+const MAX_DESCRIPTION_CHARS = 5000;
 
 export async function classifyPosting(input: PostingInput): Promise<PostingClassification> {
   const user = [

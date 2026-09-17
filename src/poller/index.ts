@@ -1,9 +1,7 @@
 import 'dotenv/config';
 import { runCycle } from './agent';
-import { revalidateLinks } from '../lib/store';
 import { closePool } from '../lib/db';
 import { runMigrations } from '../lib/migrate';
-import { revalidateLinkedIn } from './linkedin-revalidate';
 import { reevaluate } from './reevaluate';
 import { withTimeout, TimeoutError } from './utils/with-timeout';
 
@@ -116,19 +114,6 @@ async function safeRevalidate(): Promise<void> {
     await withWatchdog('re-evaluation', WATCHDOG_MS_REVALIDATE, reevaluate());
   } catch (err) {
     console.error('[internship-tracker] Re-evaluation threw:', err);
-  }
-  try {
-    await withWatchdog('link revalidation', WATCHDOG_MS_REVALIDATE, revalidateLinks());
-  } catch (err) {
-    console.error('[internship-tracker] Link revalidation threw:', err);
-  }
-  // LinkedIn returns HTTP 200 for closed jobs, so it slips past the HEAD-check
-  // pass above. Run the content-based sweep on the same daily cadence to keep
-  // the LinkedIn corpus from accumulating stale entries.
-  try {
-    await withWatchdog('linkedin revalidation', WATCHDOG_MS_REVALIDATE, revalidateLinkedIn());
-  } catch (err) {
-    console.error('[internship-tracker] LinkedIn revalidation threw:', err);
   }
 }
 

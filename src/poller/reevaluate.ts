@@ -6,7 +6,8 @@ import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason, companyKey } from './classify';
 import { fetchDescriptionByUrl } from './utils/description-fetchers';
 import { pool } from '../lib/concurrency';
-import { ATS_SOURCES } from './pollers/ats';
+import { POLLED_SOURCES } from './sources';
+import { checkFeedLinks } from './link-health';
 
 // A board we poll every cycle stops listing a job the moment it closes, so a
 // row from one of those sources that no poll has touched in a week is gone.
@@ -14,12 +15,12 @@ import { ATS_SOURCES } from './pollers/ats';
 // recent items, so absence there is a weaker signal; give it a month.
 const POLLED_STALE_MS = 7 * 24 * 60 * 60 * 1000;
 const FEED_STALE_MS = 30 * 24 * 60 * 60 * 1000;
-const POLLED_SOURCES = new Set<string>([...ATS_SOURCES, 'YC WaaS']);
 
 const DEFAULT_CAPS = { descriptions: 300, classify: 400 };
 
 export interface ReevaluateResult {
   archived: Record<string, number>;
+  linksArchived: number;
   descriptionsFetched: number;
   classified: number;
   rescored: number;
@@ -39,13 +40,14 @@ export function staleReason(i: Internship, now = Date.now()): string | null {
 }
 
 /**
- * Daily pass over the active corpus: archive rows that are gone or out of
- * scope, fill missing descriptions from the final ATS URL, classify rows the
+ * Daily pass over the active corpus: check feed links, archive rows that are
+ * gone or out of scope, fill missing descriptions from the final ATS URL, classify rows the
  * poller has not judged yet, and rescore everything against the current
  * config and company tiers.
  */
 export async function reevaluate(caps: { descriptions: number; classify: number } = DEFAULT_CAPS): Promise<ReevaluateResult> {
-  const result: ReevaluateResult = { archived: {}, descriptionsFetched: 0, classified: 0, rescored: 0 };
+  const result: ReevaluateResult = { archived: {}, linksArchived: 0, descriptionsFetched: 0, classified: 0, rescored: 0 };
+  result.linksArchived = (await checkFeedLinks()).archived;
   const active = await getInternships();
 
   const toArchive: string[] = [];

@@ -1,7 +1,8 @@
 import type { RawPosting } from '../lib/types';
 import { pollGitHub } from './pollers/github';
 import { pollJobSpy } from './pollers/jobspy';
-import { pollATS, ATS_SOURCES } from './pollers/ats';
+import { pollATS } from './pollers/ats';
+import { ATS_SOURCES } from './sources';
 import { pollYCWaaS } from './pollers/yc-waas';
 import { filterPostings } from './filter';
 import { deduplicateAndStore, savePollStats } from '../lib/store';

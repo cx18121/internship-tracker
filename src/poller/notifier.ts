@@ -1,5 +1,5 @@
 import type { Internship } from '../lib/types';
-import { checkLinkStatus } from '../lib/store';
+import { checkLinkStatus } from './link-health';
 import type { NotifSettings } from '../lib/notifSettings';
 import { applyFilterSpec } from '../lib/filter-spec';
 import { getState, setState, loadNotifSettings } from '../lib/app-state';

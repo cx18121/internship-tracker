@@ -1,8 +1,8 @@
 import type { RawPosting } from '../../lib/types';
 import { stripHtml } from './html';
 
-// Memory floor before scoring; smartTrimDescription applies the storage cap.
-const MAX_RAW_DESCRIPTION = 20_000;
+// Enough for the classifier and salary parser; descriptions are not shown in the UI.
+const MAX_RAW_DESCRIPTION = 6_000;
 
 export interface PostingSeed {
   title: string;

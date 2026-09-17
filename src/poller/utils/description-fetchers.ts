@@ -12,15 +12,10 @@
 
 import axios from 'axios';
 import { stripHtml } from './html';
-import { extractLinkedInJobId } from '../linkedin-revalidate';
+import { extractLinkedInJobId } from '../link-health';
 
 const TIMEOUT_MS = 8000;
-// Memory floor on fetched description size. The real storage cap (2000 chars,
-// sentence-aware) is applied by smartTrimDescription in agent.ts AFTER scoring,
-// so the scorer can see tech keywords from anywhere in the body. This bound
-// just prevents a verbose 50KB Workday description from blowing up per-cycle
-// memory; under it, everything passes through.
-const MAX_DESC_LEN = 20_000;
+const MAX_DESC_LEN = 6_000;
 
 // ── Pure extractors ────────────────────────────────────────────────────────
 
