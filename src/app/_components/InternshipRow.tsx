@@ -10,7 +10,7 @@ import {
   SOURCE_DOT_FALLBACK,
 } from "../_lib/constants";
 import { formatDate, isStale, timeAgo } from "../_lib/format";
-import { formatSeasonLabel } from "@/lib/seasons";
+import { formatSeasonLabel, seasonSortKey } from "@/lib/seasons";
 
 // Shared grid template — used by the row AND the header in InternshipList
 // so columns align across every row.
@@ -26,7 +26,8 @@ interface Props {
 }
 
 function InternshipRowImpl({ item }: Props) {
-  const primarySeason = (item.season ?? [])[0];
+  // Latest listed season, so "Summer or Winter" rows show the one still open.
+  const primarySeason = [...(item.season ?? [])].sort((a, b) => seasonSortKey(b).localeCompare(seasonSortKey(a)))[0];
   const gradOnly = !!item.degrees && item.degrees.length > 0 && !item.degrees.includes("bs");
 
   return (
@@ -69,7 +70,14 @@ function InternshipRowImpl({ item }: Props) {
       </div>
 
       {/* Title — desktop column only */}
-      <span className="hidden md:block text-white/60 truncate min-w-0">{item.title}</span>
+      <span className="hidden md:flex items-center gap-1.5 text-white/60 min-w-0">
+        <span className="truncate">{item.title}</span>
+        {gradOnly && (
+          <span className="shrink-0 text-[9.5px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25" title={`Eligible: ${item.degrees!.join(", ").toUpperCase()}`}>
+            {item.degrees!.map((d) => d.toUpperCase()).join("/")}
+          </span>
+        )}
+      </span>
 
       {/* Salary — desktop only, small inline chip */}
       <span className="hidden md:flex overflow-hidden min-w-0">
@@ -94,16 +102,9 @@ function InternshipRowImpl({ item }: Props) {
         )}
       </span>
 
-      {/* Season — desktop only. Graduate-only roles carry a degree tag. */}
-      <span className="hidden md:flex items-center gap-1 min-w-0">
-        <span className="text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/55 truncate">
-          {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
-        </span>
-        {gradOnly && (
-          <span className="shrink-0 text-[9.5px] px-1 py-0.5 rounded bg-violet-500/15 text-violet-300 border border-violet-500/25" title={`Eligible: ${item.degrees!.join(", ").toUpperCase()}`}>
-            {item.degrees!.map((d) => d.toUpperCase()).join("/")}
-          </span>
-        )}
+      {/* Season — desktop only */}
+      <span className="hidden md:inline justify-self-start text-[10.5px] px-1.5 py-0.5 rounded bg-white/[0.05] text-white/55 truncate max-w-full" title={item.season?.map(formatSeasonLabel).join(" · ")}>
+        {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
       </span>
 
       {/* Posted — visible on both viewports. >30d-old posts use a muted amber

@@ -682,7 +682,7 @@
     {
       "slug": "salesforce",
       "ats": "workday",
-      "name": "🔥 Salesforce",
+      "name": "\ud83d\udd25 Salesforce",
       "board": "External_Career_Site",
       "wdInstance": "wd12"
     },
@@ -1430,7 +1430,7 @@
     {
       "slug": "snowflake",
       "ats": "ashby",
-      "name": "🔥 Snowflake"
+      "name": "\ud83d\udd25 Snowflake"
     },
     {
       "slug": "lplfinancial",
@@ -2294,7 +2294,7 @@
     {
       "slug": "adobe",
       "ats": "workday",
-      "name": "🔥 Adobe",
+      "name": "\ud83d\udd25 Adobe",
       "board": "external_experienced",
       "wdInstance": "wd5"
     },
@@ -3037,7 +3037,7 @@
     {
       "slug": "slihrms",
       "ats": "workday",
-      "name": "AtkinsRéalis",
+      "name": "AtkinsR\u00e9alis",
       "board": "careers",
       "wdInstance": "wd3"
     },
@@ -3080,12 +3080,12 @@
     {
       "slug": "fccincinnati",
       "ats": "greenhouse",
-      "name": "Fussball Club Cincinnati LLC (“FC Cincinnati”)"
+      "name": "Fussball Club Cincinnati LLC (\u201cFC Cincinnati\u201d)"
     },
     {
       "slug": "nvidia",
       "ats": "workday",
-      "name": "🔥 NVIDIA",
+      "name": "\ud83d\udd25 NVIDIA",
       "board": "NVIDIAExternalCareerSite",
       "wdInstance": "wd5"
     },
@@ -3377,7 +3377,7 @@
     {
       "slug": "gelbergroup",
       "ats": "greenhouse",
-      "name": "↳"
+      "name": "\u21b3"
     },
     {
       "slug": "gardacp",
@@ -3964,7 +3964,7 @@
     {
       "slug": "SGS",
       "ats": "smartrecruiters",
-      "name": "Société Générale de Surveillance (SGS)"
+      "name": "Soci\u00e9t\u00e9 G\u00e9n\u00e9rale de Surveillance (SGS)"
     },
     {
       "slug": "Collabera2",
@@ -4058,7 +4058,7 @@
     {
       "slug": "Visa",
       "ats": "smartrecruiters",
-      "name": "🔥 Visa"
+      "name": "\ud83d\udd25 Visa"
     },
     {
       "slug": "snapchat",
@@ -4066,7 +4066,7 @@
       "board": "snap",
       "wdInstance": "wd1",
       "wdDomain": "myworkdaysite.com",
-      "name": "🔥 Snap"
+      "name": "\ud83d\udd25 Snap"
     },
     {
       "slug": "Assent",
@@ -4905,7 +4905,7 @@
     {
       "slug": "university-uber",
       "ats": "icims",
-      "name": "🔥 Uber"
+      "name": "\ud83d\udd25 Uber"
     },
     {
       "slug": "mcafee",
@@ -10514,7 +10514,7 @@
     {
       "slug": "dots",
       "ats": "greenhouse",
-      "name": "Dots 💸",
+      "name": "Dots \ud83d\udcb8",
       "source": "sparrow"
     },
     {
@@ -11270,7 +11270,7 @@
     {
       "slug": "flix",
       "ats": "greenhouse",
-      "name": "Félix",
+      "name": "F\u00e9lix",
       "source": "sparrow"
     },
     {
@@ -13364,7 +13364,7 @@
     {
       "slug": "its",
       "ats": "greenhouse",
-      "name": "It’s Good",
+      "name": "It\u2019s Good",
       "source": "sparrow"
     },
     {
@@ -17156,7 +17156,7 @@
     {
       "slug": "protege",
       "ats": "ashby",
-      "name": "Protégé",
+      "name": "Prot\u00e9g\u00e9",
       "source": "sparrow"
     },
     {
@@ -17954,7 +17954,7 @@
     {
       "slug": "rothys",
       "ats": "ashby",
-      "name": "Rothy’s",
+      "name": "Rothy\u2019s",
       "source": "sparrow"
     },
     {
@@ -19862,7 +19862,7 @@
     {
       "slug": "thefarmersdog",
       "ats": "greenhouse",
-      "name": "The Farmer’s Dog",
+      "name": "The Farmer\u2019s Dog",
       "source": "sparrow"
     },
     {
@@ -20072,7 +20072,7 @@
     {
       "slug": "torchystacos",
       "ats": "smartrecruiters",
-      "name": "Torchy’s Tacos",
+      "name": "Torchy\u2019s Tacos",
       "source": "sparrow"
     },
     {
@@ -22672,7 +22672,7 @@
     {
       "slug": "doordashusa",
       "ats": "greenhouse",
-      "name": "Doordashusa"
+      "name": "DoorDash"
     },
     {
       "slug": "charnetwork",

@@ -33,7 +33,7 @@ describe('Scorer', () => {
   });
 
   test('a listed company name is recorded in matchedKeywords', () => {
-    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Snowflake Inc', location: '' });
+    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Snowflake', location: '' });
     assert.ok(r.matchedKeywords.some(k => k.toLowerCase() === 'snowflake'));
   });
 
@@ -59,14 +59,12 @@ describe('Scorer', () => {
     assert.deepEqual([100, 75, 74, 60, 59, 45, 44, 25, 24, 0].map(labelFor), ['A', 'A', 'B', 'B', 'C', 'C', 'D', 'D', 'F', 'F']);
   });
 
-  test('single-token tier entry anchors to the start of the company name', () => {
-    assert.equal(listedCompanyTier('Box')?.name.toLowerCase(), 'box');
-    assert.equal(listedCompanyTier('Box Inc')?.name.toLowerCase(), 'box');
-    assert.equal(listedCompanyTier('Black Box Corp'), null);
-  });
-
-  test('multi-token tier entry matches anywhere in the company name', () => {
-    assert.ok(listedCompanyTier('Two Sigma Investments LLC'));
+  test('curated names match the whole canonical company name only', () => {
+    assert.equal(listedCompanyTier('Snap')?.name.toLowerCase(), 'snap');
+    assert.equal(listedCompanyTier('Snap Finance'), null);
+    assert.equal(listedCompanyTier('Sierra Nevada'), null);
+    assert.equal(listedCompanyTier('Black Box'), null);
+    assert.equal(listedCompanyTier('Two Sigma')?.tier, 'elite');
   });
 
   test('injected config drives scoring without touching disk', () => {

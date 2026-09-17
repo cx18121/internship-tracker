@@ -63,7 +63,14 @@
         "two sigma",
         "virtu financial",
         "waymo",
-        "xai"
+        "xai",
+        "Anduril Industries",
+        "AQR Capital Management",
+        "Citadel Securities",
+        "Five Rings Capital",
+        "Susquehanna International Group",
+        "TikTok USDS Joint Venture",
+        "Tower Research Capital"
       ]
     },
     "top": {
@@ -198,7 +205,12 @@
         "workday",
         "zendesk",
         "zoom",
-        "zscaler"
+        "zscaler",
+        "Micron Technology",
+        "Mistral AI",
+        "Motorola Solutions",
+        "Rivian and Volkswagen Group Technologies",
+        "Samsung Research America"
       ]
     },
     "solid": {
@@ -309,7 +321,16 @@
         "world labs",
         "yelp",
         "ziprecruiter",
-        "zoox"
+        "zoox",
+        "Tencent",
+        "Baidu USA",
+        "DiDi Global",
+        "XPENG Motors"
+      ]
+    },
+    "other": {
+      "companies": [
+        "Jobright.ai"
       ]
     }
   },

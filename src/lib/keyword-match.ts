@@ -30,18 +30,3 @@ export function containsPhrase(haystack: string[], needle: string[]): boolean {
   }
   return false;
 }
-
-/**
- * Company-name match: single-token entries anchor to the start of the
- * company name; multi-token entries match anywhere as a phrase. Stops
- * "Black Box Corp" matching `box`, "Pineapple Express" matching `apple`,
- * "Mercury Insurance" matching `mercury` — while still letting "Apple Inc"
- * match `apple` and "Two Sigma Investments" match `two sigma`.
- */
-export function matchesCompanyName(companyTokens: string[], needleTokens: string[]): boolean {
-  if (needleTokens.length === 0 || companyTokens.length === 0) return false;
-  if (needleTokens.length === 1) {
-    return companyTokens[0] === needleTokens[0];
-  }
-  return containsPhrase(companyTokens, needleTokens);
-}

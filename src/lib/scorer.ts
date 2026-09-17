@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Internship, ScoreLabel } from "./types";
 import type { RoleType } from "./classify/posting";
 import type { CompanyTier } from "./classify/company";
-import { tokenize, containsPhrase, matchesCompanyName } from "./keyword-match";
+import { tokenize, containsPhrase } from "./keyword-match";
 
 /**
  * score = roleBase[roleType] + companyLift[companyTier] + location bonus,
@@ -19,7 +19,7 @@ export interface ScoringConfig {
   scoringCeiling: number;
   roleBase: Record<RoleType, number>;
   companyLift: Record<CompanyTier, number>;
-  /** Curated overrides: elite, top, solid company names. */
+  /** Curated overrides by tier, including `other` to demote a company the model overrates. */
   companyTiers: Partial<Record<CompanyTier, { companies: string[] }>>;
   /** Title keywords per legacy tier; also feed matchedKeywords for the UI chips. */
   roleTiers: Record<string, Keywords & { points?: number }>;
@@ -46,13 +46,18 @@ export interface ScoreResult {
   matchedKeywords: string[];
 }
 
-/** The curated tier for a company name, or null when it is not listed. */
+/**
+ * The curated tier for a company name, or null when it is not listed. Names
+ * arrive canonicalized (legal suffixes stripped), so a match is the whole
+ * token sequence: "Snap" matches "Snap" but not "Snap Finance", "Sierra"
+ * not "Sierra Nevada". Partial matches are left to the classifier.
+ */
 export function listedCompanyTier(company: string, cfg: ScoringConfig = loadConfig()): { tier: CompanyTier; name: string } | null {
-  const tokens = tokenize(company);
-  if (tokens.length === 0) return null;
-  for (const tier of ["elite", "top", "solid"] as const) {
+  const key = tokenize(company).join(" ");
+  if (!key) return null;
+  for (const tier of ["elite", "top", "hot", "solid", "other"] as const) {
     for (const name of cfg.companyTiers[tier]?.companies ?? []) {
-      if (matchesCompanyName(tokens, tokenize(name))) return { tier, name };
+      if (tokenize(name).join(" ") === key) return { tier, name };
     }
   }
   return null;
