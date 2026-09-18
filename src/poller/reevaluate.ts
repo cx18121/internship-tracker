@@ -52,12 +52,33 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   const active = await getInternships();
 
   const toArchive = new Map<string, string[]>();
+  const stale = new Set<string>();
   for (const i of active) {
     const reason = staleReason(i);
     if (!reason) continue;
+    stale.add(i.id);
     toArchive.set(reason, [...(toArchive.get(reason) ?? []), i.id]);
     result.archived[reason] = (result.archived[reason] ?? 0) + 1;
   }
+  // One row per (company, normalized title): keep the best-scored copy,
+  // fold the others' locations into it, archive them.
+  const byKey = new Map<string, Internship[]>();
+  for (const i of active) if (i.normalizedKey && !stale.has(i.id)) byKey.set(i.normalizedKey, [...(byKey.get(i.normalizedKey) ?? []), i]);
+  const dupes: string[] = [];
+  for (const group of byKey.values()) {
+    if (group.length < 2) continue;
+    group.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || (b.description?.length ?? 0) - (a.description?.length ?? 0));
+    const keep = group[0];
+    const merged = [...new Set(group.flatMap(g => g.locations))].filter(l => !/^\d+ locations?$/i.test(l));
+    if (merged.length > keep.locations.length) {
+      keep.locations = merged;
+      keep.metros = metrosFor(merged);
+      await updateLocations(keep.id, merged, keep.metros);
+    }
+    dupes.push(...group.slice(1).map(g => g.id));
+  }
+  if (dupes.length > 0) { toArchive.set('duplicate', dupes); result.archived.duplicate = dupes.length; }
+
   for (const [reason, ids] of toArchive) await archiveInternshipsByIds(ids, reason);
   const archivedIds = new Set([...toArchive.values()].flat());
   const remaining = active.filter(i => !archivedIds.has(i.id));

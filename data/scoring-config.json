@@ -1,20 +1,21 @@
 {
   "scoringCeiling": 100,
-  "roleBase": {
-    "swe": 60,
-    "ml_ai": 60,
-    "quant": 60,
-    "data": 45,
-    "hardware_ee": 25,
-    "research_science": 25,
-    "product_pm": 20,
-    "other": 0
+  "companyBase": {
+    "elite": 100,
+    "hot": 85,
+    "top": 70,
+    "solid": 45,
+    "other": 30
   },
-  "companyLift": {
-    "elite": 40,
-    "hot": 30,
-    "top": 25,
-    "solid": 10,
+  "roleMultiplier": {
+    "swe": 1.0,
+    "ml_ai": 1.0,
+    "quant": 1.0,
+    "data": 0.75,
+    "it_security": 0.6,
+    "hardware_ee": 0.5,
+    "research_science": 0.5,
+    "product_pm": 0.4,
     "other": 0
   },
   "companyTiers": {

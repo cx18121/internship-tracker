@@ -6,6 +6,7 @@ export const ROLE_TYPE_LABELS: Partial<Record<RoleType, string>> = {
   ml_ai: "ML / AI",
   data: "Data",
   quant: "Quant",
+  it_security: "IT / Security",
   hardware_ee: "Hardware",
   research_science: "Science",
 };

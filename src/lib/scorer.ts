@@ -6,19 +6,20 @@ import type { CompanyTier } from "./classify/company";
 import { tokenize, containsPhrase } from "./keyword-match";
 
 /**
- * score = roleBase[roleType] + companyLift[companyTier] + location bonus,
- * capped at scoringCeiling. Role and company tiers normally come from the
- * classifier; before a row is classified they are inferred from the keyword
- * lists in the config, and a company named in companyTiers always overrides
- * the classifier.
+ * score = companyBase[companyTier] × roleMultiplier[roleType] + location
+ * bonus, capped at scoringCeiling. The company decides the band (an A is a
+ * company worth applying to); the role scales it (a security analyst role at
+ * an elite company is a C, not an A). Tiers come from the classifier; before
+ * a row is classified the role is inferred from title keywords, and a
+ * company named in companyTiers always overrides the classifier.
  */
 
 interface Keywords { keywords: string[] }
 
 export interface ScoringConfig {
   scoringCeiling: number;
-  roleBase: Record<RoleType, number>;
-  companyLift: Record<CompanyTier, number>;
+  companyBase: Record<CompanyTier, number>;
+  roleMultiplier: Record<RoleType, number>;
   /** Curated overrides by tier, including `other` to demote a company the model overrates. */
   companyTiers: Partial<Record<CompanyTier, { companies: string[] }>>;
   /** Title keywords per legacy tier; also feed matchedKeywords for the UI chips. */
@@ -72,7 +73,7 @@ function roleFromTitle(title: string, cfg: ScoringConfig, matched: string[]): Ro
       if (!containsPhrase(tokens, tokenize(kw))) continue;
       matched.push(kw);
       const rt = cfg.roleTierFallback[tier] ?? "other";
-      if (cfg.roleBase[rt] > bestPts) { best = rt; bestPts = cfg.roleBase[rt]; }
+      if (cfg.roleMultiplier[rt] > bestPts) { best = rt; bestPts = cfg.roleMultiplier[rt]; }
     }
   }
   return best;
@@ -109,17 +110,18 @@ export function scoreInternship(entry: Scorable, config?: ScoringConfig): ScoreR
   const companyTier: CompanyTier = listed?.tier ?? entry.companyTier ?? "other";
   if (listed) matched.push(listed.name);
 
-  const role = cfg.roleBase[roleType] ?? 0;
-  const company = cfg.companyLift[companyTier] ?? 0;
-  const location = locationBonus(entry.location, cfg, matched);
-  const score = Math.max(0, Math.min(role + company + location, cfg.scoringCeiling));
+  const company = cfg.companyBase[companyTier] ?? 0;
+  const multiplier = cfg.roleMultiplier[roleType] ?? 0;
+  const role = Math.round(company * multiplier);
+  const location = role > 0 ? locationBonus(entry.location, cfg, matched) : 0;
+  const score = Math.max(0, Math.min(role + location, cfg.scoringCeiling));
 
   return {
     score,
     scoreLabel: labelFor(score),
     roleType,
     companyTier,
-    breakdown: { role, company, location },
+    breakdown: { company, role: multiplier, location },
     matchedKeywords: [...new Set(matched)],
   };
 }

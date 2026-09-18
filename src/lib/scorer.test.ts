@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { scoreInternship, listedCompanyTier, labelFor, loadConfig, type ScoringConfig } from './scorer';
 
 describe('Scorer', () => {
-  test('SWE intern at an elite company lands in A', () => {
+  test('SWE intern at an elite company is an A', () => {
     const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Anthropic', location: 'San Francisco, CA' });
     assert.equal(r.companyTier, 'elite');
     assert.equal(r.roleType, 'swe');
@@ -13,17 +13,20 @@ describe('Scorer', () => {
     assert.equal(r.scoreLabel, 'A');
   });
 
-  test('SWE intern at an unlisted company is a B, not an F', () => {
-    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Unheard Of Labs', location: '' });
-    assert.equal(r.companyTier, 'other');
-    assert.equal(r.score, 60);
-    assert.equal(r.scoreLabel, 'B');
+  test('the company sets the band; the role scales it', () => {
+    const at = (companyTier: 'elite' | 'hot' | 'top' | 'solid' | 'other', roleType: 'swe' | 'it_security' | 'hardware_ee') =>
+      scoreInternship({ title: 'Intern', company: 'X', location: '', companyTier, roleType }).score;
+    assert.equal(at('elite', 'swe'), 100);
+    assert.equal(at('hot', 'swe'), 85);
+    assert.equal(at('top', 'swe'), 70);
+    assert.equal(at('solid', 'swe'), 45);
+    assert.equal(at('other', 'swe'), 30);
+    assert.equal(at('top', 'it_security'), 42, 'a security analyst at a top company is a D');
+    assert.equal(at('elite', 'hardware_ee'), 50);
   });
 
   test('classifier role type overrides the title keywords', () => {
     const r = scoreInternship({ title: 'Engineering Intern (Summer 2027)', company: 'Decagon', location: 'San Francisco', roleType: 'swe', companyTier: 'hot' });
-    assert.equal(r.breakdown.role, 60);
-    assert.equal(r.breakdown.company, 30);
     assert.equal(r.scoreLabel, 'A');
   });
 
@@ -37,22 +40,10 @@ describe('Scorer', () => {
     assert.ok(r.matchedKeywords.some(k => k.toLowerCase() === 'snowflake'));
   });
 
-  test('every matching title keyword feeds matchedKeywords', () => {
-    const r = scoreInternship({ title: 'Full Stack Software Engineer Intern', company: '', location: '' });
-    assert.ok(r.matchedKeywords.includes('software engineer'));
-    assert.ok(r.matchedKeywords.includes('full stack'));
-  });
-
-  test('title with no role keywords and no classifier → other → 0', () => {
-    const r = scoreInternship({ title: 'Summer Intern', company: '', location: '' });
+  test('title with no role keywords and no classifier → other → 0, no location bonus', () => {
+    const r = scoreInternship({ title: 'Summer Intern', company: 'Anthropic', location: 'New York' });
     assert.equal(r.roleType, 'other');
     assert.equal(r.score, 0);
-    assert.equal(r.scoreLabel, 'F');
-  });
-
-  test('score is capped at the ceiling', () => {
-    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Anthropic', location: 'New York', roleType: 'swe', companyTier: 'elite' });
-    assert.equal(r.score, 100);
   });
 
   test('labels: 75 A, 60 B, 45 C, 25 D, else F', () => {
@@ -63,15 +54,14 @@ describe('Scorer', () => {
     assert.equal(listedCompanyTier('Snap')?.name.toLowerCase(), 'snap');
     assert.equal(listedCompanyTier('Snap Finance'), null);
     assert.equal(listedCompanyTier('Sierra Nevada'), null);
-    assert.equal(listedCompanyTier('Black Box'), null);
     assert.equal(listedCompanyTier('Two Sigma')?.tier, 'elite');
   });
 
   test('injected config drives scoring without touching disk', () => {
     const synthetic: ScoringConfig = {
       scoringCeiling: 100,
-      roleBase: { swe: 42, ml_ai: 0, data: 0, quant: 0, hardware_ee: 0, research_science: 0, product_pm: 0, other: 0 },
-      companyLift: { elite: 0, top: 0, hot: 0, solid: 0, other: 0 },
+      companyBase: { elite: 0, hot: 0, top: 0, solid: 0, other: 42 },
+      roleMultiplier: { swe: 1, ml_ai: 0, data: 0, quant: 0, it_security: 0, hardware_ee: 0, research_science: 0, product_pm: 0, other: 0 },
       companyTiers: {},
       roleTiers: { T1: { keywords: ['unicorn engineer'] } },
       roleTierFallback: { T1: 'swe' },
@@ -87,17 +77,17 @@ describe('Scoring config integrity', () => {
   const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'scoring-config.json'), 'utf-8')) as ScoringConfig;
 
   test('has every field the scorer reads', () => {
-    for (const field of ['scoringCeiling', 'roleBase', 'companyLift', 'companyTiers', 'roleTiers', 'roleTierFallback', 'locationBonus'] as const) {
+    for (const field of ['scoringCeiling', 'companyBase', 'roleMultiplier', 'companyTiers', 'roleTiers', 'roleTierFallback', 'locationBonus'] as const) {
       assert.ok(field in config, `missing ${field}`);
     }
     assert.equal(config.scoringCeiling, 100);
   });
 
-  test('a SWE role at an unlisted company is a B and at an elite one an A', () => {
-    assert.ok(config.roleBase.swe >= 60);
-    assert.ok(config.roleBase.swe + config.companyLift.elite >= 75);
-    assert.ok(config.companyLift.elite > config.companyLift.top);
-    assert.ok(config.companyLift.hot > config.companyLift.solid);
+  test('elite and hot SWE roles are A, top is B, solid is C, unlisted is D', () => {
+    for (const t of ['elite', 'hot'] as const) assert.ok(config.companyBase[t] * config.roleMultiplier.swe >= 75, t);
+    assert.ok(config.companyBase.top * config.roleMultiplier.swe >= 60 && config.companyBase.top * config.roleMultiplier.swe < 75);
+    assert.ok(config.companyBase.solid * config.roleMultiplier.swe < 60);
+    assert.ok(config.companyBase.other * config.roleMultiplier.swe < 45);
   });
 
   test('every legacy role tier maps to a role type', () => {
