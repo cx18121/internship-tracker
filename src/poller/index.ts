@@ -123,6 +123,12 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h`);
   console.log(`[internship-tracker] Quiet hours: ${QUIET_WINDOW ? `${QUIET_WINDOW[0]}:00–${QUIET_WINDOW[1]}:00 ${POLL_TZ}` : 'disabled'}`);
   await runMigrations();
+  // Apply any config change (scoring, metros, tiers) to stored rows before polling.
+  try {
+    await withWatchdog('boot rescore', WATCHDOG_MS_REVALIDATE, reevaluate({ descriptions: 0, classify: 0 }));
+  } catch (err) {
+    console.error('[internship-tracker] Boot rescore threw:', err);
+  }
 
   // Initial run — do everything once so the DB has fresh state.
   // Wrapped so a transient startup failure (single source 500, DNS hiccup,

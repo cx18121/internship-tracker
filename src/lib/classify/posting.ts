@@ -54,5 +54,8 @@ export async function classifyPosting(input: PostingInput): Promise<PostingClass
   const r = await classifyStructured<{ role: RoleType; degrees: Degree[]; is_internship: boolean; us_eligible: 'yes' | 'no' | 'unclear' }>({
     model: MODEL, system: SYSTEM, user, schema: SCHEMA, maxTokens: 200,
   });
-  return { roleType: r.role, degrees: [...new Set(r.degrees)], isInternship: r.is_internship, usEligible: r.us_eligible };
+  // The schema constrains the enum, but guard anyway: an off-schema value must not reach the DB.
+  const roleType = ROLE_TYPES.includes(r.role) ? r.role : 'other';
+  const degrees = [...new Set(r.degrees)].filter((d): d is Degree => DEGREES.includes(d));
+  return { roleType, degrees, isInternship: r.is_internship, usEligible: r.us_eligible };
 }
