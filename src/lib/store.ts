@@ -21,8 +21,9 @@ interface Row {
   description: string | null;
   link: string;
   source: string;
-  posted_at: Date;
+  posted_at: Date | null;
   seen_at: Date;
+  first_seen_at: Date;
   score: number | null;
   score_label: ScoreLabel | null;
   matched_keywords: string[];
@@ -53,8 +54,9 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['description', i => i.description ?? null],
   ['link', i => i.link],
   ['source', i => i.source],
-  ['posted_at', i => i.postedAt],
+  ['posted_at', i => i.postedAt ?? null],
   ['seen_at', i => i.seenAt],
+  ['first_seen_at', i => i.firstSeenAt],
   ['score', i => i.score],
   ['score_label', i => i.scoreLabel],
   ['matched_keywords', i => JSON.stringify(i.matchedKeywords)],
@@ -95,8 +97,9 @@ function fromRow(r: Row): Internship {
     description: r.description ?? undefined,
     link: r.link,
     source: r.source,
-    postedAt: r.posted_at.toISOString(),
+    postedAt: iso(r.posted_at),
     seenAt: r.seen_at.toISOString(),
+    firstSeenAt: r.first_seen_at.toISOString(),
     score: r.score,
     scoreLabel: r.score_label,
     matchedKeywords: r.matched_keywords ?? [],
@@ -181,7 +184,7 @@ export async function getInternships(filters: ListFilters = {}): Promise<Interns
   }
 
   const orderBy = filters.sort === 'newest' ? 'seen_at DESC'
-    : filters.sort === 'posted' ? 'posted_at DESC'
+    : filters.sort === 'posted' ? 'COALESCE(posted_at, first_seen_at) DESC'
     : 'COALESCE(score, 0) DESC';
 
   const sql = `SELECT * FROM internships${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ${orderBy}`;

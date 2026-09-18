@@ -70,26 +70,11 @@ describe('buildPosting', () => {
     assert.deepEqual(row.locations, ['San Francisco, CA']);
   });
 
-  test('buildPosting: postedAt falls back to now when upstream is null', () => {
-    const row = buildPosting({ ...SEED_DEFAULTS, upstreamPostedAt: null });
-    assert.equal(row.postedAt, SEED_DEFAULTS.now);
-  });
-
-  // JobSpy reports date_posted as a relative string ("5 days ago") which
-  // Postgres rejects for a timestamptz column, aborting the whole batch
-  // transaction. postedAt must always be a storable timestamp.
-  test('buildPosting: unparseable upstream date falls back to now', () => {
+  test('buildPosting: no postedAt when the source gives none or gives junk', () => {
+    assert.equal(buildPosting({ ...SEED_DEFAULTS, upstreamPostedAt: null }).postedAt, undefined);
+    // JobSpy reports relative strings Postgres would reject for a timestamptz.
     for (const junk of ['5 days ago', 'Just posted', 'yesterday', '30+ days ago', 'not a date']) {
-      const row = buildPosting({ ...SEED_DEFAULTS, upstreamPostedAt: junk });
-      assert.equal(
-        row.postedAt,
-        SEED_DEFAULTS.now,
-        `unparseable upstream "${junk}" should fall back to now, got ${row.postedAt}`,
-      );
-      assert.ok(
-        !Number.isNaN(new Date(row.postedAt).getTime()),
-        `postedAt must be a parseable timestamp for "${junk}", got ${row.postedAt}`,
-      );
+      assert.equal(buildPosting({ ...SEED_DEFAULTS, upstreamPostedAt: junk }).postedAt, undefined, junk);
     }
   });
 

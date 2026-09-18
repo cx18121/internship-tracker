@@ -12,9 +12,8 @@ export interface PostingSeed {
   location?: string | null;
   locations?: Array<string | null | undefined>;
   source: string;
-  /** Publication timestamp the source reports. Falls back to `now` when
-   *  missing or unparseable (JobSpy emits "5 days ago", which Postgres
-   *  rejects). */
+  /** Publication timestamp the source reports. Dropped when missing or
+   *  unparseable (JobSpy emits "5 days ago"). */
   upstreamPostedAt?: string | null;
   /** Poll time, shared by the whole batch. */
   now: string;
@@ -39,7 +38,7 @@ export function buildPosting(seed: PostingSeed): RawPosting {
     locations,
     link: seed.link,
     source: seed.source,
-    postedAt: isStorableDate(seed.upstreamPostedAt) ? seed.upstreamPostedAt : seed.now,
+    ...(isStorableDate(seed.upstreamPostedAt) ? { postedAt: seed.upstreamPostedAt } : {}),
     ...(description ? { description } : {}),
     ...(seed.season && seed.season.length > 0 ? { season: seed.season } : {}),
     ...(seed.salary?.text ? { salary: seed.salary } : {}),

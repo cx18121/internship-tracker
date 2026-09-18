@@ -4,7 +4,7 @@ import type { Internship } from "@/lib/types";
 // from the UI, so it and the other unused fields are dropped from the payload.
 export const LIST_FIELDS = [
   "id", "title", "company", "location", "link", "source",
-  "postedAt", "seenAt", "score", "scoreLabel", "salaryText", "season",
+  "postedAt", "seenAt", "firstSeenAt", "score", "scoreLabel", "salaryText", "season",
   "roleType", "degrees", "companyTier", "locations", "metros",
 ] as const satisfies ReadonlyArray<keyof Internship>;
 

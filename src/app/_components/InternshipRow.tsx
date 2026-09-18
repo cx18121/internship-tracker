@@ -103,18 +103,21 @@ function InternshipRowImpl({ item }: Props) {
         {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
       </span>
 
-      {/* Posted — visible on both viewports. >30d-old posts use a muted amber
-          tone on the date itself (no separate "!" badge). */}
+      {/* Posted — the source's publication date, or (marked ~) the day the
+          tracker first saw the row when the source gives none. Amber past 30d. */}
       {(() => {
-        const stale = item.postedAt && isStale(item.postedAt);
+        const date = item.postedAt ?? item.firstSeenAt;
+        const approx = !item.postedAt;
+        const stale = isStale(date);
         return (
           <span
             className={`text-[11px] tabular-nums flex items-center gap-1 truncate ${
               stale ? "text-amber-300/60" : "text-white/55"
             }`}
-            title={stale ? "Posted >30 days ago — may be stale" : undefined}
+            title={approx ? `Source gives no posting date; first seen by the tracker ${formatDate(date)}` : stale ? "Posted >30 days ago" : undefined}
           >
-            {item.postedAt ? formatDate(item.postedAt) : "—"}
+            {approx && <span className="text-white/35">~</span>}
+            {formatDate(date)}
           </span>
         );
       })()}

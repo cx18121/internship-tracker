@@ -17,8 +17,8 @@ export interface RawPosting {
   locations: string[];
   link: string;
   source: string;
-  /** ISO timestamp. Poll time when the source reports no publication date. */
-  postedAt: string;
+  /** ISO publication date from the source; absent when it reports none. */
+  postedAt?: string;
   /** Plain text, already stripped of HTML. */
   description?: string;
   /** Only when the source states a season explicitly (SimplifyJobs README column). */
@@ -39,8 +39,12 @@ export interface Internship {
   description?: string;
   link: string;
   source: string;
-  postedAt: string;
+  /** Publication date from the source; undefined when it gave none. */
+  postedAt?: string;
+  /** Last time any poller saw the row. */
   seenAt: string;
+  /** When the tracker first stored the row. Never bumped. */
+  firstSeenAt: string;
   score: number | null;
   /** null = never scored (test fixtures). */
   scoreLabel: ScoreLabel | null;

@@ -8,6 +8,7 @@ import { useState, memo } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Internship, SortBy } from "../_lib/types";
 import { InternshipRow, LIST_GRID_COLS } from "./InternshipRow";
+import { listedAt } from "@/lib/filter-spec";
 
 // Headers in display order. The `mobileHidden` entries collapse below md
 // but their grid cells still exist so column widths line up across rows.
@@ -43,7 +44,7 @@ export interface Group {
 }
 
 const latestPostedAt = (roles: Internship[]): number =>
-  roles.reduce((max, r) => Math.max(max, new Date(r.postedAt ?? 0).getTime()), 0);
+  roles.reduce((max, r) => Math.max(max, new Date(listedAt(r)).getTime()), 0);
 
 // Display casing for a company whose roles may carry slightly different
 // casings ("Quadric" vs "QUADRIC" — ingestion canonicalizes legal suffixes but

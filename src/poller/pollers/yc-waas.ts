@@ -38,7 +38,6 @@ interface RawJob {
   location: string;
   companyName: string;
   companyOneLiner: string;
-  companyLastActiveAt: string | null;
   /** e.g. "$200K - $250K" */
   salary?: string;
 }
@@ -94,7 +93,6 @@ export async function pollYCWaaS(): Promise<RawPosting[]> {
     location: j.location,
     link: `${BASE_URL}/jobs/${j.id}`,
     source: 'YC WaaS',
-    upstreamPostedAt: j.companyLastActiveAt,
     now,
     descriptionHtml: descriptions.get(j.id) ?? j.companyOneLiner,
     salary: j.salary ? parseSalary(j.salary) : undefined,

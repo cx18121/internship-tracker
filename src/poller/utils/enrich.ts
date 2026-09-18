@@ -38,6 +38,7 @@ export function enrichForStorage(p: RawPosting, now: string): Internship {
     source: p.source,
     postedAt: p.postedAt,
     seenAt: now,
+    firstSeenAt: now,
     score,
     scoreLabel,
     matchedKeywords,

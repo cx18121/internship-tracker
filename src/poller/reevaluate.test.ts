@@ -8,7 +8,7 @@ const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse('2026-09-16T12:00:00Z');
 const row = (over: Partial<Internship>): Internship => ({
   id: 'x', title: 'Software Engineer Intern', company: 'Co', location: 'Austin, TX', locations: ['Austin, TX'], metros: ['austin'], link: 'https://x', source: 'Greenhouse',
-  postedAt: new Date(now).toISOString(), seenAt: new Date(now).toISOString(), score: 60, scoreLabel: 'B', matchedKeywords: [],
+  postedAt: new Date(now).toISOString(), seenAt: new Date(now).toISOString(), firstSeenAt: new Date(now).toISOString(), score: 60, scoreLabel: 'B', matchedKeywords: [],
   archived: false, failedCheckCount: 0, normalizedKey: 'co::x', season: ['summer-2027'], ...over,
 });
 

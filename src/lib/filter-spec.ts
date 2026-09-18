@@ -8,8 +8,13 @@ import type { RoleType, Degree } from './classify/posting';
 import type { Metro } from './metros';
 
 /** The fields a filter reads. Satisfied by a stored Internship and by the list-view payload. */
-export type Filterable = Pick<Internship, 'company' | 'title' | 'source' | 'season'> &
+export type Filterable = Pick<Internship, 'company' | 'title' | 'source' | 'season' | 'firstSeenAt'> &
   Partial<Pick<Internship, 'score' | 'postedAt' | 'companyTier' | 'roleType' | 'degrees' | 'metros'>>;
+
+/** The date a posting is listed under: the source's publication date, or when the tracker first saw it. */
+export function listedAt(i: Pick<Filterable, 'postedAt' | 'firstSeenAt'>): string {
+  return i.postedAt ?? i.firstSeenAt;
+}
 
 export type TierFilter = 'all' | 'elite' | 'top-or-better' | 'solid-or-better';
 export type DegreeFilter = Degree | 'unknown';
@@ -22,7 +27,7 @@ export interface FilterSpec {
   excludeSources?: readonly string[];
   /** Posting must have score ≥ this value. 0 = no gate. */
   minScore?: number;
-  /** Posting's postedAt must be ≥ this ms-epoch timestamp. */
+  /** listedAt(posting) must be ≥ this ms-epoch timestamp. */
   postedAfter?: number;
   roleTypes?: readonly RoleType[];
   /** 'unknown' matches rows with no degree signal. */
@@ -42,7 +47,7 @@ export function applyFilterSpec(i: Filterable, spec: FilterSpec): boolean {
   if (spec.minScore && (i.score ?? 0) < spec.minScore) return false;
 
   if (spec.postedAfter != null) {
-    const posted = new Date(i.postedAt ?? 0).getTime();
+    const posted = new Date(listedAt(i)).getTime();
     if (!Number.isFinite(posted) || posted < spec.postedAfter) return false;
   }
 

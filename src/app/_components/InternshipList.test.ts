@@ -5,7 +5,7 @@ import type { Internship } from '../_lib/types';
 
 const item = (over: Partial<Internship> & { id: string }): Internship => ({
   title: 'T', company: 'C', location: 'L', locations: [over.location ?? 'L'], metros: [], link: `https://x/${over.id}`, source: 'X',
-  postedAt: '2026-01-01', seenAt: '2026-01-01', score: 0, scoreLabel: null,
+  postedAt: '2026-01-01', seenAt: '2026-01-01', firstSeenAt: '2026-01-01', score: 0, scoreLabel: null,
   season: ['summer-2027'],
   ...over,
 });

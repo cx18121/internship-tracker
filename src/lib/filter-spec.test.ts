@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { applyFilterSpec, type Filterable } from './filter-spec';
 
 describe('applyFilterSpec', () => {
-  const base: Filterable = { title: 'SWE Intern', company: 'Acme', source: 'Greenhouse', score: 90, season: ['summer-2027'], companyTier: 'hot' };
+  const base: Filterable = { title: 'SWE Intern', company: 'Acme', source: 'Greenhouse', score: 90, season: ['summer-2027'], companyTier: 'hot', firstSeenAt: '2026-09-01T00:00:00.000Z' };
 
   test('season gate honors the season tokens', () => {
     assert.equal(applyFilterSpec({ ...base, season: ['fall-2026'] }, { seasons: ['fall-2026'] }), true);

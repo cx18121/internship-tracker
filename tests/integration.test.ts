@@ -34,7 +34,7 @@ const fixture = (over: Partial<Internship> & { id: string }): Internship => {
     link: `https://example.com/${over.id}`,
     source: 'test',
     postedAt: now,
-    seenAt: now,
+    seenAt: now, firstSeenAt: now,
     score: 50,
     scoreLabel: 'C',
     matchedKeywords: [],

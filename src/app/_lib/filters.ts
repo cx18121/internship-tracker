@@ -1,7 +1,7 @@
 import type { Internship, TierFilter, DateWindow, SortBy } from "./types";
 import { ROLE_TYPES, DEGREES, type RoleType, type Degree } from "@/lib/classify/posting";
 import { METROS, type Metro } from "@/lib/metros";
-import { applyFilterSpec } from "@/lib/filter-spec";
+import { applyFilterSpec, listedAt } from "@/lib/filter-spec";
 import { seasonSortKey } from "@/lib/seasons";
 import { DATE_WINDOWS } from "./constants";
 
@@ -125,7 +125,7 @@ export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy,
   }
 
   filtered.sort(sortBy === "posted"
-    ? (a, b) => new Date(b.postedAt).getTime() - new Date(a.postedAt).getTime()
+    ? (a, b) => new Date(listedAt(b)).getTime() - new Date(listedAt(a)).getTime()
     : (a, b) => (b.score ?? -1) - (a.score ?? -1));
 
   return {
