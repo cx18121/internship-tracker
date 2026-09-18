@@ -103,8 +103,7 @@ function InternshipRowImpl({ item }: Props) {
         {primarySeason ? formatSeasonLabel(primarySeason) : "—"}
       </span>
 
-      {/* Posted — the source's publication date, or (marked ~) the day the
-          tracker first saw the row when the source gives none. Amber past 30d. */}
+      {/* Posted — the source's publication date, or ~first-seen when the source gives none. Amber past 30d. */}
       {(() => {
         const date = item.postedAt ?? item.firstSeenAt;
         const approx = !item.postedAt;
@@ -114,7 +113,6 @@ function InternshipRowImpl({ item }: Props) {
             className={`text-[11px] tabular-nums flex items-center gap-1 truncate ${
               stale ? "text-amber-300/60" : "text-white/55"
             }`}
-            title={approx ? `Source gives no posting date; first seen by the tracker ${formatDate(date)}` : stale ? "Posted >30 days ago" : undefined}
           >
             {approx && <span className="text-white/35">~</span>}
             {formatDate(date)}
