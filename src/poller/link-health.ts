@@ -1,4 +1,4 @@
-import type { Internship } from '../lib/types';
+import type { StoredInternship } from '../lib/types';
 import { getInternships, archiveInternshipsByIds, markLinkChecked } from '../lib/store';
 import { pool } from '../lib/concurrency';
 import { POLLED_SOURCES } from './sources';
@@ -67,7 +67,7 @@ export async function linkState(url: string): Promise<LinkState> {
   return status === -1 ? 'unknown' : 'live';
 }
 
-export function needsCheck(i: Internship, now = Date.now()): boolean {
+export function needsCheck(i: StoredInternship, now = Date.now()): boolean {
   if (POLLED_SOURCES.has(i.source)) return false;
   return !i.lastCheckedAt || now - new Date(i.lastCheckedAt).getTime() > CHECK_TTL_MS;
 }
@@ -80,7 +80,7 @@ export async function checkFeedLinks(): Promise<{ checked: number; archived: num
   // LinkedIn throttles above roughly one request per second; other hosts tolerate more.
   const linkedin = due.filter(i => /linkedin\.com/.test(i.link));
   const others = due.filter(i => !/linkedin\.com/.test(i.link));
-  const run = async (i: Internship) => {
+  const run = async (i: StoredInternship) => {
     const state = await linkState(i.link);
     if (state === 'unknown') { unknown++; return; }
     checked.push(i.id);

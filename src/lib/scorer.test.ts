@@ -108,3 +108,18 @@ describe('Scoring config integrity', () => {
     assert.equal(loadConfig().scoringCeiling, config.scoringCeiling);
   });
 });
+
+describe('present', () => {
+  test('derives score, tier, metros, and open seasons from stored facts', async () => {
+    const { present } = await import('./present');
+    const row = present({
+      id: 'x', title: 'Software Engineer Intern', company: 'Anthropic', location: 'SF', locations: ['SF', 'New York, NY'], link: 'https://x', source: 'Greenhouse',
+      seenAt: '2026-09-17T00:00:00Z', firstSeenAt: '2026-09-17T00:00:00Z', archived: false, failedCheckCount: 0, normalizedKey: 'anthropic::software engineer',
+      season: ['summer-2026', 'summer-2027'], roleType: 'swe', companyTier: 'other',
+    }, new Date('2026-09-17T00:00:00Z'));
+    assert.equal(row.companyTier, 'elite', 'curated list overrides the joined tier');
+    assert.equal(row.score, 100);
+    assert.deepEqual(row.metros, ['bay', 'nyc']);
+    assert.deepEqual(row.season, ['summer-2027'], 'expired tokens are dropped on read');
+  });
+});

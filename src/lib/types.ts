@@ -27,15 +27,18 @@ export interface RawPosting {
   salary?: Salary;
 }
 
-/** A stored row. Mirrors the `internships` table. */
-export interface Internship {
+/**
+ * A stored row: the facts about a posting. Everything derived from these
+ * (score, metros, open seasons) is computed on read by present() so a config
+ * change applies to every row at once.
+ */
+export interface StoredInternship {
   id: string;           // md5(company + title + stripUtm(link))
   title: string;
   company: string;
   /** First listed location, for display. */
   location: string;
   locations: string[];
-  metros: Metro[];
   description?: string;
   link: string;
   source: string;
@@ -45,10 +48,6 @@ export interface Internship {
   seenAt: string;
   /** When the tracker first stored the row. Never bumped. */
   firstSeenAt: string;
-  score: number | null;
-  /** null = never scored (test fixtures). */
-  scoreLabel: ScoreLabel | null;
-  matchedKeywords: string[];
   archived: boolean;
   /** 1 once a direct link check found the posting gone; rediscovery then leaves it archived. */
   failedCheckCount: number;
@@ -59,7 +58,7 @@ export interface Internship {
   salaryUnit?: Salary['unit'];
   /** Cross-source dedup key (company + normalized title). See normalize-key.ts. */
   normalizedKey: string;
-  /** Season tokens like "summer-2027". Always at least one. */
+  /** Season tokens like "summer-2027" as parsed at ingest. */
   season: string[];
   /** Model classification. Absent until the row has been classified. */
   roleType?: RoleType;
@@ -67,8 +66,19 @@ export interface Internship {
   degrees?: Degree[];
   usEligible?: 'yes' | 'no' | 'unclear';
   isInternship?: boolean;
-  companyTier?: CompanyTier;
   classifiedAt?: string;
+  /** From company_profiles, joined on read; curated lists override it in present(). */
+  companyTier?: CompanyTier;
+}
+
+/** A stored row plus everything derived from it. What the API and UI see. */
+export interface Internship extends StoredInternship {
+  score: number;
+  scoreLabel: ScoreLabel;
+  companyTier: CompanyTier;
+  metros: Metro[];
+  /** Title keywords the scorer matched, for the score breakdown. */
+  matchedKeywords: string[];
 }
 
 /**

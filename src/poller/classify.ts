@@ -1,8 +1,9 @@
-import type { Internship } from '../lib/types';
+import type { Internship, StoredInternship } from '../lib/types';
+import { present } from '../lib/present';
 import { classifierConfigured } from '../lib/classify/provider';
 import { classifyCompany, type CompanyTier } from '../lib/classify/company';
 import { classifyPosting, TECHNICAL_ROLE_TYPES, type PostingClassification } from '../lib/classify/posting';
-import { scoreInternship, listedCompanyTier } from '../lib/scorer';
+import { listedCompanyTier } from '../lib/scorer';
 import { getCompanyProfiles, saveCompanyProfile, saveClassification, archiveInternshipsByIds } from '../lib/store';
 import { pool } from '../lib/concurrency';
 
@@ -30,11 +31,11 @@ export function archiveReason(c: PostingClassification): string | null {
  * should not show. Rows whose classification fails are left unclassified for
  * the next run.
  */
-export async function classifyRows(rows: Internship[]): Promise<ClassifyOutcome> {
+export async function classifyRows(rows: StoredInternship[]): Promise<ClassifyOutcome> {
   if (rows.length === 0) return { kept: [], archived: 0, failed: 0, skipped: false };
   if (!classifierConfigured()) {
     console.log('[classify] ANTHROPIC_API_KEY not set; rows keep their keyword-based scores');
-    return { kept: rows, archived: 0, failed: 0, skipped: true };
+    return { kept: rows.map(r => present(r)), archived: 0, failed: 0, skipped: true };
   }
 
   const tiers = await resolveCompanyTiers(rows);
@@ -52,10 +53,8 @@ export async function classifyRows(rows: Internship[]): Promise<ClassifyOutcome>
       console.warn(`[classify] posting ${row.id} failed: ${e instanceof Error ? e.message : e}`);
       return;
     }
-    const companyTier = tiers.get(companyKey(row.company)) ?? 'other';
-    const s = scoreInternship({ title: row.title, company: row.company, location: row.location, roleType: c.roleType, companyTier });
-    await saveClassification(row.id, { ...c, companyTier: s.companyTier, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords });
-    const updated: Internship = { ...row, ...c, companyTier: s.companyTier, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords };
+    await saveClassification(row.id, c);
+    const updated = present({ ...row, ...c, companyTier: tiers.get(companyKey(row.company)) });
     const reason = archiveReason(c);
     if (reason) toArchive.set(reason, [...(toArchive.get(reason) ?? []), row.id]);
     else kept.push(updated);
@@ -68,13 +67,13 @@ export async function classifyRows(rows: Internship[]): Promise<ClassifyOutcome>
 }
 
 /** Company tier per company key, classifying unseen companies with the model. */
-export async function resolveCompanyTiers(rows: Internship[]): Promise<Map<string, CompanyTier>> {
-  const byKey = new Map<string, Internship>();
+export async function resolveCompanyTiers(rows: StoredInternship[]): Promise<Map<string, CompanyTier>> {
+  const byKey = new Map<string, StoredInternship>();
   for (const r of rows) if (!byKey.has(companyKey(r.company))) byKey.set(companyKey(r.company), r);
 
   const tiers = new Map<string, CompanyTier>();
   const profiles = await getCompanyProfiles([...byKey.keys()]);
-  const pending: Array<[string, Internship]> = [];
+  const pending: Array<[string, StoredInternship]> = [];
   for (const [key, row] of byKey) {
     const listed = listedCompanyTier(row.company);
     if (listed) {

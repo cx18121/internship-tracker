@@ -13,7 +13,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { deduplicateAndStore, deleteInternship } from '../src/lib/store';
 import { closePool } from '../src/lib/db';
-import type { Internship } from '../src/lib/types';
+import type { StoredInternship, Internship } from '../src/lib/types';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const BASE_URL = process.env.TEST_BASE_URL ?? 'http://localhost:3001';
@@ -23,21 +23,17 @@ const skip = !DATABASE_URL ? 'DATABASE_URL not set'
   : !isLocal(DATABASE_URL) && process.env.ALLOW_REMOTE_TEST_DB !== '1' ? 'DATABASE_URL is not local; set ALLOW_REMOTE_TEST_DB=1 to run against it'
   : false;
 
-const fixture = (over: Partial<Internship> & { id: string }): Internship => {
+const fixture = (over: Partial<StoredInternship> & { id: string }): StoredInternship => {
   const now = new Date().toISOString();
   return {
     title: 'Test Intern',
     company: 'TestCo',
     location: 'Remote',
     locations: ['Remote'],
-    metros: ['remote'],
     link: `https://example.com/${over.id}`,
     source: 'test',
     postedAt: now,
     seenAt: now, firstSeenAt: now,
-    score: 50,
-    scoreLabel: 'C',
-    matchedKeywords: [],
     archived: false,
     failedCheckCount: 0,
     normalizedKey: `testco::${over.id}`,
@@ -131,7 +127,7 @@ describe('Score breakdown API', { skip }, () => {
   test('GET /api/internships/:id/score-breakdown → returns score, scoreLabel, matchedKeywords', async () => {
     const listRes = await fetch(API);
     assert.ok(listRes.ok, `HTTP ${listRes.status} fetching internships list`);
-    const list = await listRes.json() as Internship[];
+    const list = await listRes.json() as StoredInternship[];
     assert.ok(list.length > 0, 'Need at least 1 internship for score-breakdown test');
 
     const id = list[0].id;

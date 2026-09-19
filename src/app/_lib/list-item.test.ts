@@ -8,7 +8,7 @@ describe('pickListFields', () => {
     const full: Internship = {
       id: 'x1', title: 'SWE Intern', company: 'Acme', location: 'NYC', locations: ['NYC'], metros: ['nyc'],
       link: 'https://a.co/x1', source: 'Greenhouse', postedAt: '2026-01-01',
-      seenAt: '2026-01-02', firstSeenAt: '2026-01-02', score: 88, scoreLabel: 'A',
+      seenAt: '2026-01-02', firstSeenAt: '2026-01-02', score: 88, scoreLabel: 'A', companyTier: 'elite',
       matchedKeywords: ['backend'],
       archived: false, failedCheckCount: 0, normalizedKey: 'acme::swe',
       salaryText: '$50/hr', season: ['summer-2026'],

@@ -1,10 +1,8 @@
-import type { Internship } from '../lib/types';
-import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, updateScores, getUnclassified, getCompanyProfiles } from '../lib/store';
-import { isExpiredSeasonTokens, openSeasonTokens } from '../lib/seasons';
-import { scoreInternship } from '../lib/scorer';
-import { metrosFor } from '../lib/metros';
+import type { Internship, StoredInternship } from '../lib/types';
+import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified } from '../lib/store';
+import { isExpiredSeasonTokens } from '../lib/seasons';
 import { classifyLocation } from './iso-locations';
-import { classifyRows, archiveReason, companyKey } from './classify';
+import { classifyRows, archiveReason } from './classify';
 import { fetchDescriptionByUrl, fetchWorkdayDetailByUrl } from './utils/description-fetchers';
 import { pool } from '../lib/concurrency';
 import { POLLED_SOURCES } from './sources';
@@ -24,11 +22,10 @@ export interface ReevaluateResult {
   linksArchived: number;
   descriptionsFetched: number;
   classified: number;
-  rescored: number;
 }
 
 /** Why a stored row should leave the active corpus, or null to keep it. */
-export function staleReason(i: Internship, now = Date.now()): string | null {
+export function staleReason(i: StoredInternship, now = Date.now()): string | null {
   const age = now - new Date(i.seenAt).getTime();
   if (age > (POLLED_SOURCES.has(i.source) ? POLLED_STALE_MS : FEED_STALE_MS)) return 'not seen';
   if (isExpiredSeasonTokens(i.season)) return 'expired season';
@@ -47,7 +44,7 @@ export function staleReason(i: Internship, now = Date.now()): string | null {
  * config and company tiers.
  */
 export async function reevaluate(caps: { descriptions: number; classify: number } = DEFAULT_CAPS): Promise<ReevaluateResult> {
-  const result: ReevaluateResult = { archived: {}, linksArchived: 0, descriptionsFetched: 0, classified: 0, rescored: 0 };
+  const result: ReevaluateResult = { archived: {}, linksArchived: 0, descriptionsFetched: 0, classified: 0 };
   result.linksArchived = (await checkFeedLinks()).archived;
   const active = await getInternships();
 
@@ -72,8 +69,7 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
     const merged = [...new Set(group.flatMap(g => g.locations))].filter(l => !/^\d+ locations?$/i.test(l));
     if (merged.length > keep.locations.length) {
       keep.locations = merged;
-      keep.metros = metrosFor(merged);
-      await updateLocations(keep.id, merged, keep.metros);
+      await updateLocations(keep.id, merged);
     }
     dupes.push(...group.slice(1).map(g => g.id));
   }
@@ -99,8 +95,7 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
       const d = await fetchWorkdayDetailByUrl(i.link);
       if (d.locations.length > 0 && i.locations.some(isCount)) {
         i.locations = d.locations;
-        i.metros = metrosFor(d.locations);
-        await updateLocations(i.id, i.locations, i.metros);
+        await updateLocations(i.id, i.locations);
       }
       if (d.description && !i.description) { await updateDescription(i.id, d.description); i.description = d.description; result.descriptionsFetched++; }
       return;
@@ -119,23 +114,6 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   const outcome = await classifyRows(unclassified);
   result.classified = unclassified.length - outcome.failed;
 
-  // Rescore already-classified rows so config, company-tier, or metro-table changes reach them.
-  const classifiedRows = remaining.filter(i => i.classifiedAt && !unclassified.some(u => u.id === i.id));
-  const tiers = await getCompanyProfiles([...new Set(classifiedRows.map(i => companyKey(i.company)))]);
-  const updates = [];
-  for (const i of classifiedRows) {
-    const companyTier = tiers.get(companyKey(i.company))?.tier ?? i.companyTier;
-    const s = scoreInternship({ title: i.title, company: i.company, location: i.location, roleType: i.roleType, companyTier });
-    const metros = metrosFor(i.locations);
-    const season = openSeasonTokens(i.season);
-    // Display location follows the first real listed location ("2 Locations" is a Workday count, not a place).
-    const location = i.locations[0] && !/^\d+ locations?$/i.test(i.locations[0]) ? i.locations[0] : i.location;
-    if (s.score !== i.score || s.companyTier !== i.companyTier || metros.join() !== i.metros.join() || season.join() !== i.season.join() || location !== i.location) {
-      updates.push({ id: i.id, score: s.score, scoreLabel: s.scoreLabel, matchedKeywords: s.matchedKeywords, companyTier: s.companyTier, metros, season, location });
-    }
-  }
-  await updateScores(updates);
-  result.rescored = updates.length;
-  console.log(`[reevaluate] classified ${result.classified}, rescored ${result.rescored}`);
+  console.log(`[reevaluate] classified ${result.classified}`);
   return result;
 }

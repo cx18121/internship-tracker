@@ -12,9 +12,6 @@ CREATE TABLE IF NOT EXISTS internships (
   posted_at            TIMESTAMPTZ,
   seen_at              TIMESTAMPTZ NOT NULL,
   first_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-  score                INTEGER,
-  score_label          TEXT,
-  matched_keywords     JSONB       NOT NULL DEFAULT '[]'::jsonb,
   archived             BOOLEAN     NOT NULL DEFAULT false,
   failed_check_count   INTEGER     NOT NULL DEFAULT 0,
   last_checked_at      TIMESTAMPTZ,
@@ -26,10 +23,8 @@ CREATE TABLE IF NOT EXISTS internships (
   season               JSONB
 );
 
-CREATE INDEX IF NOT EXISTS idx_internships_score          ON internships(score DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS idx_internships_source         ON internships(source);
 CREATE INDEX IF NOT EXISTS idx_internships_seen_at        ON internships(seen_at DESC);
 CREATE INDEX IF NOT EXISTS idx_internships_archived       ON internships(archived);
-CREATE INDEX IF NOT EXISTS idx_internships_score_label    ON internships(score_label);
 CREATE INDEX IF NOT EXISTS idx_internships_company        ON internships(company);
 CREATE INDEX IF NOT EXISTS idx_internships_normalized_key ON internships(normalized_key);

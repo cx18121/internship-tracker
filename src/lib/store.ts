@@ -1,16 +1,16 @@
 import type { PoolClient } from 'pg';
 import { getPool } from './db';
-import type { Internship, ScoreLabel } from './types';
+import type { Internship, StoredInternship } from './types';
 import type { RoleType, Degree, PostingClassification } from './classify/posting';
 import type { CompanyTier, CompanyProfile } from './classify/company';
-import type { Metro } from './metros';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
+import { present } from './present';
 
 // ---------------------------------------------------------------------------
-// Row mapping. COLUMNS is the single description of how an Internship maps to
-// the internships table; insert, rediscovery backfill, and read all derive
-// from it.
+// Row mapping. COLUMNS is the single description of how a StoredInternship
+// maps to the internships table. Derived fields (score, metros) are never
+// stored; present() computes them on read.
 // ---------------------------------------------------------------------------
 
 interface Row {
@@ -24,14 +24,10 @@ interface Row {
   posted_at: Date | null;
   seen_at: Date;
   first_seen_at: Date;
-  score: number | null;
-  score_label: ScoreLabel | null;
-  matched_keywords: string[];
   archived: boolean;
   failed_check_count: number;
   last_checked_at: Date | null;
   locations: string[] | null;
-  metros: Metro[] | null;
   salary_text: string | null;
   salary_min: number | null;
   salary_max: number | null;
@@ -42,11 +38,12 @@ interface Row {
   degrees: Degree[] | null;
   us_eligible: 'yes' | 'no' | 'unclear' | null;
   is_internship: boolean | null;
-  company_tier: CompanyTier | null;
   classified_at: Date | null;
+  /** Joined from company_profiles on read. */
+  company_tier: CompanyTier | null;
 }
 
-const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
+const COLUMNS: ReadonlyArray<[keyof Row, (i: StoredInternship) => unknown]> = [
   ['id', i => i.id],
   ['title', i => i.title],
   ['company', i => i.company],
@@ -57,14 +54,10 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['posted_at', i => i.postedAt ?? null],
   ['seen_at', i => i.seenAt],
   ['first_seen_at', i => i.firstSeenAt],
-  ['score', i => i.score],
-  ['score_label', i => i.scoreLabel],
-  ['matched_keywords', i => JSON.stringify(i.matchedKeywords)],
   ['archived', i => i.archived],
   ['failed_check_count', i => i.failedCheckCount],
   ['last_checked_at', i => i.lastCheckedAt ?? null],
   ['locations', i => JSON.stringify(i.locations)],
-  ['metros', i => JSON.stringify(i.metros)],
   ['salary_text', i => i.salaryText ?? null],
   ['salary_min', i => i.salaryMin ?? null],
   ['salary_max', i => i.salaryMax ?? null],
@@ -75,20 +68,19 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: Internship) => unknown]> = [
   ['degrees', i => i.degrees ? JSON.stringify(i.degrees) : null],
   ['us_eligible', i => i.usEligible ?? null],
   ['is_internship', i => i.isInternship ?? null],
-  ['company_tier', i => i.companyTier ?? null],
   ['classified_at', i => i.classifiedAt ?? null],
 ];
 
 const COL_NAMES = COLUMNS.map(([c]) => c);
 const INSERT_SQL = `INSERT INTO internships (${COL_NAMES.join(',')}) VALUES (${COL_NAMES.map((_, i) => `$${i + 1}`).join(',')}) ON CONFLICT (id) DO NOTHING`;
 
-function toValues(i: Internship): unknown[] {
+function toValues(i: StoredInternship): unknown[] {
   return COLUMNS.map(([, get]) => get(i));
 }
 
 const iso = (d: Date | null): string | undefined => d?.toISOString();
 
-function fromRow(r: Row): Internship {
+function fromRow(r: Row): StoredInternship {
   return {
     id: r.id,
     title: r.title,
@@ -100,14 +92,10 @@ function fromRow(r: Row): Internship {
     postedAt: iso(r.posted_at),
     seenAt: r.seen_at.toISOString(),
     firstSeenAt: r.first_seen_at.toISOString(),
-    score: r.score,
-    scoreLabel: r.score_label,
-    matchedKeywords: r.matched_keywords ?? [],
     archived: r.archived,
     failedCheckCount: r.failed_check_count,
     lastCheckedAt: iso(r.last_checked_at),
     locations: r.locations ?? (r.location ? [r.location] : []),
-    metros: r.metros ?? [],
     salaryText: r.salary_text ?? undefined,
     salaryMin: r.salary_min ?? undefined,
     salaryMax: r.salary_max ?? undefined,
@@ -118,10 +106,13 @@ function fromRow(r: Row): Internship {
     degrees: r.degrees ?? undefined,
     usEligible: r.us_eligible ?? undefined,
     isInternship: r.is_internship ?? undefined,
-    companyTier: r.company_tier ?? undefined,
     classifiedAt: iso(r.classified_at),
+    companyTier: r.company_tier ?? undefined,
   };
 }
+
+// Every read joins the company's judged tier; present() then applies curated overrides.
+const SELECT = `SELECT i.*, p.tier AS company_tier FROM internships i LEFT JOIN company_profiles p ON p.company_key = LOWER(TRIM(i.company))`;
 
 // ---------------------------------------------------------------------------
 // Write serialization. One in-process mutex so the poll cycle's transaction
@@ -165,36 +156,38 @@ export interface ListFilters {
   search?: string;
 }
 
+/** Active rows (unless includeArchived), presented, sorted by score by default. */
 export async function getInternships(filters: ListFilters = {}): Promise<Internship[]> {
   const where: string[] = [];
   const params: unknown[] = [];
   const p = (v: unknown) => { params.push(v); return `$${params.length}`; };
 
-  if (!filters.includeArchived) where.push('archived = false');
+  if (!filters.includeArchived) where.push('i.archived = false');
   if (filters.sources && filters.sources.length > 0) {
-    where.push(`LOWER(source) = ANY(${p(filters.sources.map(s => s.toLowerCase()))}::text[])`);
+    where.push(`LOWER(i.source) = ANY(${p(filters.sources.map(s => s.toLowerCase()))}::text[])`);
   } else if (filters.source) {
-    where.push(`LOWER(source) = ${p(filters.source.toLowerCase())}`);
+    where.push(`LOWER(i.source) = ${p(filters.source.toLowerCase())}`);
   }
-  if (filters.minScore !== undefined) where.push(`COALESCE(score, 0) >= ${p(filters.minScore)}`);
-  if (filters.label) where.push(`LOWER(score_label) = ${p(filters.label.toLowerCase())}`);
   if (filters.search) {
     const q = p(`%${filters.search.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`);
-    where.push(`(LOWER(title) LIKE ${q} ESCAPE '\\' OR LOWER(company) LIKE ${q} ESCAPE '\\' OR LOWER(location) LIKE ${q} ESCAPE '\\')`);
+    where.push(`(LOWER(i.title) LIKE ${q} ESCAPE '\\' OR LOWER(i.company) LIKE ${q} ESCAPE '\\' OR LOWER(i.location) LIKE ${q} ESCAPE '\\')`);
   }
 
-  const orderBy = filters.sort === 'newest' ? 'seen_at DESC'
-    : filters.sort === 'posted' ? 'COALESCE(posted_at, first_seen_at) DESC'
-    : 'COALESCE(score, 0) DESC';
-
-  const sql = `SELECT * FROM internships${where.length ? ' WHERE ' + where.join(' AND ') : ''} ORDER BY ${orderBy}`;
-  const { rows } = await getPool().query<Row>(sql, params);
-  return rows.map(fromRow);
+  const { rows } = await getPool().query<Row>(`${SELECT}${where.length ? ' WHERE ' + where.join(' AND ') : ''}`, params);
+  const now = new Date();
+  let out = rows.map(r => present(fromRow(r), now));
+  if (filters.minScore !== undefined) out = out.filter(i => i.score >= filters.minScore!);
+  if (filters.label) out = out.filter(i => i.scoreLabel.toLowerCase() === filters.label!.toLowerCase());
+  const at = (i: Internship) => new Date(i.postedAt ?? i.firstSeenAt).getTime();
+  out.sort(filters.sort === 'newest' ? (a, b) => b.seenAt.localeCompare(a.seenAt)
+    : filters.sort === 'posted' ? (a, b) => at(b) - at(a)
+    : (a, b) => b.score - a.score);
+  return out;
 }
 
 export async function getInternship(id: string): Promise<Internship | null> {
-  const { rows } = await getPool().query<Row>('SELECT * FROM internships WHERE id = $1', [id]);
-  return rows[0] ? fromRow(rows[0]) : null;
+  const { rows } = await getPool().query<Row>(`${SELECT} WHERE i.id = $1`, [id]);
+  return rows[0] ? present(fromRow(rows[0])) : null;
 }
 
 export interface SourceHealthRow {
@@ -260,16 +253,16 @@ export async function getStats(): Promise<{
   lastCycleNetNewBySource: Record<string, number>;
 }> {
   const pool = getPool();
-  const [bySourceR, byLabelR, lastSeenR, poll] = await Promise.all([
-    pool.query<{ source: string; n: string }>('SELECT source, COUNT(*)::text AS n FROM internships GROUP BY source'),
-    pool.query<{ score_label: string | null; n: string }>('SELECT score_label, COUNT(*)::text AS n FROM internships GROUP BY score_label'),
+  const [bySourceR, lastSeenR, poll, active] = await Promise.all([
+    pool.query<{ source: string; n: string }>('SELECT source, COUNT(*)::text AS n FROM internships WHERE archived = false GROUP BY source'),
     pool.query<{ seen_at: Date }>('SELECT MAX(seen_at) AS seen_at FROM internships'),
     getPollStats(),
+    getInternships(),
   ]);
   const bySource: Record<string, number> = {};
   for (const r of bySourceR.rows) bySource[r.source] = +r.n;
   const byLabel: Record<string, number> = {};
-  for (const r of byLabelR.rows) byLabel[r.score_label ?? 'unscored'] = +r.n;
+  for (const i of active) byLabel[i.scoreLabel] = (byLabel[i.scoreLabel] ?? 0) + 1;
   return {
     total: Object.values(bySource).reduce((a, b) => a + b, 0),
     bySource,
@@ -285,14 +278,13 @@ export async function getStats(): Promise<{
 // ---------------------------------------------------------------------------
 
 export interface StoreResult {
-  newInternships: Internship[];
+  newInternships: StoredInternship[];
   totalStored: number;
   netNewBySource: Record<string, number>;
 }
 
 // Rediscovery of a stored row (same id, or same company+title via another
-// source). Bumps seen_at, re-scores with the current config, and backfills
-// fields that were null. A row archived because no poller had seen it comes
+// source). Bumps seen_at and backfills fields that were null. A row archived because no poller had seen it comes
 // back; one rejected by the classifier, the season rule, or a dead-link check
 // stays archived. The stored link is preserved.
 const BACKFILL_SQL = `
@@ -300,25 +292,20 @@ const BACKFILL_SQL = `
     seen_at          = $1,
     archived         = CASE WHEN failed_check_count > 0 OR (archive_reason IS NOT NULL AND archive_reason <> 'not seen') THEN archived ELSE false END,
     archive_reason   = CASE WHEN failed_check_count > 0 OR (archive_reason IS NOT NULL AND archive_reason <> 'not seen') THEN archive_reason ELSE NULL END,
-    score            = $2,
-    score_label      = $3,
-    matched_keywords = $4,
-    description      = COALESCE(NULLIF(description, ''), $5),
-    salary_text      = COALESCE(salary_text, $6),
-    salary_min       = COALESCE(salary_min,  $7),
-    salary_max       = COALESCE(salary_max,  $8),
-    salary_unit      = COALESCE(salary_unit, $9),
-    locations        = $10,
-    metros           = $11,
-    location         = $12,
-    normalized_key   = COALESCE(normalized_key, $13)
-  WHERE id = $14`;
+    description      = COALESCE(NULLIF(description, ''), $2),
+    salary_text      = COALESCE(salary_text, $3),
+    salary_min       = COALESCE(salary_min,  $4),
+    salary_max       = COALESCE(salary_max,  $5),
+    salary_unit      = COALESCE(salary_unit, $6),
+    locations        = $7,
+    location         = $8,
+    normalized_key   = COALESCE(normalized_key, $9)
+  WHERE id = $10`;
 
-function backfillArgs(i: Internship, targetId: string): unknown[] {
+function backfillArgs(i: StoredInternship, targetId: string): unknown[] {
   return [
-    i.seenAt, i.score, i.scoreLabel, JSON.stringify(i.matchedKeywords),
-    i.description ?? null, i.salaryText ?? null, i.salaryMin ?? null, i.salaryMax ?? null, i.salaryUnit ?? null,
-    JSON.stringify(i.locations), JSON.stringify(i.metros), i.location, i.normalizedKey, targetId,
+    i.seenAt, i.description ?? null, i.salaryText ?? null, i.salaryMin ?? null, i.salaryMax ?? null, i.salaryUnit ?? null,
+    JSON.stringify(i.locations), i.location, i.normalizedKey, targetId,
   ];
 }
 
@@ -329,7 +316,7 @@ function backfillArgs(i: Internship, targetId: string): unknown[] {
  * When a stored simplify.jobs wrapper link is rediscovered with a direct ATS
  * URL, the stored link is upgraded.
  */
-export async function deduplicateAndStore(incoming: Internship[]): Promise<StoreResult> {
+export async function deduplicateAndStore(incoming: StoredInternship[]): Promise<StoreResult> {
   return withLock(() => withTxn(async (client) => {
     const existing = (await client.query<{ id: string; link: string; normalized_key: string | null }>(
       'SELECT id, link, normalized_key FROM internships WHERE archived = false',
@@ -338,7 +325,7 @@ export async function deduplicateAndStore(incoming: Internship[]): Promise<Store
     const rowByKey = new Map<string, { id: string; link: string }>();
     for (const r of existing) if (r.normalized_key) rowByKey.set(r.normalized_key, { id: r.id, link: r.link });
 
-    const newInternships: Internship[] = [];
+    const newInternships: StoredInternship[] = [];
     const netNewBySource: Record<string, number> = {};
 
     for (const i of incoming) {
@@ -410,44 +397,24 @@ export async function saveCompanyProfile(key: string, company: string, p: Compan
   );
 }
 
-export interface ClassificationUpdate extends PostingClassification {
-  companyTier: CompanyTier;
-  score: number;
-  scoreLabel: ScoreLabel;
-  matchedKeywords: string[];
-}
-
-export async function saveClassification(id: string, c: ClassificationUpdate): Promise<void> {
+export async function saveClassification(id: string, c: PostingClassification): Promise<void> {
   await getPool().query(
-    `UPDATE internships SET role_type = $2, degrees = $3, us_eligible = $4, is_internship = $5, company_tier = $6,
-       score = $7, score_label = $8, matched_keywords = $9, classified_at = now() WHERE id = $1`,
-    [id, c.roleType, JSON.stringify(c.degrees), c.usEligible, c.isInternship, c.companyTier, c.score, c.scoreLabel, JSON.stringify(c.matchedKeywords)],
+    'UPDATE internships SET role_type = $2, degrees = $3, us_eligible = $4, is_internship = $5, classified_at = now() WHERE id = $1',
+    [id, c.roleType, JSON.stringify(c.degrees), c.usEligible, c.isInternship],
   );
-}
-
-export async function updateScores(rows: Array<{ id: string; score: number; scoreLabel: ScoreLabel; matchedKeywords: string[]; companyTier: CompanyTier; metros: Metro[]; season: string[]; location: string }>): Promise<void> {
-  if (rows.length === 0) return;
-  await withTxn(async (client) => {
-    for (const r of rows) {
-      await client.query('UPDATE internships SET score = $2, score_label = $3, matched_keywords = $4, company_tier = $5, metros = $6, season = $7, location = $8 WHERE id = $1',
-        [r.id, r.score, r.scoreLabel, JSON.stringify(r.matchedKeywords), r.companyTier, JSON.stringify(r.metros), JSON.stringify(r.season), r.location]);
-    }
-  });
 }
 
 export async function updateDescription(id: string, description: string): Promise<void> {
   await getPool().query('UPDATE internships SET description = $2 WHERE id = $1', [id, description]);
 }
 
-export async function updateLocations(id: string, locations: string[], metros: Metro[]): Promise<void> {
-  await getPool().query('UPDATE internships SET locations = $2, metros = $3, location = $4 WHERE id = $1', [id, JSON.stringify(locations), JSON.stringify(metros), locations[0] ?? '']);
+export async function updateLocations(id: string, locations: string[]): Promise<void> {
+  await getPool().query('UPDATE internships SET locations = $2, location = $3 WHERE id = $1', [id, JSON.stringify(locations), locations[0] ?? '']);
 }
 
 export async function getUnclassified(limit: number): Promise<Internship[]> {
-  const { rows } = await getPool().query<Row>(
-    'SELECT * FROM internships WHERE archived = false AND classified_at IS NULL ORDER BY seen_at DESC LIMIT $1', [limit],
-  );
-  return rows.map(fromRow);
+  const { rows } = await getPool().query<Row>(`${SELECT} WHERE i.archived = false AND i.classified_at IS NULL ORDER BY i.seen_at DESC LIMIT $1`, [limit]);
+  return rows.map(r => present(fromRow(r)));
 }
 
 // ---------------------------------------------------------------------------

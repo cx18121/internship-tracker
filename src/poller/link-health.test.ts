@@ -1,13 +1,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractLinkedInJobId, needsCheck } from './link-health';
-import type { Internship } from '../lib/types';
+import type { StoredInternship } from '../lib/types';
 
 const DAY = 24 * 60 * 60 * 1000;
 const now = Date.parse('2026-09-16T12:00:00Z');
-const row = (over: Partial<Internship>): Internship => ({
-  id: 'x', title: 'T', company: 'C', location: 'L', locations: ['L'], metros: [], link: 'https://x', source: 'SimplifyJobs',
-  postedAt: '', seenAt: '', firstSeenAt: '', score: 0, scoreLabel: null, matchedKeywords: [], archived: false,
+const row = (over: Partial<StoredInternship>): StoredInternship => ({
+  id: 'x', title: 'T', company: 'C', location: 'L', locations: ['L'], link: 'https://x', source: 'SimplifyJobs',
+  postedAt: '', seenAt: '', firstSeenAt: '', archived: false,
   failedCheckCount: 0, normalizedKey: '', season: [], ...over,
 });
 
