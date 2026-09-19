@@ -62,7 +62,7 @@ export interface StoredInternship {
   season: string[];
   /** Model classification. Absent until the row has been classified. */
   roleType?: RoleType;
-  /** Eligible degree levels; empty array means the posting gave no signal. */
+  /** Eligible degree levels. Defaults to ['bs'] when the posting states no graduate requirement. */
   degrees?: Degree[];
   usEligible?: 'yes' | 'no' | 'unclear';
   isInternship?: boolean;
