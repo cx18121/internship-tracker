@@ -44,7 +44,7 @@ function inQuietHours(): boolean {
 // per-op timeouts inside the pollers (Playwright's ~30s defaults, axios
 // timeouts, JobSpy's subprocess kill, our page.evaluate wrappers) should catch
 // hangs first; this is the coarse backstop for anything that slips through.
-const WATCHDOG_MS_FAST = parseInt(process.env.WATCHDOG_MS_FAST || String(5 * 60 * 1000), 10);
+const WATCHDOG_MS_FAST = parseInt(process.env.WATCHDOG_MS_FAST || String(10 * 60 * 1000), 10);
 const WATCHDOG_MS_SLOW = parseInt(process.env.WATCHDOG_MS_SLOW || String(20 * 60 * 1000), 10);
 const WATCHDOG_MS_INITIAL = parseInt(process.env.WATCHDOG_MS_INITIAL || String(25 * 60 * 1000), 10);
 const WATCHDOG_MS_REVALIDATE = parseInt(process.env.WATCHDOG_MS_REVALIDATE || String(30 * 60 * 1000), 10);

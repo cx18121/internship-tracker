@@ -1,8 +1,8 @@
-import type { RawPosting } from '../lib/types';
+import type { RawPosting, ATSTarget } from '../lib/types';
 import { pollGitHub } from './pollers/github';
 import { pollJobSpy } from './pollers/jobspy';
-import { pollATS } from './pollers/ats';
-import { ATS_SOURCES } from './sources';
+import { pollATS, STARTUP_ATS, ENTERPRISE_ATS } from './pollers/ats';
+import { ATS } from './ats';
 import { pollYCWaaS } from './pollers/yc-waas';
 import { filterPostings } from './filter';
 import { deduplicateAndStore, savePollStats } from '../lib/store';
@@ -20,15 +20,19 @@ interface SourceRun {
   sources?: readonly string[];
 }
 
-// Fast tier: seconds per run, polled often.
+const sourcesFor = (kinds: ReadonlySet<ATSTarget['ats']>) => [...kinds].map(k => ATS[k].source);
+
+// Fast tier: the SimplifyJobs README and every startup board, both a minute
+// or two per run, polled every 15 minutes so a new posting is seen early.
 const FAST: SourceRun[] = [
   { label: 'SimplifyJobs', poll: pollGitHub, sources: ['SimplifyJobs'] },
+  { label: 'Startup boards', poll: () => pollATS(STARTUP_ATS), sources: sourcesFor(STARTUP_ATS) },
 ];
 
-// Slow tier: ATS boards and YC over HTTP in parallel, JobSpy (a Python
+// Slow tier: enterprise ATSes and YC over HTTP in parallel, JobSpy (a Python
 // subprocess scraping LinkedIn) alongside.
 const SLOW_HTTP: SourceRun[] = [
-  { label: 'ATS portals', poll: pollATS, sources: ATS_SOURCES },
+  { label: 'Enterprise boards', poll: () => pollATS(ENTERPRISE_ATS), sources: sourcesFor(ENTERPRISE_ATS) },
   { label: 'YC WaaS', poll: pollYCWaaS, sources: ['YC WaaS'] },
 ];
 const SLOW_SUBPROCESS: SourceRun[] = [
@@ -64,7 +68,7 @@ export async function runCycle(tier: CycleTier = 'all'): Promise<void> {
   console.log(`[agent] Starting ${tier} cycle`);
   const collected: Collected = { raw: [], fetched: new Set() };
 
-  if (tier !== 'slow') await runSerial(FAST, collected);
+  if (tier !== 'slow') await Promise.all(FAST.map(run => runSource(run, collected)));
   if (tier !== 'fast') {
     await Promise.all([
       Promise.all(SLOW_HTTP.map(run => runSource(run, collected))),

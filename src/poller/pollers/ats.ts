@@ -13,10 +13,14 @@ import {
   WorkdayHttpError, type InternFacets,
 } from '../ats/workday';
 
-// Startups hire through Ashby, Greenhouse, and Lever; the enterprise ATSes
-// are dominated by employers nobody curated. Poll those only for companies
-// in the scoring tiers or judged elite/top/hot by the classifier.
-const CURATED_ONLY_ATS = new Set<ATSTarget['ats']>(['workday', 'icims', 'smartrecruiters']);
+// Startups hire through Ashby, Greenhouse, and Lever; those boards answer in
+// one cheap call and are polled every fast cycle. The enterprise ATSes are
+// slow (Workday needs a browser for some tenants) and dominated by employers
+// nobody curated, so they run hourly and only for companies in the scoring
+// tiers or judged elite/top/hot by the classifier.
+export const ENTERPRISE_ATS = new Set<ATSTarget['ats']>(['workday', 'icims', 'smartrecruiters']);
+export const STARTUP_ATS = new Set<ATSTarget['ats']>(['greenhouse', 'ashby', 'lever', 'rippling', 'workable']);
+const CURATED_ONLY_ATS = ENTERPRISE_ATS;
 
 export function shouldPoll(target: ATSTarget, promoted: Set<string> = new Set()): boolean {
   if (!CURATED_ONLY_ATS.has(target.ats)) return true;
@@ -24,15 +28,15 @@ export function shouldPoll(target: ATSTarget, promoted: Set<string> = new Set())
   return listedCompanyTier(name) !== null || promoted.has(companyKey(canonicalizeCompany(stripEmojiPrefix(name))));
 }
 
-export async function pollATS(): Promise<RawPosting[]> {
-  const all = overlayWorkdayFlags(loadATSTargets());
+export async function pollATS(kinds: ReadonlySet<ATSTarget['ats']>): Promise<RawPosting[]> {
+  const all = overlayWorkdayFlags(loadATSTargets()).filter(t => kinds.has(t.ats));
   const promoted = await getPromotedCompanyKeys().catch(() => new Set<string>());
   const targets = all.filter(t => shouldPoll(t, promoted));
   if (targets.length === 0) {
     console.warn('[ats] No targets in data/ats-targets.json');
     return [];
   }
-  if (targets.length < all.length) console.log(`[ats] Skipping ${all.length - targets.length} uncurated Workday/iCIMS/SmartRecruiters tenants`);
+  if (targets.length < all.length) console.log(`[ats] Skipping ${all.length - targets.length} uncurated enterprise tenants`);
   const now = new Date().toISOString();
   const results: RawPosting[] = [];
   const discoveredFacets = new Map<string, InternFacets>();
