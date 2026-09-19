@@ -115,8 +115,7 @@ export function saveDiscoveredTargets(targets: ATSTarget[]): number {
 
 /**
  * Does a public board exist for this slug? Used by the discovery scripts to
- * confirm candidates before appending them. Ashby returns 200 for any slug,
- * so its check requires the embedded job data to parse.
+ * confirm candidates before appending them.
  */
 export async function verifyAtsSlug(slug: string, ats: 'greenhouse' | 'lever' | 'ashby', timeoutMs = 8000): Promise<boolean> {
   const opts = { timeout: timeoutMs, validateStatus: () => true };
@@ -129,9 +128,8 @@ export async function verifyAtsSlug(slug: string, ats: 'greenhouse' | 'lever' | 
       const res = await axios.get(`https://api.lever.co/v0/postings/${slug}?mode=json`, opts);
       return res.status === 200 && Array.isArray(res.data);
     }
-    const res = await axios.get<string>(`https://jobs.ashbyhq.com/${slug}`, { ...opts, responseType: 'text' });
-    const m = res.status === 200 ? res.data.match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s) : null;
-    return !!m && Array.isArray(JSON.parse(m[1])?.jobBoard?.jobPostings);
+    const res = await axios.get(`https://api.ashbyhq.com/posting-api/job-board/${slug}`, opts);
+    return res.status === 200 && Array.isArray(res.data?.jobs);
   } catch {
     return false;
   }

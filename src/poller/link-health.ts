@@ -79,12 +79,14 @@ function atsProbeUrl(url: string): string | null {
 }
 
 async function ashbyState(url: string): Promise<LinkState> {
+  const m = url.match(/jobs\.ashbyhq\.com\/([^/?#]+)\/([0-9a-f-]{36})/i);
+  if (!m) return 'unknown';
   try {
-    const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
-    if (!res.ok) return GONE_STATUSES.has(res.status) ? 'gone' : 'unknown';
-    const html = await res.text();
-    // A live posting embeds its data; a closed one renders the board with a notice.
-    return /"posting"\s*:\s*\{/.test(html) && !/no longer|isn.t available|has been closed/i.test(html) ? 'live' : 'gone';
+    const res = await fetch(`https://api.ashbyhq.com/posting-api/job-board/${m[1]}`, { headers: { Accept: 'application/json', 'User-Agent': UA }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (res.status === 404) return 'gone';
+    if (!res.ok) return 'unknown';
+    const data = (await res.json()) as { jobs?: Array<{ id: string }> };
+    return data.jobs?.some(j => j.id === m[2]) ? 'live' : 'gone';
   } catch {
     return 'unknown';
   }
@@ -92,7 +94,7 @@ async function ashbyState(url: string): Promise<LinkState> {
 
 export async function linkState(url: string): Promise<LinkState> {
   if (/linkedin\.com/.test(url)) return linkedInState(url);
-  if (/jobs\.ashbyhq\.com\/[^/]+\/[^/?#]+/.test(url)) return ashbyState(url);
+  if (/jobs\.ashbyhq\.com\//.test(url)) return ashbyState(url);
   const probe = atsProbeUrl(url);
   if (probe) {
     try {

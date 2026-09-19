@@ -39,28 +39,6 @@ export function extractLeverDescription(posting: {
   return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, MAX_DESC_LEN);
 }
 
-/**
- * Extract description from an Ashby job-page HTML. Ashby ships `window.__appData`
- * as inline JSON. The detail page has `data.posting.descriptionHtml`; the board
- * page only has metadata, so descriptions only come from the detail-page form.
- *
- * Accepts trailing newline OR `</script>` after the closing semicolon — the
- * single-newline form is legacy. Without the alternation an Ashby DOM tweak
- * silently zeroes out descriptions across every Ashby tenant.
- */
-export function extractAshbyDescription(html: string, jobId: string): string {
-  const m = html.match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
-  if (!m) {
-    console.warn(`[ashby] __appData regex missed for ${jobId} — markup may have changed`);
-    return '';
-  }
-  const data = JSON.parse(m[1]);
-  const posting = data?.posting
-    ?? data?.jobBoard?.jobPostings?.find((p: { id: string }) => p.id === jobId)
-    ?? data?.jobBoard?.jobPostings?.[0];
-  return stripHtml(posting?.descriptionHtml ?? '').slice(0, MAX_DESC_LEN);
-}
-
 // ── Per-ATS fetchers ───────────────────────────────────────────────────────
 
 export async function fetchGreenhouseDescription(slug: string, jobId: string): Promise<string> {
@@ -89,12 +67,11 @@ export async function fetchLeverDescription(slug: string, jobId: string): Promis
 
 export async function fetchAshbyDescription(slug: string, jobId: string): Promise<string> {
   try {
-    const { data: html } = await axios.get(`https://jobs.ashbyhq.com/${slug}/${jobId}`, {
-      timeout: TIMEOUT_MS,
-      headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'text/html' },
-      responseType: 'text',
-    });
-    return extractAshbyDescription(html as string, jobId);
+    const { data } = await axios.get<{ jobs?: Array<{ id: string; descriptionPlain?: string; descriptionHtml?: string }> }>(
+      `https://api.ashbyhq.com/posting-api/job-board/${slug}`, { timeout: TIMEOUT_MS, headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } },
+    );
+    const job = data?.jobs?.find(j => j.id === jobId);
+    return (job?.descriptionPlain ?? stripHtml(job?.descriptionHtml ?? '')).slice(0, MAX_DESC_LEN);
   } catch {
     return '';
   }

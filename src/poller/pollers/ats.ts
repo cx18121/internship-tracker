@@ -5,7 +5,6 @@ import { isInternTitle } from '../utils/intern-signal';
 import { stripHtml } from '../utils/html';
 import {
   extractLeverDescription,
-  fetchAshbyDescription,
   fetchSmartRecruitersDescription,
   fetchRipplingDescription,
 } from '../utils/description-fetchers';
@@ -94,55 +93,40 @@ const pollLever: Adapter = async (target, now) => {
 };
 
 // ---------------------------------------------------------------------------
-// Ashby (job data is inline JSON on the board page)
+// Ashby (public posting API; one call returns every job with its description)
 // ---------------------------------------------------------------------------
 
-interface AshbyPosting {
+interface AshbyJob {
   id: string;
-  title?: string;
+  title: string;
   employmentType?: string;
-  workplaceType?: string;
-  locationName?: string;
-  locationExternalName?: string;
-  publishedDate?: string;
-}
-interface AshbyAppData {
-  organization?: { name?: string };
-  jobBoard?: { jobPostings?: AshbyPosting[] };
+  location?: string;
+  secondaryLocations?: Array<{ location?: string }>;
+  isRemote?: boolean | null;
+  publishedAt?: string;
+  jobUrl?: string;
+  descriptionPlain?: string;
+  descriptionHtml?: string;
 }
 
+export const ashbyBoardApi = (slug: string) => `https://api.ashbyhq.com/posting-api/job-board/${slug}`;
+
 const pollAshby: Adapter = async (target, now) => {
-  const { data: html } = await axios.get<string>(`https://jobs.ashbyhq.com/${target.slug}`, {
-    timeout: REQUEST_TIMEOUT, headers: HTML_HEADERS, responseType: 'text',
-  });
-  const match = html.match(/window\.__appData\s*=\s*(\{.*?\});\s*(?:\n|<\/script>|$)/s);
-  if (!match) {
-    console.warn(`[ats] Ashby ${target.slug}: __appData not found; markup may have changed`);
-    return [];
-  }
-  let appData: AshbyAppData;
-  try {
-    appData = JSON.parse(match[1]);
-  } catch {
-    console.warn(`[ats] Ashby ${target.slug}: failed to parse __appData`);
-    return [];
-  }
-  const company = target.name || appData.organization?.name || target.slug;
-  const interns = (appData.jobBoard?.jobPostings ?? []).filter(j => isInternTitle(j.title ?? '') || isInternTitle(j.employmentType ?? ''));
-  const results: RawPosting[] = [];
-  for (const j of interns) {
-    results.push(buildPosting({
+  const { data } = await axios.get<{ jobs?: AshbyJob[] }>(ashbyBoardApi(target.slug), { timeout: REQUEST_TIMEOUT, headers: JSON_HEADERS });
+  const company = target.name || target.slug;
+  return (data.jobs ?? [])
+    .filter(j => isInternTitle(j.title ?? '') || /intern/i.test(j.employmentType ?? ''))
+    .map(j => buildPosting({
       title: j.title ?? '',
       company,
-      location: j.workplaceType === 'Remote' ? 'Remote' : (j.locationName || j.locationExternalName),
-      link: `https://jobs.ashbyhq.com/${target.slug}/${j.id}`,
+      locations: [j.location, ...(j.secondaryLocations ?? []).map(l => l.location), j.isRemote ? 'Remote' : undefined],
+      link: j.jobUrl || `https://jobs.ashbyhq.com/${target.slug}/${j.id}`,
       source: 'Ashby',
-      upstreamPostedAt: j.publishedDate,
+      upstreamPostedAt: j.publishedAt,
       now,
-      description: await fetchAshbyDescription(target.slug, j.id),
+      description: j.descriptionPlain,
+      descriptionHtml: j.descriptionPlain ? undefined : j.descriptionHtml,
     }));
-  }
-  return results;
 };
 
 // ---------------------------------------------------------------------------
