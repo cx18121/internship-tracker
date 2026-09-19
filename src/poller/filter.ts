@@ -32,7 +32,7 @@ const NON_SWE_ROLES = [
 
 export type ExclusionReason = 'non-us' | 'closed' | 'non-swe' | 'not-intern' | 'expired-season';
 
-export const EXCLUSION_REASONS: readonly ExclusionReason[] = ['non-us', 'closed', 'non-swe', 'not-intern', 'expired-season'];
+const EXCLUSION_REASONS: readonly ExclusionReason[] = ['non-us', 'closed', 'non-swe', 'not-intern', 'expired-season'];
 
 export interface FilterResult {
   passed: boolean;

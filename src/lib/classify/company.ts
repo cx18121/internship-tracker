@@ -56,7 +56,7 @@ export interface CompanyFacts {
   location?: string | null;
 }
 
-export function describeFacts(f: CompanyFacts): string {
+function describeFacts(f: CompanyFacts): string {
   const parts = [
     f.domain,
     f.stage ? `stage: ${f.stage}` : '',

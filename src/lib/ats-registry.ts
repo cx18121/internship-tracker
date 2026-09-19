@@ -22,7 +22,7 @@ interface AtsAdapter {
 
 const LOCALE_RE = /^[a-z]{2}[-_][A-Z]{2}$/;
 
-export const ATS_ADAPTERS: Record<ATSKind, AtsAdapter> = {
+const ATS_ADAPTERS: Record<ATSKind, AtsAdapter> = {
   greenhouse: {
     matchUrl: (h) => h === 'boards.greenhouse.io' || h === 'job-boards.greenhouse.io',
     extractTarget: (_h, p) => {

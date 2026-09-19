@@ -406,17 +406,6 @@ export async function rekeyCompanies(): Promise<{ internships: number; profiles:
   return { internships: rows.length, profiles: profiles.length };
 }
 
-/** Set job_key on rows that predate the column. Returns the number filled. */
-export async function backfillJobKeys(): Promise<number> {
-  const { rows } = await getPool().query<{ id: string; link: string }>('SELECT id, link FROM internships WHERE job_key IS NULL AND link <> \'\'');
-  if (rows.length === 0) return 0;
-  await getPool().query(
-    'UPDATE internships i SET job_key = x.job_key FROM jsonb_to_recordset($1::jsonb) AS x(id text, job_key text) WHERE i.id = x.id',
-    [JSON.stringify(rows.map(r => ({ id: r.id, job_key: jobKey(r.link) })))],
-  );
-  return rows.length;
-}
-
 export async function archiveInternshipsByIds(ids: string[], reason: string): Promise<number> {
   if (ids.length === 0) return 0;
   const result = await getPool().query('UPDATE internships SET archived = true, archive_reason = $2 WHERE id = ANY($1::text[])', [ids, reason]);

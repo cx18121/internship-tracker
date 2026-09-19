@@ -110,7 +110,7 @@ interface AshbyJob {
   descriptionHtml?: string;
 }
 
-export const ashbyBoardApi = (slug: string) => `https://api.ashbyhq.com/posting-api/job-board/${slug}`;
+const ashbyBoardApi = (slug: string) => `https://api.ashbyhq.com/posting-api/job-board/${slug}`;
 
 const pollAshby: Adapter = async (target, now) => {
   const { data } = await axios.get<{ jobs?: AshbyJob[] }>(ashbyBoardApi(target.slug), { timeout: REQUEST_TIMEOUT, headers: JSON_HEADERS });

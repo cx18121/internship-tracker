@@ -41,7 +41,7 @@ export function extractLeverDescription(posting: {
 
 // ── Per-ATS fetchers ───────────────────────────────────────────────────────
 
-export async function fetchGreenhouseDescription(slug: string, jobId: string): Promise<string> {
+async function fetchGreenhouseDescription(slug: string, jobId: string): Promise<string> {
   try {
     const { data } = await axios.get(
       `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${jobId}?content=true`,
@@ -53,7 +53,7 @@ export async function fetchGreenhouseDescription(slug: string, jobId: string): P
   }
 }
 
-export async function fetchLeverDescription(slug: string, jobId: string): Promise<string> {
+async function fetchLeverDescription(slug: string, jobId: string): Promise<string> {
   try {
     const { data } = await axios.get(
       `https://api.lever.co/v0/postings/${slug}/${jobId}?mode=json`,
@@ -65,7 +65,7 @@ export async function fetchLeverDescription(slug: string, jobId: string): Promis
   }
 }
 
-export async function fetchAshbyDescription(slug: string, jobId: string): Promise<string> {
+async function fetchAshbyDescription(slug: string, jobId: string): Promise<string> {
   try {
     const { data } = await axios.get<{ jobs?: Array<{ id: string; descriptionPlain?: string; descriptionHtml?: string }> }>(
       `https://api.ashbyhq.com/posting-api/job-board/${slug}`, { timeout: TIMEOUT_MS, headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' } },
@@ -170,12 +170,12 @@ export async function fetchWorkdayDetailByUrl(url: string): Promise<WorkdayDetai
   }
 }
 
-export async function fetchWorkdayDescriptionByUrl(url: string): Promise<string> {
+async function fetchWorkdayDescriptionByUrl(url: string): Promise<string> {
   return (await fetchWorkdayDetailByUrl(url)).description;
 }
 
 /** LinkedIn's guest job endpoint serves the JD server-side without auth. */
-export async function fetchLinkedInDescription(url: string): Promise<string> {
+async function fetchLinkedInDescription(url: string): Promise<string> {
   const id = extractLinkedInJobId(url);
   if (!id) return '';
   try {

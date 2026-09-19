@@ -82,7 +82,7 @@ export function seasonSortKey(token: string): string {
  * that year's summer cycle; postings discovered Jul–Dec belong to the
  * following year's summer cycle.
  */
-export function defaultSeasonForDate(d: Date = new Date()): string {
+function defaultSeasonForDate(d: Date = new Date()): string {
   const year = d.getUTCMonth() >= 6 ? d.getUTCFullYear() + 1 : d.getUTCFullYear();
   return `summer-${year}`;
 }
