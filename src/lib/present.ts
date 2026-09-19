@@ -9,14 +9,15 @@ import { openSeasonTokens } from './seasons';
  * tier is visible immediately with no stored copy to go stale.
  */
 export function present(row: StoredInternship, now = new Date()): Internship {
-  const s = scoreInternship({ title: row.title, company: row.company, location: row.location, roleType: row.roleType, companyTier: row.companyTier });
+  const metros = metrosFor(row.locations);
+  const s = scoreInternship({ title: row.title, company: row.company, roleType: row.roleType, companyTier: row.companyTier, degrees: row.degrees, inMetro: metros.some(m => m !== 'other') });
   return {
     ...row,
     score: s.score,
     scoreLabel: s.scoreLabel,
     companyTier: s.companyTier,
     matchedKeywords: s.matchedKeywords,
-    metros: metrosFor(row.locations),
+    metros,
     season: openSeasonTokens(row.season, now),
   };
 }

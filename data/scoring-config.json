@@ -2,23 +2,25 @@
   "scoringCeiling": 100,
   "companyBase": {
     "elite": 100,
-    "hot": 85,
-    "top": 70,
-    "startup": 55,
-    "solid": 35,
+    "hot": 90,
+    "top": 80,
+    "startup": 70,
+    "solid": 40,
     "other": 25
   },
   "roleMultiplier": {
     "swe": 1.0,
     "ml_ai": 1.0,
     "quant": 1.0,
-    "data": 0.75,
-    "it_security": 0.6,
-    "hardware_ee": 0.5,
-    "research_science": 0.5,
-    "product_pm": 0.4,
+    "data": 0.8,
+    "it_security": 0.5,
+    "hardware_ee": 0.4,
+    "research_science": 0.4,
+    "product_pm": 0.3,
     "other": 0
   },
+  "outsideMetroMultiplier": 0.8,
+  "graduateOnlyMultiplier": 0.5,
   "companyTiers": {
     "elite": {
       "companies": [
@@ -420,20 +422,5 @@
     "T1": "swe",
     "T2": "data",
     "T3": "hardware_ee"
-  },
-  "locationBonus": {
-    "preferred": {
-      "points": 6,
-      "keywords": [
-        "new york",
-        "nyc",
-        "san francisco",
-        "sf",
-        "bay area",
-        "seattle",
-        "boston",
-        "austin"
-      ]
-    }
   }
 }

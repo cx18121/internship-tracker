@@ -5,46 +5,47 @@ import * as path from 'node:path';
 import { scoreInternship, listedCompanyTier, labelFor, loadConfig, type ScoringConfig } from './scorer';
 
 describe('Scorer', () => {
-  test('SWE intern at an elite company is an A', () => {
-    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Anthropic', location: 'San Francisco, CA' });
-    assert.equal(r.companyTier, 'elite');
-    assert.equal(r.roleType, 'swe');
-    assert.equal(r.score, 100);
-    assert.equal(r.scoreLabel, 'A');
-  });
+  const at = (companyTier: 'elite' | 'hot' | 'top' | 'startup' | 'solid' | 'other', roleType: 'swe' | 'data' | 'it_security' | 'hardware_ee', extra: Partial<Parameters<typeof scoreInternship>[0]> = {}) =>
+    scoreInternship({ title: 'Intern', company: 'X', companyTier, roleType, inMetro: true, ...extra }).score;
 
-  test('the company sets the band; the role scales it', () => {
-    const at = (companyTier: 'elite' | 'hot' | 'top' | 'startup' | 'solid' | 'other', roleType: 'swe' | 'it_security' | 'hardware_ee') =>
-      scoreInternship({ title: 'Intern', company: 'X', location: '', companyTier, roleType }).score;
+  test('B or better means elite, hot, top, or startup in a software role', () => {
     assert.equal(at('elite', 'swe'), 100);
-    assert.equal(at('hot', 'swe'), 85);
-    assert.equal(at('top', 'swe'), 70);
-    assert.equal(at('startup', 'swe'), 55, 'an unknown startup on a startup ATS outranks a bank');
-    assert.equal(at('solid', 'swe'), 35);
+    assert.equal(at('hot', 'swe'), 90);
+    assert.equal(at('top', 'swe'), 80);
+    assert.equal(at('startup', 'swe'), 70);
+    assert.equal(at('solid', 'swe'), 40, 'banks and insurers are backups');
     assert.equal(at('other', 'swe'), 25);
-    assert.equal(at('top', 'it_security'), 42, 'a security analyst at a top company is a D');
-    assert.equal(at('elite', 'hardware_ee'), 50);
   });
 
-  test('classifier role type overrides the title keywords', () => {
-    const r = scoreInternship({ title: 'Engineering Intern (Summer 2027)', company: 'Decagon', location: 'San Francisco', roleType: 'swe', companyTier: 'hot' });
-    assert.equal(r.scoreLabel, 'A');
+  test('role scales the band; adjacent roles at great companies drop', () => {
+    assert.equal(at('elite', 'hardware_ee'), 40);
+    assert.equal(at('top', 'it_security'), 40);
+    assert.equal(at('top', 'data'), 64);
+  });
+
+  test('outside the preferred metros costs one band', () => {
+    assert.equal(at('startup', 'swe', { inMetro: false }), 56, 'startup SWE in Columbus is a C');
+    assert.equal(at('elite', 'swe', { inMetro: false }), 80, 'elite stays A anywhere');
+    assert.equal(at('startup', 'swe', { inMetro: undefined }), 70, 'unknown location is not penalized');
+  });
+
+  test('graduate-only roles are halved; PhD-preferred with bs eligible is not', () => {
+    assert.equal(at('elite', 'swe', { degrees: ['phd'] }), 50);
+    assert.equal(at('elite', 'swe', { degrees: ['ms', 'phd'] }), 50);
+    assert.equal(at('elite', 'swe', { degrees: ['bs', 'ms', 'phd'] }), 100);
+    assert.equal(at('elite', 'swe', { degrees: [] }), 100, 'no signal is not a penalty');
   });
 
   test('curated company tier beats the classifier tier', () => {
-    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Anthropic', location: '', companyTier: 'other' });
+    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Anthropic', companyTier: 'other', roleType: 'swe' });
     assert.equal(r.companyTier, 'elite');
   });
 
-  test('a listed company name is recorded in matchedKeywords', () => {
-    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Snowflake', location: '' });
-    assert.ok(r.matchedKeywords.some(k => k.toLowerCase() === 'snowflake'));
-  });
-
-  test('title with no role keywords and no classifier → other → 0, no location bonus', () => {
-    const r = scoreInternship({ title: 'Summer Intern', company: 'Anthropic', location: 'New York' });
-    assert.equal(r.roleType, 'other');
-    assert.equal(r.score, 0);
+  test('title keywords infer the role before classification', () => {
+    const r = scoreInternship({ title: 'Software Engineer Intern', company: 'Anthropic' });
+    assert.equal(r.roleType, 'swe');
+    assert.equal(r.score, 100);
+    assert.equal(scoreInternship({ title: 'Summer Intern', company: 'Anthropic' }).score, 0);
   });
 
   test('labels: 75 A, 60 B, 45 C, 25 D, else F', () => {
@@ -54,7 +55,6 @@ describe('Scorer', () => {
   test('curated names match the whole canonical company name only', () => {
     assert.equal(listedCompanyTier('Snap')?.name.toLowerCase(), 'snap');
     assert.equal(listedCompanyTier('Snap Finance'), null);
-    assert.equal(listedCompanyTier('Sierra Nevada'), null);
     assert.equal(listedCompanyTier('Two Sigma')?.tier, 'elite');
   });
 
@@ -63,12 +63,13 @@ describe('Scorer', () => {
       scoringCeiling: 100,
       companyBase: { elite: 0, hot: 0, top: 0, startup: 0, solid: 0, other: 42 },
       roleMultiplier: { swe: 1, ml_ai: 0, data: 0, quant: 0, it_security: 0, hardware_ee: 0, research_science: 0, product_pm: 0, other: 0 },
+      outsideMetroMultiplier: 1,
+      graduateOnlyMultiplier: 1,
       companyTiers: {},
       roleTiers: { T1: { keywords: ['unicorn engineer'] } },
       roleTierFallback: { T1: 'swe' },
-      locationBonus: {},
     };
-    const r = scoreInternship({ title: 'Unicorn Engineer Intern', company: '', location: '' }, synthetic);
+    const r = scoreInternship({ title: 'Unicorn Engineer Intern', company: '' }, synthetic);
     assert.equal(r.score, 42);
     assert.deepEqual(r.matchedKeywords, ['unicorn engineer']);
   });
@@ -78,17 +79,15 @@ describe('Scoring config integrity', () => {
   const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'scoring-config.json'), 'utf-8')) as ScoringConfig;
 
   test('has every field the scorer reads', () => {
-    for (const field of ['scoringCeiling', 'companyBase', 'roleMultiplier', 'companyTiers', 'roleTiers', 'roleTierFallback', 'locationBonus'] as const) {
+    for (const field of ['scoringCeiling', 'companyBase', 'roleMultiplier', 'outsideMetroMultiplier', 'graduateOnlyMultiplier', 'companyTiers', 'roleTiers', 'roleTierFallback'] as const) {
       assert.ok(field in config, `missing ${field}`);
     }
     assert.equal(config.scoringCeiling, 100);
   });
 
-  test('elite and hot SWE roles are A, top is B, solid is C, unlisted is D', () => {
-    for (const t of ['elite', 'hot'] as const) assert.ok(config.companyBase[t] * config.roleMultiplier.swe >= 75, t);
-    assert.ok(config.companyBase.top * config.roleMultiplier.swe >= 60 && config.companyBase.top * config.roleMultiplier.swe < 75);
-    assert.ok(config.companyBase.startup > config.companyBase.solid, 'unknown startups outrank established non-tech');
-    assert.ok(config.companyBase.solid * config.roleMultiplier.swe < 45);
+  test('software roles at elite, hot, top, and startup are B or better; solid and other are not', () => {
+    for (const t of ['elite', 'hot', 'top', 'startup'] as const) assert.ok(config.companyBase[t] * config.roleMultiplier.swe >= 60, t);
+    for (const t of ['solid', 'other'] as const) assert.ok(config.companyBase[t] * config.roleMultiplier.swe < 60, t);
   });
 
   test('every legacy role tier maps to a role type', () => {

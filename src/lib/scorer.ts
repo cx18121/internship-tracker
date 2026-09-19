@@ -6,12 +6,13 @@ import type { CompanyTier } from "./classify/company";
 import { tokenize, containsPhrase } from "./keyword-match";
 
 /**
- * score = companyBase[companyTier] × roleMultiplier[roleType] + location
- * bonus, capped at scoringCeiling. The company decides the band (an A is a
- * company worth applying to); the role scales it (a security analyst role at
- * an elite company is a C, not an A). Tiers come from the classifier; before
- * a row is classified the role is inferred from title keywords, and a
- * company named in companyTiers always overrides the classifier.
+ * score = companyBase[tier] × roleMultiplier[role] × metro × degree, capped
+ * at scoringCeiling. The grade is a decision, not a rank: B or better means
+ * "look at this", below means safe to skip. Company sets the band, role
+ * scales it, and two personal fits discount it: a role outside the user's
+ * metros (outsideMetroMultiplier) and a role a bachelor's applicant cannot
+ * apply to (graduateOnlyMultiplier). Tiers come from the classifier; a
+ * company named in companyTiers always overrides it.
  */
 
 interface Keywords { keywords: string[] }
@@ -20,13 +21,16 @@ export interface ScoringConfig {
   scoringCeiling: number;
   companyBase: Record<CompanyTier, number>;
   roleMultiplier: Record<RoleType, number>;
+  /** Applied when no listed location is remote or in a preferred metro. */
+  outsideMetroMultiplier: number;
+  /** Applied when the posting excludes bachelor's applicants. */
+  graduateOnlyMultiplier: number;
   /** Curated overrides by tier, including `other` to demote a company the model overrates. */
   companyTiers: Partial<Record<CompanyTier, { companies: string[] }>>;
   /** Title keywords per legacy tier; also feed matchedKeywords for the UI chips. */
   roleTiers: Record<string, Keywords & { points?: number }>;
   /** Legacy tier → roleType, used only before classification. */
   roleTierFallback: Record<string, RoleType>;
-  locationBonus: Record<string, Keywords & { points: number }>;
 }
 
 const CONFIG_PATH = path.join(process.cwd(), "data", "scoring-config.json");
@@ -36,14 +40,17 @@ export function loadConfig(): ScoringConfig {
   return (_config ??= JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8")) as ScoringConfig);
 }
 
-export type Scorable = Pick<Internship, "title" | "company" | "location"> & Partial<Pick<Internship, "roleType" | "companyTier">>;
+export type Scorable = Pick<Internship, "title" | "company"> & Partial<Pick<Internship, "roleType" | "companyTier" | "degrees">> & {
+  /** True when at least one listed location is remote or in a preferred metro. */
+  inMetro?: boolean;
+};
 
 export interface ScoreResult {
   score: number;
   scoreLabel: ScoreLabel;
   roleType: RoleType;
   companyTier: CompanyTier;
-  breakdown: { role: number; company: number; location: number };
+  breakdown: { company: number; role: number; metro: number; degree: number };
   matchedKeywords: string[];
 }
 
@@ -79,20 +86,6 @@ function roleFromTitle(title: string, cfg: ScoringConfig, matched: string[]): Ro
   return best;
 }
 
-function locationBonus(location: string, cfg: ScoringConfig, matched: string[]): number {
-  if (!location) return 0;
-  const tokens = tokenize(location);
-  let best = 0;
-  let bestKw: string | null = null;
-  for (const info of Object.values(cfg.locationBonus)) {
-    for (const kw of info.keywords) {
-      if (containsPhrase(tokens, tokenize(kw)) && info.points > best) { best = info.points; bestKw = kw; }
-    }
-  }
-  if (bestKw) matched.push(bestKw);
-  return best;
-}
-
 export function labelFor(score: number): ScoreLabel {
   return score >= 75 ? "A" : score >= 60 ? "B" : score >= 45 ? "C" : score >= 25 ? "D" : "F";
 }
@@ -111,17 +104,18 @@ export function scoreInternship(entry: Scorable, config?: ScoringConfig): ScoreR
   if (listed) matched.push(listed.name);
 
   const company = cfg.companyBase[companyTier] ?? 0;
-  const multiplier = cfg.roleMultiplier[roleType] ?? 0;
-  const role = Math.round(company * multiplier);
-  const location = role > 0 ? locationBonus(entry.location, cfg, matched) : 0;
-  const score = Math.max(0, Math.min(role + location, cfg.scoringCeiling));
+  const role = cfg.roleMultiplier[roleType] ?? 0;
+  const metro = entry.inMetro === false ? cfg.outsideMetroMultiplier : 1;
+  const graduateOnly = !!entry.degrees && entry.degrees.length > 0 && !entry.degrees.includes("bs");
+  const degree = graduateOnly ? cfg.graduateOnlyMultiplier : 1;
+  const score = Math.max(0, Math.min(Math.round(company * role * metro * degree), cfg.scoringCeiling));
 
   return {
     score,
     scoreLabel: labelFor(score),
     roleType,
     companyTier,
-    breakdown: { company, role: multiplier, location },
+    breakdown: { company, role, metro, degree },
     matchedKeywords: [...new Set(matched)],
   };
 }
