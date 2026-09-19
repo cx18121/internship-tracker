@@ -302,13 +302,14 @@ const BACKFILL_SQL = `
     salary_unit      = COALESCE(salary_unit, $6),
     locations        = $7,
     location         = $8,
-    normalized_key   = COALESCE(normalized_key, $9)
+    normalized_key   = COALESCE(normalized_key, $9),
+    posted_at        = COALESCE(posted_at, $11)
   WHERE id = $10`;
 
 function backfillArgs(i: StoredInternship, targetId: string): unknown[] {
   return [
     i.seenAt, i.description ?? null, i.salaryText ?? null, i.salaryMin ?? null, i.salaryMax ?? null, i.salaryUnit ?? null,
-    JSON.stringify(i.locations), i.location, i.normalizedKey, targetId,
+    JSON.stringify(i.locations), i.location, i.normalizedKey, targetId, i.postedAt ?? null,
   ];
 }
 

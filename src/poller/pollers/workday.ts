@@ -30,7 +30,7 @@ interface WorkdayPosting {
   locationsText?: string;
 }
 interface WorkdayDetailResponse {
-  jobPostingInfo?: { jobDescription?: string; location?: string; additionalLocations?: string[] };
+  jobPostingInfo?: { jobDescription?: string; location?: string; additionalLocations?: string[]; /** Post date, YYYY-MM-DD. */ startDate?: string };
 }
 
 export interface WorkdayClient {
@@ -182,6 +182,7 @@ async function pollTenant(target: ATSTarget, client: WorkdayClient, now: string)
       locations,
       link: `${t.boardUrl}${j.externalPath}`,
       source: 'Workday',
+      upstreamPostedAt: info?.startDate,
       now,
       description: stripHtml(info?.jobDescription ?? ''),
     });

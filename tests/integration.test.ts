@@ -64,6 +64,17 @@ describe('Dedup', { skip }, () => {
   });
 });
 
+describe('Rediscovery backfill', { skip }, () => {
+  test('a rediscovered row gains a posted date it lacked', async () => {
+    const first = fixture({ id: 'posted-a', link: 'https://x.wd5.myworkdayjobs.com/x/job/y/Intern_JR1', postedAt: undefined });
+    await deduplicateAndStore([first]);
+    await deduplicateAndStore([{ ...first, postedAt: '2026-05-06' }]);
+    const { getInternship } = await import('../src/lib/store');
+    assert.equal((await getInternship('posted-a'))?.postedAt?.slice(0, 10), '2026-05-06');
+    await deleteInternship('posted-a');
+  });
+});
+
 describe('Dedup by job identity', { skip }, () => {
   test('the same ATS job under a differently cased slug or another company spelling is one row', async () => {
     const base = fixture({ id: 'jobkey-a', company: 'Datology', title: 'Research Intern', source: 'Ashby', link: 'https://jobs.ashbyhq.com/datologyai/0ced19c2-21ec-4bcc-92d2-68d448279f3f', normalizedKey: 'datology::research' });
