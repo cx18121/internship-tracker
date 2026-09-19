@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 
 // Sources whose pollers were removed. Their rows linger and get seen_at bumped
 // by cross-source rediscovery, so hide them from the health panel explicitly.
-const RETIRED_SOURCES = new Set(["Google", "Inhouse"]);
+const RETIRED_SOURCES = new Set(["Google", "Inhouse", "Handshake", "Indeed"]);
 
 export async function GET() {
   const [rows, poll] = await Promise.all([getSourceHealth(), getPollStats()]);

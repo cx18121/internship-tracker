@@ -16,12 +16,14 @@ export function cachedJsonResponse(request: Request, payload: unknown): Response
   const etag = `W/"${createHash("sha1").update(body).digest("base64").slice(0, 22)}"`;
 
   if (request.headers.get("if-none-match") === etag) {
-    return new Response(null, { status: 304, headers: { ETag: etag } });
+    return new Response(null, { status: 304, headers: { ETag: etag, "Cache-Control": "no-cache" } });
   }
 
   const headers: Record<string, string> = {
     "content-type": "application/json; charset=utf-8",
     ETag: etag,
+    // Always revalidate; the ETag turns an unchanged corpus into a 304.
+    "Cache-Control": "no-cache",
     Vary: "Accept-Encoding",
   };
 
