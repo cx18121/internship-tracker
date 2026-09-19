@@ -11,7 +11,7 @@
 
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, rekeyCompanies, getCompanyProfiles } from '../src/lib/store';
+import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, rekeyRows, getCompanyProfiles } from '../src/lib/store';
 import { companyKey } from '../src/lib/company-key';
 import { jobKey } from '../src/poller/ats';
 import { closePool } from '../src/lib/db';
@@ -109,7 +109,7 @@ describe('Company rekey', { skip }, () => {
     await getPool().query("INSERT INTO company_profiles (company_key, company, tier, known, model) VALUES ('etched.ai', 'Etched.ai', 'solid', false, 'claude'), ('etched', 'Etched', 'hot', true, 'claude') ON CONFLICT (company_key) DO NOTHING");
     const row = fixture({ id: 'rekey-a', company: 'Etched.ai', link: 'https://jobs.ashbyhq.com/etched/11111111-1111-1111-1111-111111111111' });
     await deduplicateAndStore([row]);
-    await rekeyCompanies();
+    await rekeyRows();
     const profiles = await getCompanyProfiles(['etched']);
     assert.equal(profiles.size, 1);
     assert.equal((await getPool().query("SELECT count(*)::int n FROM company_profiles WHERE company_key IN ('etched.ai', 'etched')")).rows[0].n, 1);

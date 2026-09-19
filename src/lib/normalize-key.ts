@@ -21,6 +21,8 @@
  *     → "stripe::backend engineer"    ✗ correctly distinct
  */
 
+import { companyKey } from './company-key';
+
 const FILLER_WORDS = new Set([
   // Position type
   'intern', 'interns', 'internship', 'internships',
@@ -60,5 +62,5 @@ export function normalizeKey(company: string, title: string): string {
     .join(' ')
     .trim();
 
-  return `${company.toLowerCase().trim()}::${cleanedTitle}`;
+  return `${companyKey(company)}::${cleanedTitle}`;
 }

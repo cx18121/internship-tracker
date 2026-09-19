@@ -29,15 +29,16 @@ const SUFFIX_RE = /[,]?\s+(?:inc|incorporated|llc|l\.l\.c|corp|corporation|ltd|l
 // algorithmically-cleaned (paren+suffix-stripped) form; values are the
 // canonical display name. Keep this tight — every entry is an explicit
 // "these are the same company" decision.
+// Display names. Identity is companyKey's job; these only pick the spelling shown.
 const ALIASES = new Map<string, string>([
   ['nvidia ai', 'NVIDIA'],
   ['perplexity ai', 'Perplexity'],
+  ['palantir technologies', 'Palantir'],
   ['adobe systems', 'Adobe'],
   ['amazon.com', 'Amazon'],
   ['amazon web services', 'Amazon'],
   ['amazon science', 'Amazon'],
   ['caci international', 'CACI'],
-  ['palantir technologies', 'Palantir'],
 ]);
 
 export function canonicalizeCompany(raw: string): string {

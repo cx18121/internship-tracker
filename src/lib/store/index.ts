@@ -1,12 +1,14 @@
 import type { PoolClient } from 'pg';
-import { getPool } from './db';
-import type { Internship, StoredInternship } from './types';
-import type { RoleType, Degree, PostingClassification } from './classify/posting';
-import type { CompanyTier, CompanyProfile, CompanyFacts } from './classify/company';
-import { companyKey } from './company-key';
-import type { Salary } from './salary';
-import { getState, setState } from './app-state';
-import { present } from './present';
+import { getPool } from '../db';
+import type { Internship, StoredInternship } from '../types';
+import type { RoleType, Degree, PostingClassification } from '../classify/posting';
+import type { Salary } from '../salary';
+import type { CompanyTier } from '../classify/company';
+import { companyKey } from '../company-key';
+
+export * from './companies';
+import { getState, setState } from '../app-state';
+import { present } from '../present';
 
 // ---------------------------------------------------------------------------
 // Row mapping. COLUMNS is the single description of how a StoredInternship
@@ -372,40 +374,6 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
   }));
 }
 
-/**
- * Move company_profiles and internships onto the normalized company key.
- * Profiles that collapse onto one key keep the curated one, else the latest
- * judgment. Idempotent; a no-op once every row carries the current key.
- */
-export async function rekeyCompanies(): Promise<{ internships: number; profiles: number }> {
-  const p = getPool();
-  const rows = (await p.query<{ id: string; company: string; company_key: string | null }>('SELECT id, company, company_key FROM internships')).rows
-    .filter(r => companyKey(r.company) !== r.company_key);
-  if (rows.length > 0) {
-    await p.query('UPDATE internships i SET company_key = x.k FROM jsonb_to_recordset($1::jsonb) AS x(id text, k text) WHERE i.id = x.id',
-      [JSON.stringify(rows.map(r => ({ id: r.id, k: companyKey(r.company) })))]);
-  }
-  const profiles = (await p.query<{ company_key: string; company: string }>('SELECT company_key, company FROM company_profiles')).rows
-    .filter(r => companyKey(r.company) !== r.company_key);
-  if (profiles.length > 0) {
-    await p.query(`
-      WITH moved AS (
-        SELECT x.k AS new_key, p.* FROM company_profiles p JOIN jsonb_to_recordset($1::jsonb) AS x(old text, k text) ON x.old = p.company_key
-      ), ranked AS (
-        SELECT *, row_number() OVER (PARTITION BY new_key ORDER BY (model = 'curated') DESC, classified_at DESC) AS rn FROM moved
-      ), deleted AS (
-        DELETE FROM company_profiles WHERE company_key IN (SELECT company_key FROM moved)
-      )
-      INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
-      SELECT new_key, company, tier, sector, known, reason, model, classified_at FROM ranked WHERE rn = 1
-      ON CONFLICT (company_key) DO UPDATE SET tier = EXCLUDED.tier, sector = EXCLUDED.sector, known = EXCLUDED.known, reason = EXCLUDED.reason,
-        model = EXCLUDED.model, classified_at = EXCLUDED.classified_at
-      WHERE company_profiles.model <> 'curated' OR EXCLUDED.model = 'curated'`,
-      [JSON.stringify(profiles.map(r => ({ old: r.company_key, k: companyKey(r.company) })))]);
-  }
-  return { internships: rows.length, profiles: profiles.length };
-}
-
 export async function archiveInternshipsByIds(ids: string[], reason: string): Promise<number> {
   if (ids.length === 0) return 0;
   const result = await getPool().query('UPDATE internships SET archived = true, archive_reason = $2 WHERE id = ANY($1::text[])', [ids, reason]);
@@ -417,60 +385,8 @@ export async function deleteInternship(id: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Classification
+// Posting classification and enrichment
 // ---------------------------------------------------------------------------
-
-export async function getCompanyProfiles(keys: string[]): Promise<Map<string, CompanyProfile & { tier: CompanyTier }>> {
-  if (keys.length === 0) return new Map();
-  const { rows } = await getPool().query<{ company_key: string; tier: CompanyTier; sector: string | null; known: boolean; reason: string | null }>(
-    'SELECT company_key, tier, sector, known, reason FROM company_profiles WHERE company_key = ANY($1::text[])', [keys],
-  );
-  return new Map(rows.map(r => [r.company_key, { tier: r.tier, sector: r.sector ?? '', known: r.known, reason: r.reason ?? '' }]));
-}
-
-/** Lower-cased names of companies the classifier judged worth following. */
-export async function getPromotedCompanyKeys(): Promise<Set<string>> {
-  const { rows } = await getPool().query<{ company_key: string }>("SELECT company_key FROM company_profiles WHERE tier IN ('elite', 'top', 'hot')");
-  return new Set(rows.map(r => r.company_key));
-}
-
-export async function saveCompanyProfile(key: string, company: string, p: CompanyProfile, model: string): Promise<void> {
-  await getPool().query(
-    `INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now())
-     ON CONFLICT (company_key) DO UPDATE SET company = EXCLUDED.company, tier = EXCLUDED.tier, sector = EXCLUDED.sector,
-       known = EXCLUDED.known, reason = EXCLUDED.reason, model = EXCLUDED.model, classified_at = now()`,
-    [key, company, p.tier, p.sector, p.known, p.reason, model],
-  );
-}
-
-const FACTS_SELECT = 'SELECT domain, stage, investors, batch, headcount, industry, location FROM company_facts';
-
-/** Catalog facts for a company, matched by normalized name or by ATS slug against the domain stem. */
-export async function findCompanyFacts(company: string, atsSlug?: string): Promise<CompanyFacts | null> {
-  const nameKey = companyKey(company);
-  const stems = atsSlug ? [atsSlug.toLowerCase(), atsSlug.toLowerCase().replace(/-/g, '')] : [];
-  if (!nameKey && stems.length === 0) return null;
-  const { rows } = await getPool().query<CompanyFacts>(
-    `${FACTS_SELECT} WHERE ($1 <> '' AND name_key = $1) OR split_part(domain, '.', 1) = ANY($2::text[])
-     ORDER BY (name_key = $1) DESC, headcount DESC NULLS LAST LIMIT 1`,
-    [nameKey, stems],
-  );
-  return rows[0] ?? null;
-}
-
-export async function upsertCompanyFacts(rows: Array<CompanyFacts & { name: string; source: string }>): Promise<number> {
-  if (rows.length === 0) return 0;
-  const res = await getPool().query(
-    `INSERT INTO company_facts (domain, name, name_key, stage, investors, batch, headcount, industry, location, source)
-     SELECT domain, name, name_key, stage, investors, batch, headcount, industry, location, source
-     FROM jsonb_to_recordset($1::jsonb) AS x(domain text, name text, name_key text, stage text, investors text[], batch text, headcount int, industry text, location text, source text)
-     ON CONFLICT (domain) DO UPDATE SET name = EXCLUDED.name, name_key = EXCLUDED.name_key, stage = EXCLUDED.stage, investors = EXCLUDED.investors,
-       batch = EXCLUDED.batch, headcount = EXCLUDED.headcount, industry = EXCLUDED.industry, location = EXCLUDED.location, source = EXCLUDED.source, imported_at = now()`,
-    [JSON.stringify(rows.map(r => ({ ...r, name_key: companyKey(r.name) })))],
-  );
-  return res.rowCount ?? 0;
-}
 
 export async function saveClassification(id: string, c: PostingClassification): Promise<void> {
   await getPool().query(

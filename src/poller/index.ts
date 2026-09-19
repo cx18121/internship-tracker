@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { runCycle } from './agent';
 import { closePool } from '../lib/db';
 import { runMigrations } from '../lib/migrate';
-import { rekeyCompanies } from '../lib/store';
+import { rekeyRows } from '../lib/store';
 import { reevaluate } from './reevaluate';
 import { withTimeout, TimeoutError } from './utils/with-timeout';
 
@@ -124,8 +124,8 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h`);
   console.log(`[internship-tracker] Quiet hours: ${QUIET_WINDOW ? `${QUIET_WINDOW[0]}:00–${QUIET_WINDOW[1]}:00 ${POLL_TZ}` : 'disabled'}`);
   await runMigrations();
-  const rekeyed = await rekeyCompanies();
-  if (rekeyed.internships || rekeyed.profiles) console.log(`[poller] company_key set on ${rekeyed.internships} rows, ${rekeyed.profiles} profiles rekeyed`);
+  const rekeyed = await rekeyRows();
+  if (rekeyed.internships || rekeyed.profiles) console.log(`[poller] keys recomputed on ${rekeyed.internships} rows, ${rekeyed.profiles} profiles rekeyed`);
 
   // Initial run — do everything once so the DB has fresh state.
   // Wrapped so a transient startup failure (single source 500, DNS hiccup,
