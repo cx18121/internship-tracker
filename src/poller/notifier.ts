@@ -1,4 +1,5 @@
 import type { Internship } from '../lib/types';
+import { pool } from '../lib/concurrency';
 import { checkLinkStatus } from './ats';
 import type { NotifSettings } from '../lib/notifSettings';
 import { applyFilterSpec } from '../lib/filter-spec';
@@ -39,20 +40,20 @@ async function isLinkLive(url: string): Promise<boolean> {
   return status !== 404 && status !== 410;
 }
 
-/** Push the top new postings that pass the user's gates to Discord. */
+/** Push every new posting that passes the user's gates to Discord, best first. */
 export async function sendBatchAlert(newInternships: Internship[]): Promise<number> {
   const settings = await loadNotifSettings();
   const eligible = newInternships
     .filter(i => passesNotifFilters(i, settings))
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 10);
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 
   if (eligible.length === 0) {
     console.log(`[notifier] No postings passed filters (minScore=${settings.minScore} tiers=[${settings.tiers.join(',')}] seasons=[${settings.seasons.join(',')}])`);
     return 0;
   }
 
-  const liveness = await Promise.all(eligible.map(p => isLinkLive(p.link)));
+  const liveness: boolean[] = [];
+  await pool(eligible, 8, async (p) => { liveness[eligible.indexOf(p)] = await isLinkLive(p.link); });
   const live = eligible.filter((_, idx) => liveness[idx]);
   if (live.length < eligible.length) {
     console.log(`[notifier] Dropped ${eligible.length - live.length}/${eligible.length} postings with dead links`);
