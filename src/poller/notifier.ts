@@ -10,8 +10,17 @@ const SOURCE_EMOJIS: Record<string, string> = {
   LinkedIn: '💼',
 };
 
+/** A posting the source dates older than this is news to the tracker, not to the user. */
+const MAX_NOTIFY_AGE_DAYS = 14;
+
+export function isFreshEnough(i: Pick<Internship, 'postedAt'>, now = Date.now()): boolean {
+  if (!i.postedAt) return true;
+  return now - Date.parse(i.postedAt) <= MAX_NOTIFY_AGE_DAYS * 86_400_000;
+}
+
 function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   if ((i.score ?? 0) < f.minScore) return false;
+  if (!isFreshEnough(i)) return false;
   if (f.excludeNonUS && classifyLocation(i.location) === 'non_us') return false;
   return applyFilterSpec(i, {
     tiers: f.tiers,
