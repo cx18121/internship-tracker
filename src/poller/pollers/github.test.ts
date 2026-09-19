@@ -49,11 +49,19 @@ describe('SimplifyJobs row parser', () => {
     );
   });
 
-  test('parseRows: skips the header row and multi-location continuation (↳) rows', () => {
+  test('parseRows: ↳ rows are further roles at the company above; 🔒 rows are closed; Age becomes postedAt', () => {
+    const now = new Date('2026-09-19T12:00:00Z');
     const html = `
-<tr><td>Company</td><td>Role</td><td>Location</td><td>Application</td></tr>
-<tr><td><strong><a href="https://x">↳</a></strong></td><td>Extra Loc Intern</td><td>Austin, TX</td><td><a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a></td></tr>`;
-    assert.equal(parseRows(html).length, 0, 'header + ↳ continuation rows must be dropped');
+<tr><td>Company</td><td>Role</td><td>Location</td><td>Application</td><td>Age</td></tr>
+<tr><td><strong><a href="https://simplify.jobs/c/acme">Acme</a></strong></td><td>SWE Intern</td><td>Austin, TX</td><td><a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a></td><td>7d</td></tr>
+<tr><td>↳</td><td>Data Intern</td><td>Austin, TX</td><td><a href="https://boards.greenhouse.io/acme/jobs/2">Apply</a></td><td>2mo</td></tr>
+<tr><td>↳</td><td>Closed Intern</td><td>Austin, TX</td><td>🔒</td><td>3d</td></tr>
+<tr><td><strong>Beta</strong></td><td>ML Intern</td><td>NYC</td><td>🔒</td><td>1d</td></tr>`;
+    const rows = parseRows(html, now);
+    assert.deepEqual(rows.map(r => [r.company, r.title, r.postedAt]), [
+      ['Acme', 'SWE Intern', '2026-09-12'],
+      ['Acme', 'Data Intern', '2026-07-21'],
+    ]);
   });
 });
 

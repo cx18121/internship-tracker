@@ -10,12 +10,12 @@ import { pool } from '../../lib/concurrency';
 import { jsonStore } from '../../lib/sidecar';
 
 const README_URL =
-  'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README.md';
+  'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README.md';
 // Same repo, same HTML-table format, but lists off-cycle roles (Winter/Fall,
 // off-season Summer). Without it, off-cycle postings — e.g. Winter 2027
 // internships — are invisible even though SimplifyJobs tracks them here.
 const OFF_SEASON_README_URL =
-  'https://raw.githubusercontent.com/SimplifyJobs/Summer2026-Internships/dev/README-Off-Season.md';
+  'https://raw.githubusercontent.com/SimplifyJobs/Summer2027-Internships/dev/README-Off-Season.md';
 
 // Persistent cache of resolved simplify.jobs apply URLs so we don't re-hit
 // the click endpoint for the same posting every cycle. Keyed by posting uuid.
@@ -100,8 +100,27 @@ function extractHref(html: string): string {
   return hrefMatches[0]?.[1] || '';
 }
 
-export function parseRows(html: string): { company: string; title: string; locations: string[]; link: string; season?: string }[] {
-  const results = [];
+export interface SimplifyRow { company: string; title: string; locations: string[]; link: string; season?: string; postedAt?: string }
+
+/** The README's Age cell ("7d", "3mo") as an ISO date relative to now. */
+export function ageToPostedAt(age: string, now = new Date()): string | undefined {
+  const m = age.trim().match(/^(\d+)\s*(d|mo|w|h)$/i);
+  if (!m) return undefined;
+  const n = Number(m[1]);
+  const days = m[2].toLowerCase() === 'mo' ? n * 30 : m[2].toLowerCase() === 'w' ? n * 7 : m[2].toLowerCase() === 'h' ? 0 : n;
+  const d = new Date(now);
+  d.setUTCDate(d.getUTCDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * One row per open posting. A leading ↳ means "same company as the row
+ * above" and carries a different role, so the company is inherited. A 🔒 in
+ * the Application cell means the posting is closed and is skipped.
+ */
+export function parseRows(html: string, now = new Date()): SimplifyRow[] {
+  const results: SimplifyRow[] = [];
+  let lastCompany = '';
 
   // Match all <tr> blocks
   const trRegex = /<tr>([\s\S]*?)<\/tr>/g;
@@ -120,7 +139,9 @@ export function parseRows(html: string): { company: string; title: string; locat
 
     if (cells.length < 5) continue;
 
-    const company = stripHtml(cells[0]);
+    const companyCell = stripHtml(cells[0]);
+    const company = companyCell === '↳' ? lastCompany : companyCell;
+    if (companyCell !== '↳') lastCompany = companyCell;
     const title = stripEmojiPrefix(stripHtml(cells[1])).trim();
     const locationRaw = cells[2];
 
@@ -134,14 +155,16 @@ export function parseRows(html: string): { company: string; title: string; locat
     // Two-location cells use <br> with no <details> wrapper.
     const locations = multiLoc?.locations ?? locationRaw.split(/<br\s*\/?>/i).map(s => stripHtml(s).trim()).filter(Boolean);
     const applicationCell = cells[cells.length - 2];
+    if (applicationCell.includes('🔒')) continue; // closed
     const link = extractHref(applicationCell);
     const seasonCell = cells.length >= 6 ? stripHtml(cells[3]) : '';
 
-    if (company === '↳') continue; // continuation row for multi-location, skip
-    if (!company || !title || company.toLowerCase() === 'company') continue;
+    if (!company || !title || !link || company.toLowerCase() === 'company') continue;
 
-    const row: { company: string; title: string; locations: string[]; link: string; season?: string } = { company, title, locations, link };
+    const row: SimplifyRow = { company, title, locations, link };
     if (seasonCell) row.season = seasonCell;
+    const postedAt = ageToPostedAt(stripHtml(cells[cells.length - 1]), now);
+    if (postedAt) row.postedAt = postedAt;
     results.push(row);
   }
 
@@ -189,6 +212,7 @@ export async function pollGitHub(): Promise<RawPosting[]> {
     locations: row.locations,
     link: row.link,
     source: 'SimplifyJobs',
+    upstreamPostedAt: row.postedAt,
     now,
     season: row.season ? parseSeason(row.season) : undefined,
   }));
