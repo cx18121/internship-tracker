@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 import { getPool } from './db';
 import type { Internship, StoredInternship } from './types';
 import type { RoleType, Degree, PostingClassification } from './classify/posting';
-import type { CompanyTier, CompanyProfile } from './classify/company';
+import type { CompanyTier, CompanyProfile, CompanyFacts } from './classify/company';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
 import { present } from './present';
@@ -395,6 +395,42 @@ export async function saveCompanyProfile(key: string, company: string, p: Compan
        known = EXCLUDED.known, reason = EXCLUDED.reason, model = EXCLUDED.model, classified_at = now()`,
     [key, company, p.tier, p.sector, p.known, p.reason, model],
   );
+}
+
+/** Normalized name for matching postings to the company catalog. */
+export function companyNameKey(name: string): string {
+  return name.toLowerCase()
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\b(inc|llc|corp|corporation|co|ltd|limited|labs?|technologies|technology|ai|io|hq)\b/g, ' ')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+const FACTS_SELECT = 'SELECT domain, stage, investors, batch, headcount, industry, location FROM company_facts';
+
+/** Catalog facts for a company, matched by normalized name or by ATS slug against the domain stem. */
+export async function findCompanyFacts(company: string, atsSlug?: string): Promise<CompanyFacts | null> {
+  const nameKey = companyNameKey(company);
+  const stems = atsSlug ? [atsSlug.toLowerCase(), atsSlug.toLowerCase().replace(/-/g, '')] : [];
+  if (!nameKey && stems.length === 0) return null;
+  const { rows } = await getPool().query<CompanyFacts>(
+    `${FACTS_SELECT} WHERE ($1 <> '' AND name_key = $1) OR split_part(domain, '.', 1) = ANY($2::text[])
+     ORDER BY (name_key = $1) DESC, headcount DESC NULLS LAST LIMIT 1`,
+    [nameKey, stems],
+  );
+  return rows[0] ?? null;
+}
+
+export async function upsertCompanyFacts(rows: Array<CompanyFacts & { name: string; source: string }>): Promise<number> {
+  if (rows.length === 0) return 0;
+  const res = await getPool().query(
+    `INSERT INTO company_facts (domain, name, name_key, stage, investors, batch, headcount, industry, location, source)
+     SELECT domain, name, name_key, stage, investors, batch, headcount, industry, location, source
+     FROM jsonb_to_recordset($1::jsonb) AS x(domain text, name text, name_key text, stage text, investors text[], batch text, headcount int, industry text, location text, source text)
+     ON CONFLICT (domain) DO UPDATE SET name = EXCLUDED.name, name_key = EXCLUDED.name_key, stage = EXCLUDED.stage, investors = EXCLUDED.investors,
+       batch = EXCLUDED.batch, headcount = EXCLUDED.headcount, industry = EXCLUDED.industry, location = EXCLUDED.location, source = EXCLUDED.source, imported_at = now()`,
+    [JSON.stringify(rows.map(r => ({ ...r, name_key: companyNameKey(r.name) })))],
+  );
+  return res.rowCount ?? 0;
 }
 
 export async function saveClassification(id: string, c: PostingClassification): Promise<void> {

@@ -11,7 +11,7 @@
 
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { deduplicateAndStore, deleteInternship } from '../src/lib/store';
+import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, companyNameKey } from '../src/lib/store';
 import { closePool } from '../src/lib/db';
 import type { StoredInternship, Internship } from '../src/lib/types';
 
@@ -61,6 +61,19 @@ describe('Dedup', { skip }, () => {
     } finally {
       await deleteInternship(testId);
     }
+  });
+});
+
+describe('Company catalog', { skip }, () => {
+  test('facts match by normalized name or by ATS slug against the domain stem', async () => {
+    await upsertCompanyFacts([
+      { domain: 'afterquery.com', name: 'AfterQuery', stage: 'Series B', investors: ['boxgroup'], batch: 'Winter 2025', headcount: 30, source: 'test' },
+      { domain: 'bedrockrobotics.com', name: 'Bedrock Robotics, Inc.', stage: 'Series B', investors: ['8vc'], source: 'test' },
+    ]);
+    assert.equal(companyNameKey('Bedrock Robotics, Inc.'), 'bedrockrobotics');
+    assert.equal((await findCompanyFacts('afterquery inc'))?.stage, 'Series B');
+    assert.equal((await findCompanyFacts('Bedrock', 'bedrock-robotics'))?.domain, 'bedrockrobotics.com');
+    assert.equal(await findCompanyFacts('Droyd Robotics'), null);
   });
 });
 

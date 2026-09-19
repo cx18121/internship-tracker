@@ -4,7 +4,8 @@ import { classifierConfigured } from '../lib/classify/provider';
 import { classifyCompany, type CompanyTier } from '../lib/classify/company';
 import { classifyPosting, TECHNICAL_ROLE_TYPES, type PostingClassification } from '../lib/classify/posting';
 import { listedCompanyTier } from '../lib/scorer';
-import { getCompanyProfiles, saveCompanyProfile, saveClassification, archiveInternshipsByIds } from '../lib/store';
+import { getCompanyProfiles, saveCompanyProfile, saveClassification, archiveInternshipsByIds, findCompanyFacts } from '../lib/store';
+import { discoverATSTarget } from '../lib/ats-registry';
 import { pool } from '../lib/concurrency';
 
 export const companyKey = (company: string): string => company.trim().toLowerCase();
@@ -90,7 +91,8 @@ export async function resolveCompanyTiers(rows: StoredInternship[]): Promise<Map
   await pool(pending, 4, async ([key, row]) => {
     try {
       const atsHost = (() => { try { return new URL(row.link).hostname; } catch { return undefined; } })();
-      const profile = await classifyCompany({ company: row.company, atsHost, sampleTitle: row.title, sampleDescription: row.description });
+      const facts = await findCompanyFacts(row.company, discoverATSTarget(row.link, row.company)?.slug) ?? undefined;
+      const profile = await classifyCompany({ company: row.company, atsHost, sampleTitle: row.title, sampleDescription: row.description, facts });
       await saveCompanyProfile(key, row.company, profile, process.env.CLASSIFY_COMPANY_MODEL || 'claude-sonnet-4-6');
       tiers.set(key, profile.tier);
       classified++;
