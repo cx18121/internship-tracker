@@ -5,7 +5,7 @@ import { classifyCompany, type CompanyTier } from '../lib/classify/company';
 import { classifyPosting, TECHNICAL_ROLE_TYPES, type PostingClassification } from '../lib/classify/posting';
 import { listedCompanyTier } from '../lib/scorer';
 import { getCompanyProfiles, saveCompanyProfile, saveClassification, archiveInternshipsByIds, findCompanyFacts } from '../lib/store';
-import { discoverATSTarget } from '../lib/ats-registry';
+import { discoverATSTarget } from './ats';
 import { pool } from '../lib/concurrency';
 import { companyKey } from '../lib/company-key';
 

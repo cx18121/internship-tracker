@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractLinkedInJobId, needsCheck } from './link-health';
+import { needsCheck } from './link-health';
 import type { StoredInternship } from '../lib/types';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -9,15 +9,6 @@ const row = (over: Partial<StoredInternship>): StoredInternship => ({
   id: 'x', title: 'T', company: 'C', location: 'L', locations: ['L'], link: 'https://x', source: 'SimplifyJobs',
   postedAt: '', seenAt: '', firstSeenAt: '', archived: false,
   failedCheckCount: 0, normalizedKey: '', season: [], ...over,
-});
-
-describe('extractLinkedInJobId', () => {
-  test('reads both URL shapes and rejects other hosts', () => {
-    assert.equal(extractLinkedInJobId('https://www.linkedin.com/jobs/view/4407010454'), '4407010454');
-    assert.equal(extractLinkedInJobId('https://www.linkedin.com/jobs/view/intern-swe-4405076690'), '4405076690');
-    assert.equal(extractLinkedInJobId('https://www.linkedin.com/jobs/search/?currentJobId=4412315177'), '4412315177');
-    assert.equal(extractLinkedInJobId('https://boards.greenhouse.io/x/jobs/123'), null);
-  });
 });
 
 describe('needsCheck', () => {

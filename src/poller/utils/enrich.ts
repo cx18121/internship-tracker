@@ -5,6 +5,7 @@ import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
 import { deriveSeasonWithDefault, openSeasonTokens } from '../../lib/seasons';
+import { jobKey } from '../ats';
 
 /**
  * Promote a poller's RawPosting into a stored row. This is the only place a
@@ -39,6 +40,7 @@ export function enrichForStorage(p: RawPosting, now: string): StoredInternship {
     archived: false,
     failedCheckCount: 0,
     normalizedKey: normalizeKey(company, p.title),
+    ...(link ? { jobKey: jobKey(link) } : {}),
     // Expired tokens on a multi-season posting are dropped; all-expired rows never reach here.
     season: openSeasonTokens(p.season ?? deriveSeasonWithDefault(p.title)),
     ...(description ? { description } : {}),

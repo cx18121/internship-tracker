@@ -17,7 +17,8 @@
 
 import 'dotenv/config';
 import axios from 'axios';
-import { loadATSTargets, saveDiscoveredTargets, verifyAtsSlug, type ATSTarget } from '../src/lib/utils/ats-discovery';
+import { loadATSTargets, saveDiscoveredTargets, type ATSTarget } from '../src/lib/utils/ats-discovery';
+import { verifyAtsSlug } from '../src/poller/ats';
 
 const HN_BASE = 'https://hn.algolia.com/api/v1/search';
 const VERIFY_TIMEOUT_MS = 8000;

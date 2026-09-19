@@ -2,7 +2,7 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
-import { discoverATSTarget } from './ats-discovery';
+import { discoverATSTarget } from '../../poller/ats';
 
 describe('ATS targets config integrity', () => {
   test('ats-targets.json: NVIDIA has board and wdInstance configured', () => {

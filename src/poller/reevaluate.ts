@@ -1,10 +1,10 @@
 import type { Internship, StoredInternship } from '../lib/types';
-import { jobKey } from '../lib/job-key';
 import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified } from '../lib/store';
 import { isExpiredSeasonTokens } from '../lib/seasons';
 import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason } from './classify';
-import { fetchDescriptionByUrl, fetchWorkdayDetailByUrl } from './utils/description-fetchers';
+import { describeByUrl } from './ats';
+import { fetchWorkdayDetailByUrl } from './ats/workday';
 import { pool } from '../lib/concurrency';
 import { POLLED_SOURCES } from './sources';
 import { checkFeedLinks } from './link-health';
@@ -65,7 +65,7 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   const add = (k: string, i: Internship) => byKey.set(k, [...(byKey.get(k) ?? []), i]);
   for (const i of active) {
     if (stale.has(i.id)) continue;
-    if (i.link) add(`job:${jobKey(i.link)}`, i);
+    if (i.jobKey) add(`job:${i.jobKey}`, i);
     if (i.normalizedKey) add(`role:${i.normalizedKey}`, i);
   }
   const dupes = new Set<string>();
@@ -109,7 +109,7 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
       if (d.description && !i.description) { await updateDescription(i.id, d.description); i.description = d.description; result.descriptionsFetched++; }
       return;
     }
-    const desc = await fetchDescriptionByUrl(i.link);
+    const desc = await describeByUrl(i.link);
     if (!desc) return;
     await updateDescription(i.id, desc);
     i.description = desc;

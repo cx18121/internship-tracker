@@ -22,7 +22,8 @@ import { Client } from 'pg';
 import { getPool, closePool } from '../src/lib/db';
 import { runMigrations } from '../src/lib/migrate';
 import { upsertCompanyFacts } from '../src/lib/store';
-import { loadATSTargets, saveDiscoveredTargets, verifyAtsSlug, type ATSTarget } from '../src/lib/utils/ats-discovery';
+import { loadATSTargets, saveDiscoveredTargets, type ATSTarget } from '../src/lib/utils/ats-discovery';
+import { verifyAtsSlug } from '../src/poller/ats';
 import { pool } from '../src/lib/concurrency';
 
 type ATS = 'greenhouse' | 'lever' | 'ashby';

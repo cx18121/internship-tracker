@@ -3,7 +3,6 @@ import { getPool } from './db';
 import type { Internship, StoredInternship } from './types';
 import type { RoleType, Degree, PostingClassification } from './classify/posting';
 import type { CompanyTier, CompanyProfile, CompanyFacts } from './classify/company';
-import { jobKey } from './job-key';
 import { companyKey } from './company-key';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
@@ -67,7 +66,7 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: StoredInternship) => unknown]> = [
   ['salary_max', i => i.salaryMax ?? null],
   ['salary_unit', i => i.salaryUnit ?? null],
   ['normalized_key', i => i.normalizedKey],
-  ['job_key', i => i.link ? jobKey(i.link) : null],
+  ['job_key', i => i.jobKey ?? null],
   ['company_key', i => companyKey(i.company)],
   ['season', i => JSON.stringify(i.season)],
   ['role_type', i => i.roleType ?? null],
@@ -107,6 +106,7 @@ function fromRow(r: Row): StoredInternship {
     salaryMax: r.salary_max ?? undefined,
     salaryUnit: r.salary_unit ?? undefined,
     normalizedKey: r.normalized_key ?? '',
+    jobKey: r.job_key ?? undefined,
     season: r.season ?? [],
     roleType: r.role_type ?? undefined,
     degrees: r.degrees ?? undefined,
@@ -329,7 +329,7 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
       'SELECT id, link, normalized_key, job_key FROM internships WHERE archived = false',
     )).rows;
     const rowByJob = new Map<string, string>();
-    for (const r of existing) if (r.link) rowByJob.set(r.job_key ?? jobKey(r.link), r.id);
+    for (const r of existing) if (r.job_key) rowByJob.set(r.job_key, r.id);
     const rowByKey = new Map<string, { id: string; link: string }>();
     for (const r of existing) if (r.normalized_key) rowByKey.set(r.normalized_key, { id: r.id, link: r.link });
 
@@ -342,8 +342,8 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
         await client.query(BACKFILL_SQL, backfillArgs(i, i.id));
         continue;
       }
-      const key = jobKey(i.link);
-      const sameJob = i.link ? rowByJob.get(key) : undefined;
+      const key = i.jobKey;
+      const sameJob = key ? rowByJob.get(key) : undefined;
       if (sameJob) {
         await client.query(BACKFILL_SQL, backfillArgs(i, sameJob));
         continue;
@@ -356,12 +356,12 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
           await client.query('UPDATE internships SET link = $2 WHERE id = $1', [sameRole.id, i.link]);
           rowByKey.set(i.normalizedKey, { id: sameRole.id, link: i.link });
         }
-        if (i.link) rowByJob.set(key, sameRole.id);
+        if (key) rowByJob.set(key, sameRole.id);
         continue;
       }
 
       await client.query(INSERT_SQL, toValues(i));
-      if (i.link) rowByJob.set(key, i.id);
+      if (key) rowByJob.set(key, i.id);
       rowByKey.set(i.normalizedKey, { id: i.id, link: i.link });
       newInternships.push(i);
       netNewBySource[i.source] = (netNewBySource[i.source] ?? 0) + 1;

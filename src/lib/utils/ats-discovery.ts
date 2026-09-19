@@ -1,10 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import axios from 'axios';
 import type { ATSTarget } from '../types';
 
 export type { ATSTarget } from '../types';
-export { discoverATSTarget } from '../ats-registry';
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'ats-targets.json');
@@ -41,10 +39,6 @@ function loadDenylist(): Set<string> {
     return new Set();
   }
 }
-
-// URL → ATSTarget parsing lives in src/lib/ats-registry.ts (one table shared
-// with portal-scanner's job-id extractor). discoverATSTarget is re-exported
-// above from that module so the public API stays unchanged.
 
 /**
  * Append newly discovered targets to data/ats-targets.json (de-duplicated by slug),
@@ -111,26 +105,4 @@ export function saveDiscoveredTargets(targets: ATSTarget[]): number {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ targets: existing }, null, 2));
   }
   return added;
-}
-
-/**
- * Does a public board exist for this slug? Used by the discovery scripts to
- * confirm candidates before appending them.
- */
-export async function verifyAtsSlug(slug: string, ats: 'greenhouse' | 'lever' | 'ashby', timeoutMs = 8000): Promise<boolean> {
-  const opts = { timeout: timeoutMs, validateStatus: () => true };
-  try {
-    if (ats === 'greenhouse') {
-      const res = await axios.get(`https://boards-api.greenhouse.io/v1/boards/${slug}/jobs`, opts);
-      return res.status === 200 && Array.isArray(res.data?.jobs);
-    }
-    if (ats === 'lever') {
-      const res = await axios.get(`https://api.lever.co/v0/postings/${slug}?mode=json`, opts);
-      return res.status === 200 && Array.isArray(res.data);
-    }
-    const res = await axios.get(`https://api.ashbyhq.com/posting-api/job-board/${slug}`, opts);
-    return res.status === 200 && Array.isArray(res.data?.jobs);
-  } catch {
-    return false;
-  }
 }

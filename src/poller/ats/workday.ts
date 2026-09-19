@@ -1,6 +1,8 @@
 import axios from 'axios';
 import type { Page } from 'playwright';
 import type { RawPosting, ATSTarget } from '../../lib/types';
+import type { Ats } from './types';
+import { MAX_DESC_LEN, LOCALE_RE, probe } from './http';
 import { isInternTitle } from '../utils/intern-signal';
 import { stripHtml } from '../utils/html';
 import { buildPosting } from '../utils/build-row';
@@ -270,3 +272,93 @@ export function saveWorkdayFlags(update: { confirmed?: string[]; failed?: string
   for (const [slug, facets] of update.facets ?? []) cache[slug] = { ...cache[slug], wdInternFacets: facets };
   flagsStore.save(cache);
 }
+
+// ---------------------------------------------------------------------------
+// Links. Two URL shapes:
+//   {tenant}.{wd}.myworkdayjobs.com/[{locale}/]{board}/job/{location}/{title}_{req}
+//   {wd}.myworkdaysite.com/recruiting/{tenant}/{board}/job/{location}/{title}_{req}
+// The CXS detail endpoint is /wday/cxs/{tenant}/{board}/job/{location}/{title}_{req}.
+// ---------------------------------------------------------------------------
+
+/** CXS detail URL for a public job link; null when the link is not a posting. */
+export function workdayDetailUrl(url: string): string | null {
+  let u: URL;
+  try { u = new URL(url); } catch { return null; }
+  const host = u.hostname;
+  const parts = u.pathname.split('/').filter(Boolean);
+  const jobIdx = parts.indexOf('job');
+  if (jobIdx < 0) return null;
+  let tenant: string | undefined;
+  let board: string | undefined;
+  if (host.endsWith('.myworkdayjobs.com')) {
+    tenant = host.split('.')[0];
+    const before = parts.slice(0, jobIdx).filter(p => !LOCALE_RE.test(p));
+    board = before[before.length - 1];
+  } else if (host.endsWith('.myworkdaysite.com') && parts[0] === 'recruiting') {
+    tenant = parts[1];
+    board = parts[jobIdx - 1];
+  }
+  if (!tenant || !board) return null;
+  return `https://${host}/wday/cxs/${tenant}/${board}/${parts.slice(jobIdx).join('/')}`;
+}
+
+export interface WorkdayDetail {
+  description: string;
+  /** Real location list; empty when the detail call fails. */
+  locations: string[];
+  /** Post date, YYYY-MM-DD. */
+  postedAt?: string;
+}
+
+export async function fetchWorkdayDetailByUrl(url: string): Promise<WorkdayDetail> {
+  const detail = workdayDetailUrl(url);
+  if (!detail) return { description: '', locations: [] };
+  try {
+    const { data } = await axios.get<WorkdayDetailResponse>(detail, { timeout: REQUEST_TIMEOUT, headers: JSON_HEADERS });
+    const info = data?.jobPostingInfo;
+    return {
+      description: stripHtml(info?.jobDescription ?? '').slice(0, MAX_DESC_LEN),
+      locations: info?.location ? [info.location, ...(info.additionalLocations ?? [])] : [],
+      postedAt: info?.startDate,
+    };
+  } catch {
+    return { description: '', locations: [] };
+  }
+}
+
+export const workday: Ats = {
+  kind: 'workday',
+  source: 'Workday',
+  matchUrl: (h) => h.endsWith('.myworkdayjobs.com') || h.endsWith('.myworkdaysite.com'),
+  targetFromUrl: (h, p) => {
+    const pathParts = p.split('/').filter(Boolean);
+    if (h.endsWith('.myworkdaysite.com')) {
+      const wdInstance = h.split('.')[0];
+      if (!wdInstance) return null;
+      const filtered = pathParts.filter(seg => !LOCALE_RE.test(seg));
+      const recIdx = filtered.indexOf('recruiting');
+      if (recIdx < 0 || filtered.length < recIdx + 2) return null;
+      return { slug: filtered[recIdx + 1], ats: 'workday', board: filtered[recIdx + 2], wdInstance, wdDomain: 'myworkdaysite.com' };
+    }
+    const hostParts = h.split('.');
+    const slug = hostParts[0];
+    if (!slug) return null;
+    const wdInstance = hostParts.length >= 4 ? hostParts[1] : undefined;
+    const board = pathParts.find(seg => !LOCALE_RE.test(seg)) || undefined;
+    return { slug, ats: 'workday', ...(board ? { board } : {}), ...(wdInstance ? { wdInstance } : {}) };
+  },
+  jobFromUrl: (url) => {
+    const parts = url.pathname.split('/').filter(Boolean);
+    const jobIdx = parts.indexOf('job');
+    const last = parts[parts.length - 1] ?? '';
+    const m = jobIdx >= 0 ? last.match(/_([A-Za-z]*\d[\w-]*)$/) : null;
+    if (!m) return null;
+    const slug = url.hostname.endsWith('.myworkdaysite.com') ? parts[parts.indexOf('recruiting') + 1] ?? '' : url.hostname.split('.')[0];
+    return { slug, jobId: m[1].toLowerCase() };
+  },
+  alive: (_job, url) => {
+    const detail = workdayDetailUrl(url);
+    return detail ? probe(detail) : Promise.resolve('unknown');
+  },
+  describe: async (_job, url) => (await fetchWorkdayDetailByUrl(url)).description,
+};

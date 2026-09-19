@@ -58,6 +58,8 @@ export interface StoredInternship {
   salaryUnit?: Salary['unit'];
   /** Cross-source dedup key (company + normalized title). See normalize-key.ts. */
   normalizedKey: string;
+  /** Identity of the job across links to it (src/poller/ats jobKey); absent only for link-less rows. */
+  jobKey?: string;
   /** Season tokens like "summer-2027" as parsed at ingest. */
   season: string[];
   /** Model classification. Absent until the row has been classified. */

@@ -13,6 +13,7 @@ import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, rekeyCompanies, getCompanyProfiles } from '../src/lib/store';
 import { companyKey } from '../src/lib/company-key';
+import { jobKey } from '../src/poller/ats';
 import { closePool } from '../src/lib/db';
 import type { StoredInternship, Internship } from '../src/lib/types';
 
@@ -40,6 +41,7 @@ const fixture = (over: Partial<StoredInternship> & { id: string }): StoredIntern
     normalizedKey: `testco::${over.id}`,
     season: ['summer-2027'],
     ...over,
+    jobKey: jobKey(over.link ?? `https://example.com/${over.id}`),
   };
 };
 

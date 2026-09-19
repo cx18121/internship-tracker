@@ -13,7 +13,8 @@
 
 import 'dotenv/config';
 import axios from 'axios';
-import { loadATSTargets, saveDiscoveredTargets, verifyAtsSlug, type ATSTarget } from '../src/lib/utils/ats-discovery';
+import { loadATSTargets, saveDiscoveredTargets, type ATSTarget } from '../src/lib/utils/ats-discovery';
+import { verifyAtsSlug } from '../src/poller/ats';
 
 const EXA_SEARCH_URL = 'https://api.exa.ai/search';
 const RESULTS_PER_ATS = parseInt(process.env.EXA_NUM_RESULTS || '50', 10);

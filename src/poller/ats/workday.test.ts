@@ -97,7 +97,7 @@ describe('Workday facet extraction', () => {
 
 describe('shouldPoll', () => {
   test('enterprise ATS tenants are polled only when the company is curated', async () => {
-    const { shouldPoll } = await import('./ats');
+    const { shouldPoll } = await import('../pollers/ats');
     assert.equal(shouldPoll({ slug: 'nvidia', ats: 'workday', name: 'NVIDIA' }), true);
     assert.equal(shouldPoll({ slug: 'aaaclub', ats: 'workday', name: 'AAA Club Alliance' }), false);
     assert.equal(shouldPoll({ slug: 'tinystartup', ats: 'ashby', name: 'Tiny Startup' }), true);
