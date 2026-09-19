@@ -1,5 +1,4 @@
 export type { ListItem as Internship } from "./list-item";
-export type { TierFilter } from "@/lib/filter-spec";
 
 export interface Stats {
   total: number;

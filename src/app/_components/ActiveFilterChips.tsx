@@ -4,8 +4,7 @@ import { X } from "lucide-react";
 import { formatSeasonLabel } from "@/lib/seasons";
 import { DATE_WINDOWS } from "../_lib/constants";
 import type { Filters } from "../_lib/filters";
-import { TIER_LABELS } from "./FilterRail";
-import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
+import { ROLE_TYPE_LABELS, DEGREE_LABELS, TIER_LABELS } from "../_lib/labels";
 import { METRO_LABELS } from "@/lib/metros";
 
 /**
@@ -59,8 +58,8 @@ export function ActiveFilterChips({ filters: f, onChange, onClearAll }: Props) {
     chips.push(
       <Pill key="search" label={<>Search: <span className="text-white">{f.q}</span></>} onClear={() => onChange({ q: "" })} />,
     );
-  if (f.tier !== "all")
-    chips.push(<Pill key="tier" label={`Tier: ${TIER_LABELS[f.tier]}`} onClear={() => onChange({ tier: "all" })} />);
+  for (const t of f.tiers)
+    chips.push(<Pill key={`tier-${t}`} label={TIER_LABELS[t]} onClear={() => onChange({ tiers: without(f.tiers, t) })} />);
   if (f.minScore > 0)
     chips.push(<Pill key="minScore" label={`Min ${f.minScore}`} onClear={() => onChange({ minScore: 0 })} />);
   if (f.when !== "all" && windowLabel)

@@ -1,4 +1,5 @@
-import type { TierFilter, DegreeFilter } from './filter-spec';
+import type { DegreeFilter } from './filter-spec';
+import { COMPANY_TIERS, type CompanyTier } from './classify/company';
 import { DEGREES, ROLE_TYPES, type RoleType } from './classify/posting';
 import { METROS, type Metro } from './metros';
 
@@ -7,7 +8,8 @@ import { METROS, type Metro } from './metros';
 export interface NotifSettings {
   minScore: number;
   sourceDownAlerts: boolean;
-  tierFilter: TierFilter;
+  /** Company tiers to notify on. Empty means all. */
+  tiers: CompanyTier[];
   /** Season tokens like "summer-2027". Empty means no season gate. */
   seasons: string[];
   /** Source names as written to Internship.source. Empty means all sources. */
@@ -25,7 +27,7 @@ export interface NotifSettings {
 export const DEFAULT_NOTIF_SETTINGS: NotifSettings = {
   minScore: 50,
   sourceDownAlerts: false,
-  tierFilter: 'all',
+  tiers: [],
   seasons: [],
   excludedSources: [],
   excludeNonUS: false,
@@ -49,7 +51,7 @@ export function parseNotifSettings(input: unknown, baseline: NotifSettings = DEF
       ? Math.max(0, Math.min(100, Math.round(b.minScore)))
       : baseline.minScore,
     sourceDownAlerts: bool('sourceDownAlerts'),
-    tierFilter: isTierFilter(b.tierFilter) ? b.tierFilter : baseline.tierFilter,
+    tiers: list('tiers', (x): x is CompanyTier => (COMPANY_TIERS as readonly string[]).includes(x)),
     seasons: list('seasons', (x): x is string => /^(summer|fall|winter|spring)-\d{4}$/.test(x.toLowerCase())).map(x => x.toLowerCase()),
     excludedSources: list('excludedSources', (x): x is string => true),
     excludeNonUS: bool('excludeNonUS'),
@@ -57,10 +59,6 @@ export function parseNotifSettings(input: unknown, baseline: NotifSettings = DEF
     degrees: list('degrees', (x): x is DegreeFilter => x === 'unknown' || (DEGREES as readonly string[]).includes(x)),
     metros: list('metros', (x): x is Metro => (METROS as readonly string[]).includes(x)),
   };
-}
-
-function isTierFilter(t: unknown): t is TierFilter {
-  return t === 'all' || t === 'elite' || t === 'top-or-better' || t === 'solid-or-better';
 }
 
 function stringList(s: unknown): string[] {

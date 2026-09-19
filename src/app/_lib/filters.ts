@@ -1,4 +1,5 @@
-import type { Internship, TierFilter, DateWindow, SortBy } from "./types";
+import type { Internship, DateWindow, SortBy } from "./types";
+import { COMPANY_TIERS, type CompanyTier } from "@/lib/classify/company";
 import { ROLE_TYPES, DEGREES, type RoleType, type Degree } from "@/lib/classify/posting";
 import { METROS, type Metro } from "@/lib/metros";
 import { applyFilterSpec, listedAt } from "@/lib/filter-spec";
@@ -13,7 +14,7 @@ export interface Filters {
   minScore: number;
   locationText: string;
   metros: Metro[];
-  tier: TierFilter;
+  tiers: CompanyTier[];
   seasons: string[];
   roleTypes: RoleType[];
   degrees: Array<Degree | "unknown">;
@@ -26,7 +27,7 @@ export const DEFAULT_FILTERS: Filters = {
   minScore: 0,
   locationText: "",
   metros: [],
-  tier: "all",
+  tiers: [],
   seasons: [],
   roleTypes: [],
   degrees: [],
@@ -50,7 +51,7 @@ const CODECS: { [K in keyof Filters]: Codec<K> } = {
   minScore: { param: "minScore", parse: (s) => (Number.isFinite(+s) && +s > 0 ? +s : undefined), serialize: String, counted: true },
   locationText: { param: "location", parse: (s) => s, serialize: (v) => v, counted: true },
   metros: { param: "metro", parse: (s) => list(s).filter((x): x is Metro => (METROS as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
-  tier: { param: "tier", parse: oneOf(["all", "solid-or-better", "top-or-better", "elite"] as const), serialize: (v) => v, counted: true },
+  tiers: { param: "tier", parse: (s) => list(s).filter((x): x is CompanyTier => (COMPANY_TIERS as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
   seasons: { param: "seasons", parse: list, serialize: (v) => v.join(","), counted: true },
   roleTypes: { param: "type", parse: (s) => list(s).filter((x): x is RoleType => (ROLE_TYPES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
   degrees: { param: "degree", parse: (s) => list(s).filter((x): x is Degree | "unknown" => x === "unknown" || (DEGREES as readonly string[]).includes(x)), serialize: (v) => v.join(","), counted: true },
@@ -100,7 +101,7 @@ export function evaluateFilters(items: Internship[], f: Filters, sortBy: SortBy,
   const q = f.q.trim().toLowerCase();
   const days = DATE_WINDOWS.find((d) => d.value === f.when)?.days ?? null;
   const spec = {
-    tier: f.tier,
+    tiers: f.tiers,
     includeSources: f.sources,
     minScore: f.minScore,
     postedAfter: days == null ? undefined : now - days * 24 * 60 * 60 * 1000,

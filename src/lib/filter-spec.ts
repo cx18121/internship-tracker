@@ -2,10 +2,10 @@
 // notifier's Discord gate. Each predicate is skipped when its field is
 // undefined or its array is empty.
 
-import { isElite, isTopOrBetter, isSolidOrBetter } from './tiers';
 import type { Internship } from './types';
 import type { RoleType, Degree } from './classify/posting';
 import type { Metro } from './metros';
+import type { CompanyTier } from './classify/company';
 
 /** The fields a filter reads. Satisfied by a stored Internship and by the list-view payload. */
 export type Filterable = Pick<Internship, 'company' | 'title' | 'source' | 'season' | 'firstSeenAt'> &
@@ -16,11 +16,11 @@ export function listedAt(i: Pick<Filterable, 'postedAt' | 'firstSeenAt'>): strin
   return i.postedAt ?? i.firstSeenAt;
 }
 
-export type TierFilter = 'all' | 'elite' | 'top-or-better' | 'solid-or-better';
 export type DegreeFilter = Degree | 'unknown';
 
 export interface FilterSpec {
-  tier?: TierFilter;
+  /** Pass if the company's tier is one of these. Empty = no gate. */
+  tiers?: readonly CompanyTier[];
   /** Pass if any of the posting's season tokens appear in this list. */
   seasons?: readonly string[];
   includeSources?: readonly string[];
@@ -37,9 +37,7 @@ export interface FilterSpec {
 }
 
 export function applyFilterSpec(i: Filterable, spec: FilterSpec): boolean {
-  if (spec.tier === 'elite' && !isElite(i.companyTier)) return false;
-  if (spec.tier === 'top-or-better' && !isTopOrBetter(i.companyTier)) return false;
-  if (spec.tier === 'solid-or-better' && !isSolidOrBetter(i.companyTier)) return false;
+  if (spec.tiers?.length && !spec.tiers.includes(i.companyTier ?? 'other')) return false;
 
   if (spec.seasons?.length && !i.season.some(t => spec.seasons!.includes(t))) return false;
   if (spec.includeSources?.length && !spec.includeSources.includes(i.source)) return false;

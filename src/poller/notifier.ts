@@ -14,7 +14,7 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   if ((i.score ?? 0) < f.minScore) return false;
   if (f.excludeNonUS && classifyLocation(i.location) === 'non_us') return false;
   return applyFilterSpec(i, {
-    tier: f.tierFilter,
+    tiers: f.tiers,
     seasons: f.seasons,
     excludeSources: f.excludedSources,
     roleTypes: f.roleTypes,
@@ -39,7 +39,7 @@ export async function sendBatchAlert(newInternships: Internship[]): Promise<numb
     .slice(0, 10);
 
   if (eligible.length === 0) {
-    console.log(`[notifier] No postings passed filters (minScore=${settings.minScore} tier=${settings.tierFilter} seasons=[${settings.seasons.join(',')}])`);
+    console.log(`[notifier] No postings passed filters (minScore=${settings.minScore} tiers=[${settings.tiers.join(',')}] seasons=[${settings.seasons.join(',')}])`);
     return 0;
   }
 

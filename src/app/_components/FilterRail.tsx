@@ -4,9 +4,8 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { formatSeasonLabel } from "@/lib/seasons";
-import type { TierFilter } from "../_lib/types";
 import { activeFilterCount, type Filters } from "../_lib/filters";
-import { ROLE_TYPE_LABELS, DEGREE_LABELS } from "../_lib/labels";
+import { ROLE_TYPE_LABELS, DEGREE_LABELS, TIER_LABELS } from "../_lib/labels";
 import { METROS, METRO_LABELS, type Metro } from "@/lib/metros";
 
 interface Props {
@@ -18,13 +17,6 @@ interface Props {
   seasonCounts: Array<[string, number]>;
   metroCounts: Partial<Record<Metro, number>>;
 }
-
-export const TIER_LABELS: Record<TierFilter, string> = {
-  all: "All",
-  "solid-or-better": "Solid+",
-  "top-or-better": "Top+",
-  elite: "Elite",
-};
 
 function toggleArr<T>(arr: T[], v: T): T[] {
   return arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v];
@@ -126,8 +118,8 @@ export function FilterRail({ filters: f, onChange, onClearAll, sources, seasonCo
 
       <Section label="Tier">
         <div className="flex flex-wrap gap-1.5">
-          {(Object.keys(TIER_LABELS) as TierFilter[]).map((t) => (
-            <Chip key={t} active={f.tier === t} onClick={() => onChange({ tier: t })}>
+          {(Object.keys(TIER_LABELS) as Array<keyof typeof TIER_LABELS>).map((t) => (
+            <Chip key={t} active={f.tiers.includes(t)} onClick={() => onChange({ tiers: toggleArr(f.tiers, t) })}>
               {TIER_LABELS[t]}
             </Chip>
           ))}

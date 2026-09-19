@@ -17,9 +17,10 @@ describe('applyFilterSpec', () => {
     assert.equal(applyFilterSpec(base, {}), true);
   });
 
-  test('tier gate reads the judged company tier; hot counts as top', () => {
-    assert.equal(applyFilterSpec(base, { tier: 'top-or-better' }), true);
-    assert.equal(applyFilterSpec(base, { tier: 'elite' }), false);
-    assert.equal(applyFilterSpec({ ...base, companyTier: undefined }, { tier: 'solid-or-better' }), false);
+  test('tier gate is a set of company tiers; unjudged rows count as other', () => {
+    assert.equal(applyFilterSpec(base, { tiers: ['hot', 'startup'] }), true);
+    assert.equal(applyFilterSpec(base, { tiers: ['elite'] }), false);
+    assert.equal(applyFilterSpec({ ...base, companyTier: undefined }, { tiers: ['other'] }), true);
+    assert.equal(applyFilterSpec(base, { tiers: [] }), true);
   });
 });

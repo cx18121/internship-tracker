@@ -11,10 +11,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { formatSeasonLabel } from "@/lib/seasons";
-import { TIER_LABELS } from "./FilterRail";
-import { DEGREE_LABELS, ROLE_TYPE_LABELS } from "../_lib/labels";
+import { DEGREE_LABELS, ROLE_TYPE_LABELS, TIER_LABELS } from "../_lib/labels";
 import { METROS, METRO_LABELS } from "@/lib/metros";
-import type { TierFilter } from "@/lib/filter-spec";
 import type { NotifSettings } from "@/lib/notifSettings";
 
 interface SeasonOption {
@@ -36,7 +34,7 @@ interface Props {
   error: string | null;
 }
 
-const TIER_OPTIONS = (Object.keys(TIER_LABELS) as TierFilter[]).map((value) => ({ value, label: TIER_LABELS[value] }));
+const TIER_OPTIONS = (Object.keys(TIER_LABELS) as Array<keyof typeof TIER_LABELS>).map((value) => ({ value, label: TIER_LABELS[value] }));
 
 function Section({
   label,
@@ -165,8 +163,8 @@ export function NotifModal({
               {TIER_OPTIONS.map(({ value, label }) => (
                 <Chip
                   key={value}
-                  active={s.tierFilter === value}
-                  onClick={() => onChange({ tierFilter: value })}
+                  active={s.tiers.includes(value)}
+                  onClick={() => onChange({ tiers: toggle(s.tiers, value) })}
                 >
                   {label}
                 </Chip>
