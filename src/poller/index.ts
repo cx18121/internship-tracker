@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { runCycle } from './agent';
 import { closePool } from '../lib/db';
 import { runMigrations } from '../lib/migrate';
+import { backfillJobKeys } from '../lib/store';
 import { reevaluate } from './reevaluate';
 import { withTimeout, TimeoutError } from './utils/with-timeout';
 
@@ -123,6 +124,8 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Revalidate: ${REVALIDATE_INTERVAL_MS / 1000 / 60 / 60}h`);
   console.log(`[internship-tracker] Quiet hours: ${QUIET_WINDOW ? `${QUIET_WINDOW[0]}:00–${QUIET_WINDOW[1]}:00 ${POLL_TZ}` : 'disabled'}`);
   await runMigrations();
+  const filled = await backfillJobKeys();
+  if (filled > 0) console.log(`[poller] job_key backfilled on ${filled} rows`);
 
   // Initial run — do everything once so the DB has fresh state.
   // Wrapped so a transient startup failure (single source 500, DNS hiccup,

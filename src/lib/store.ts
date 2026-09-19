@@ -3,6 +3,7 @@ import { getPool } from './db';
 import type { Internship, StoredInternship } from './types';
 import type { RoleType, Degree, PostingClassification } from './classify/posting';
 import type { CompanyTier, CompanyProfile, CompanyFacts } from './classify/company';
+import { jobKey } from './job-key';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
 import { present } from './present';
@@ -33,6 +34,7 @@ interface Row {
   salary_max: number | null;
   salary_unit: Salary['unit'];
   normalized_key: string | null;
+  job_key: string | null;
   season: string[] | null;
   role_type: RoleType | null;
   degrees: Degree[] | null;
@@ -63,6 +65,7 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: StoredInternship) => unknown]> = [
   ['salary_max', i => i.salaryMax ?? null],
   ['salary_unit', i => i.salaryUnit ?? null],
   ['normalized_key', i => i.normalizedKey],
+  ['job_key', i => jobKey(i.link)],
   ['season', i => JSON.stringify(i.season)],
   ['role_type', i => i.roleType ?? null],
   ['degrees', i => i.degrees ? JSON.stringify(i.degrees) : null],
@@ -318,10 +321,11 @@ function backfillArgs(i: StoredInternship, targetId: string): unknown[] {
  */
 export async function deduplicateAndStore(incoming: StoredInternship[]): Promise<StoreResult> {
   return withLock(() => withTxn(async (client) => {
-    const existing = (await client.query<{ id: string; link: string; normalized_key: string | null }>(
-      'SELECT id, link, normalized_key FROM internships WHERE archived = false',
+    const existing = (await client.query<{ id: string; link: string; normalized_key: string | null; job_key: string | null }>(
+      'SELECT id, link, normalized_key, job_key FROM internships WHERE archived = false',
     )).rows;
-    const seenLinks = new Set(existing.map(r => r.link).filter(Boolean));
+    const rowByJob = new Map<string, string>();
+    for (const r of existing) if (r.link) rowByJob.set(r.job_key ?? jobKey(r.link), r.id);
     const rowByKey = new Map<string, { id: string; link: string }>();
     for (const r of existing) if (r.normalized_key) rowByKey.set(r.normalized_key, { id: r.id, link: r.link });
 
@@ -334,7 +338,12 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
         await client.query(BACKFILL_SQL, backfillArgs(i, i.id));
         continue;
       }
-      if (seenLinks.has(i.link)) continue;
+      const key = jobKey(i.link);
+      const sameJob = i.link ? rowByJob.get(key) : undefined;
+      if (sameJob) {
+        await client.query(BACKFILL_SQL, backfillArgs(i, sameJob));
+        continue;
+      }
 
       const sameRole = rowByKey.get(i.normalizedKey);
       if (sameRole) {
@@ -342,13 +351,13 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
         if (sameRole.link.includes('simplify.jobs') && !i.link.includes('simplify.jobs')) {
           await client.query('UPDATE internships SET link = $2 WHERE id = $1', [sameRole.id, i.link]);
           rowByKey.set(i.normalizedKey, { id: sameRole.id, link: i.link });
-          seenLinks.add(i.link);
         }
+        if (i.link) rowByJob.set(key, sameRole.id);
         continue;
       }
 
       await client.query(INSERT_SQL, toValues(i));
-      seenLinks.add(i.link);
+      if (i.link) rowByJob.set(key, i.id);
       rowByKey.set(i.normalizedKey, { id: i.id, link: i.link });
       newInternships.push(i);
       netNewBySource[i.source] = (netNewBySource[i.source] ?? 0) + 1;
@@ -357,6 +366,17 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
     const count = await client.query<{ n: string }>('SELECT COUNT(*)::text AS n FROM internships');
     return { newInternships, totalStored: +count.rows[0].n, netNewBySource };
   }));
+}
+
+/** Set job_key on rows that predate the column. Returns the number filled. */
+export async function backfillJobKeys(): Promise<number> {
+  const { rows } = await getPool().query<{ id: string; link: string }>('SELECT id, link FROM internships WHERE job_key IS NULL AND link <> \'\'');
+  if (rows.length === 0) return 0;
+  await getPool().query(
+    'UPDATE internships i SET job_key = x.job_key FROM jsonb_to_recordset($1::jsonb) AS x(id text, job_key text) WHERE i.id = x.id',
+    [JSON.stringify(rows.map(r => ({ id: r.id, job_key: jobKey(r.link) })))],
+  );
+  return rows.length;
 }
 
 export async function archiveInternshipsByIds(ids: string[], reason: string): Promise<number> {

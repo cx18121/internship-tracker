@@ -1,4 +1,5 @@
 import type { Internship, StoredInternship } from '../lib/types';
+import { jobKey } from '../lib/job-key';
 import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified } from '../lib/store';
 import { isExpiredSeasonTokens } from '../lib/seasons';
 import { classifyLocation } from './iso-locations';
@@ -57,23 +58,31 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
     toArchive.set(reason, [...(toArchive.get(reason) ?? []), i.id]);
     result.archived[reason] = (result.archived[reason] ?? 0) + 1;
   }
-  // One row per (company, normalized title): keep the best-scored copy,
-  // fold the others' locations into it, archive them.
+  // One row per job (same ATS job id behind different links) and per
+  // (company, normalized title): keep the best-scored copy, fold the others'
+  // locations into it, archive them.
   const byKey = new Map<string, Internship[]>();
-  for (const i of active) if (i.normalizedKey && !stale.has(i.id)) byKey.set(i.normalizedKey, [...(byKey.get(i.normalizedKey) ?? []), i]);
-  const dupes: string[] = [];
-  for (const group of byKey.values()) {
+  const add = (k: string, i: Internship) => byKey.set(k, [...(byKey.get(k) ?? []), i]);
+  for (const i of active) {
+    if (stale.has(i.id)) continue;
+    if (i.link) add(`job:${jobKey(i.link)}`, i);
+    if (i.normalizedKey) add(`role:${i.normalizedKey}`, i);
+  }
+  const dupes = new Set<string>();
+  for (const candidates of byKey.values()) {
+    const group = candidates.filter(g => !dupes.has(g.id));
     if (group.length < 2) continue;
-    group.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || (b.description?.length ?? 0) - (a.description?.length ?? 0));
+    const direct = (i: Internship) => (/simplify\.jobs|linkedin\.com/.test(i.link) ? 0 : 1);
+    group.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || direct(b) - direct(a) || (b.description?.length ?? 0) - (a.description?.length ?? 0));
     const keep = group[0];
     const merged = [...new Set(group.flatMap(g => g.locations))].filter(l => !/^\d+ locations?$/i.test(l));
     if (merged.length > keep.locations.length) {
       keep.locations = merged;
       await updateLocations(keep.id, merged);
     }
-    dupes.push(...group.slice(1).map(g => g.id));
+    for (const g of group.slice(1)) dupes.add(g.id);
   }
-  if (dupes.length > 0) { toArchive.set('duplicate', dupes); result.archived.duplicate = dupes.length; }
+  if (dupes.size > 0) { toArchive.set('duplicate', [...dupes]); result.archived.duplicate = dupes.size; }
 
   for (const [reason, ids] of toArchive) await archiveInternshipsByIds(ids, reason);
   const archivedIds = new Set([...toArchive.values()].flat());

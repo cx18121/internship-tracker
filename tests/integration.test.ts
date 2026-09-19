@@ -64,6 +64,18 @@ describe('Dedup', { skip }, () => {
   });
 });
 
+describe('Dedup by job identity', { skip }, () => {
+  test('the same ATS job under a differently cased slug or another company spelling is one row', async () => {
+    const base = fixture({ id: 'jobkey-a', company: 'Datology', title: 'Research Intern', source: 'Ashby', link: 'https://jobs.ashbyhq.com/datologyai/0ced19c2-21ec-4bcc-92d2-68d448279f3f', normalizedKey: 'datology::research' });
+    const feed = fixture({ id: 'jobkey-b', company: 'DatologyAI', title: 'Research Intern', source: 'SimplifyJobs', link: 'https://jobs.ashbyhq.com/DatologyAI/0ced19c2-21ec-4bcc-92d2-68d448279f3f/application?embed=true', normalizedKey: 'datologyai::research' });
+    const first = await deduplicateAndStore([base]);
+    const second = await deduplicateAndStore([feed]);
+    assert.equal(first.newInternships.length, 1);
+    assert.equal(second.newInternships.length, 0);
+    await deleteInternship(base.id);
+  });
+});
+
 describe('Company catalog', { skip }, () => {
   test('facts match by normalized name or by ATS slug against the domain stem', async () => {
     await upsertCompanyFacts([
