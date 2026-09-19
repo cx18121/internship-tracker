@@ -2,8 +2,9 @@
  * Stable identity of a posting across links to the same job. The same Ashby
  * or Greenhouse job reaches us from the board, SimplifyJobs, and LinkedIn
  * with different casing, embed flags, or /application suffixes; two rows
- * with the same jobKey are one posting. Unknown hosts fall back to the URL
- * without query, hash, or trailing slash.
+ * with the same jobKey are one posting. Unknown hosts fall back to the
+ * lower-cased URL with only the hash and trailing slash removed; the query
+ * string stays because some career sites keep the job id there.
  */
 const UUID = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
 
@@ -17,6 +18,8 @@ const PATTERNS: Array<[RegExp, string]> = [
   [new RegExp(`ats\\.rippling\\.com/[^/]+/jobs/(${UUID})`), 'rippling'],
   [/apply\.workable\.com\/[^/]+\/j\/([A-Za-z0-9]+)/, 'workable'],
   [/linkedin\.com\/jobs\/view\/(?:[^/?#]*-)?(\d+)/, 'linkedin'],
+  [/linkedin\.com\/jobs\/.*[?&]currentjobid=(\d+)/, 'linkedin'],
+  [/greenhouse\.io\/embed\/job_app\?.*token=(\d+)/, 'greenhouse'],
   [new RegExp(`simplify\\.jobs/p/(${UUID})`), 'simplify'],
 ];
 
@@ -26,5 +29,5 @@ export function jobKey(link: string): string {
     const m = lower.match(re);
     if (m) return `${ats}:${m[1]}`;
   }
-  return lower.replace(/[?#].*$/, '').replace(/\/application$/, '').replace(/\/+$/, '');
+  return lower.replace(/#.*$/, '').replace(/\/+(\?|$)/, '$1');
 }

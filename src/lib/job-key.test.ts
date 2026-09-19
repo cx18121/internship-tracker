@@ -14,8 +14,12 @@ describe('jobKey', () => {
     assert.equal(jobKey('https://www.linkedin.com/jobs/view/software-engineer-intern-at-x-4300000001?refId=1'), 'linkedin:4300000001');
   });
 
-  test('unknown hosts fall back to the URL without query, hash, or trailing slash', () => {
-    assert.equal(jobKey('https://Example.com/careers/42/?utm=1#top'), 'https://example.com/careers/42');
+  test('unknown hosts keep the query string because it may hold the job id', () => {
+    assert.equal(jobKey('https://Example.com/careers/42/#top'), 'https://example.com/careers/42');
+    assert.notEqual(jobKey('https://x.taleo.net/careersection/x/jobdetail.ftl?job=1'), jobKey('https://x.taleo.net/careersection/x/jobdetail.ftl?job=2'));
+    assert.notEqual(jobKey('https://www.linkedin.com/jobs/search/?currentJobId=1'), jobKey('https://www.linkedin.com/jobs/search/?currentJobId=2'));
+    assert.equal(jobKey('https://www.linkedin.com/jobs/search/?currentJobId=4253822234'), 'linkedin:4253822234');
+    assert.equal(jobKey('https://boards.greenhouse.io/embed/job_app?token=243853'), 'greenhouse:243853');
   });
 
   test('different jobs on the same board stay distinct', () => {

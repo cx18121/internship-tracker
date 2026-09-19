@@ -65,7 +65,7 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: StoredInternship) => unknown]> = [
   ['salary_max', i => i.salaryMax ?? null],
   ['salary_unit', i => i.salaryUnit ?? null],
   ['normalized_key', i => i.normalizedKey],
-  ['job_key', i => jobKey(i.link)],
+  ['job_key', i => i.link ? jobKey(i.link) : null],
   ['season', i => JSON.stringify(i.season)],
   ['role_type', i => i.roleType ?? null],
   ['degrees', i => i.degrees ? JSON.stringify(i.degrees) : null],
