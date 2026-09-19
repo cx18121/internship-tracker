@@ -24,6 +24,17 @@ describe('groupInternships', () => {
     assert.equal(acme.avgScore, 85);
   });
 
+  test('groupInternships: spelling variants of one company share a section', () => {
+    const out = groupInternships([
+      item({ id: 'd1', company: 'DatologyAI', score: 90 }),
+      item({ id: 'd2', company: 'Datology', score: 90 }),
+      item({ id: 'd3', company: 'DatologyAI', score: 90 }),
+    ], 'score');
+    assert.equal(out.length, 1);
+    assert.equal(out[0].company, 'DatologyAI');
+    assert.equal(out[0].items.length, 3);
+  });
+
   test('groupInternships: posted sort orders companies by newest posting, ignoring score', () => {
     const corpus = [
       item({ id: 'old', company: 'OldCo', score: 99, postedAt: '2026-01-01' }),

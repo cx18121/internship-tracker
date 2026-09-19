@@ -9,6 +9,6 @@ describe('notifier freshness', () => {
     assert.equal(isFreshEnough({ postedAt: '2026-08-01' }, now), false);
   });
   test('an undated posting is treated as new', () => {
-    assert.equal(isFreshEnough({ postedAt: null }, now), true);
+    assert.equal(isFreshEnough({ postedAt: undefined }, now), true);
   });
 });

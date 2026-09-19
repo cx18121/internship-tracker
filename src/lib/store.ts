@@ -379,7 +379,8 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
  */
 export async function rekeyCompanies(): Promise<{ internships: number; profiles: number }> {
   const p = getPool();
-  const rows = (await p.query<{ id: string; company: string }>('SELECT id, company FROM internships WHERE company_key IS NULL')).rows;
+  const rows = (await p.query<{ id: string; company: string; company_key: string | null }>('SELECT id, company, company_key FROM internships')).rows
+    .filter(r => companyKey(r.company) !== r.company_key);
   if (rows.length > 0) {
     await p.query('UPDATE internships i SET company_key = x.k FROM jsonb_to_recordset($1::jsonb) AS x(id text, k text) WHERE i.id = x.id',
       [JSON.stringify(rows.map(r => ({ id: r.id, k: companyKey(r.company) })))]);

@@ -4,6 +4,7 @@
 // collapsible per-company sections when groupByCompany is on. Both modes
 // reuse the same InternshipRow for visual consistency.
 
+import { companyKey } from "@/lib/company-key";
 import { useState, memo } from "react";
 import { ChevronRight } from "lucide-react";
 import type { Internship, SortBy } from "../_lib/types";
@@ -63,13 +64,14 @@ function pickDisplayCasing(counts: Map<string, number>): string {
 // Group internships by company, then order the company sections to match the
 // active sort: by most-recently-posted role under "posted", by average score
 // otherwise. Roles within a company keep their incoming order, which is already
-// sort-correct because callers pass an already-sorted list. Grouping is
-// case-insensitive so case-only name variants land in one section.
+// sort-correct because callers pass an already-sorted list. Grouping uses the
+// normalized company key so spelling variants (Datology / DatologyAI) share
+// one section; the header shows the most common spelling.
 export function groupInternships(items: Internship[], sortBy: SortBy): Group[] {
   const map = new Map<string, { roles: Internship[]; casings: Map<string, number> }>();
   for (const i of items) {
     const display = i.company || "Unknown";
-    const k = display.toLowerCase();
+    const k = companyKey(display) || display.toLowerCase();
     let entry = map.get(k);
     if (!entry) { entry = { roles: [], casings: new Map() }; map.set(k, entry); }
     entry.roles.push(i);
