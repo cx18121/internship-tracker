@@ -4,8 +4,9 @@
     "elite": 100,
     "hot": 85,
     "top": 70,
-    "solid": 45,
-    "other": 30
+    "startup": 55,
+    "solid": 35,
+    "other": 25
   },
   "roleMultiplier": {
     "swe": 1.0,

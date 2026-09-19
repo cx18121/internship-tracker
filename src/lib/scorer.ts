@@ -56,7 +56,7 @@ export interface ScoreResult {
 export function listedCompanyTier(company: string, cfg: ScoringConfig = loadConfig()): { tier: CompanyTier; name: string } | null {
   const key = tokenize(company).join(" ");
   if (!key) return null;
-  for (const tier of ["elite", "top", "hot", "solid", "other"] as const) {
+  for (const tier of ["elite", "top", "hot", "startup", "solid", "other"] as const) {
     for (const name of cfg.companyTiers[tier]?.companies ?? []) {
       if (tokenize(name).join(" ") === key) return { tier, name };
     }

@@ -90,7 +90,7 @@ export async function resolveCompanyTiers(rows: StoredInternship[]): Promise<Map
   await pool(pending, 4, async ([key, row]) => {
     try {
       const atsHost = (() => { try { return new URL(row.link).hostname; } catch { return undefined; } })();
-      const profile = await classifyCompany({ company: row.company, atsHost, sampleTitle: row.title });
+      const profile = await classifyCompany({ company: row.company, atsHost, sampleTitle: row.title, sampleDescription: row.description });
       await saveCompanyProfile(key, row.company, profile, process.env.CLASSIFY_COMPANY_MODEL || 'claude-sonnet-4-6');
       tiers.set(key, profile.tier);
       classified++;

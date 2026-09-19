@@ -14,13 +14,14 @@ describe('Scorer', () => {
   });
 
   test('the company sets the band; the role scales it', () => {
-    const at = (companyTier: 'elite' | 'hot' | 'top' | 'solid' | 'other', roleType: 'swe' | 'it_security' | 'hardware_ee') =>
+    const at = (companyTier: 'elite' | 'hot' | 'top' | 'startup' | 'solid' | 'other', roleType: 'swe' | 'it_security' | 'hardware_ee') =>
       scoreInternship({ title: 'Intern', company: 'X', location: '', companyTier, roleType }).score;
     assert.equal(at('elite', 'swe'), 100);
     assert.equal(at('hot', 'swe'), 85);
     assert.equal(at('top', 'swe'), 70);
-    assert.equal(at('solid', 'swe'), 45);
-    assert.equal(at('other', 'swe'), 30);
+    assert.equal(at('startup', 'swe'), 55, 'an unknown startup on a startup ATS outranks a bank');
+    assert.equal(at('solid', 'swe'), 35);
+    assert.equal(at('other', 'swe'), 25);
     assert.equal(at('top', 'it_security'), 42, 'a security analyst at a top company is a D');
     assert.equal(at('elite', 'hardware_ee'), 50);
   });
@@ -60,7 +61,7 @@ describe('Scorer', () => {
   test('injected config drives scoring without touching disk', () => {
     const synthetic: ScoringConfig = {
       scoringCeiling: 100,
-      companyBase: { elite: 0, hot: 0, top: 0, solid: 0, other: 42 },
+      companyBase: { elite: 0, hot: 0, top: 0, startup: 0, solid: 0, other: 42 },
       roleMultiplier: { swe: 1, ml_ai: 0, data: 0, quant: 0, it_security: 0, hardware_ee: 0, research_science: 0, product_pm: 0, other: 0 },
       companyTiers: {},
       roleTiers: { T1: { keywords: ['unicorn engineer'] } },
@@ -86,8 +87,8 @@ describe('Scoring config integrity', () => {
   test('elite and hot SWE roles are A, top is B, solid is C, unlisted is D', () => {
     for (const t of ['elite', 'hot'] as const) assert.ok(config.companyBase[t] * config.roleMultiplier.swe >= 75, t);
     assert.ok(config.companyBase.top * config.roleMultiplier.swe >= 60 && config.companyBase.top * config.roleMultiplier.swe < 75);
-    assert.ok(config.companyBase.solid * config.roleMultiplier.swe < 60);
-    assert.ok(config.companyBase.other * config.roleMultiplier.swe < 45);
+    assert.ok(config.companyBase.startup > config.companyBase.solid, 'unknown startups outrank established non-tech');
+    assert.ok(config.companyBase.solid * config.roleMultiplier.swe < 45);
   });
 
   test('every legacy role tier maps to a role type', () => {
