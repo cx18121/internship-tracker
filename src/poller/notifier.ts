@@ -1,6 +1,7 @@
 import type { Internship } from '../lib/types';
 import { pool } from '../lib/concurrency';
-import { checkLinkStatus } from './ats';
+import { linkState } from './ats';
+import { POLLED_SOURCES } from './sources';
 import type { NotifSettings } from '../lib/notifSettings';
 import { applyFilterSpec } from '../lib/filter-spec';
 import { getState, setState, loadNotifSettings } from '../lib/app-state';
@@ -33,11 +34,12 @@ function passesNotifFilters(i: Internship, f: NotifSettings): boolean {
   });
 }
 
-// Aggregated sources sometimes list roles already closed upstream. Drop only
-// on a definitive 404/410; anything else (throttling, auth walls) fails open.
-async function isLinkLive(url: string): Promise<boolean> {
-  const status = await checkLinkStatus(url, 5000);
-  return status !== 404 && status !== 410;
+// A row from a polled board was just returned by that board, so it is live.
+// Feed rows (SimplifyJobs, LinkedIn) can lag a closed job by days, so those
+// are asked through the ATS API. Only a definite 'gone' drops the card.
+async function isLinkLive(i: Internship): Promise<boolean> {
+  if (POLLED_SOURCES.has(i.source)) return true;
+  return (await linkState(i.link)) !== 'gone';
 }
 
 /** Push every new posting that passes the user's gates to Discord, best first. */
@@ -53,7 +55,7 @@ export async function sendBatchAlert(newInternships: Internship[]): Promise<numb
   }
 
   const liveness: boolean[] = [];
-  await pool(eligible, 8, async (p) => { liveness[eligible.indexOf(p)] = await isLinkLive(p.link); });
+  await pool(eligible, 8, async (p) => { liveness[eligible.indexOf(p)] = await isLinkLive(p); });
   const live = eligible.filter((_, idx) => liveness[idx]);
   if (live.length < eligible.length) {
     console.log(`[notifier] Dropped ${eligible.length - live.length}/${eligible.length} postings with dead links`);
