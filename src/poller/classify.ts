@@ -7,8 +7,9 @@ import { listedCompanyTier } from '../lib/scorer';
 import { getCompanyProfiles, saveCompanyProfile, saveClassification, archiveInternshipsByIds, findCompanyFacts } from '../lib/store';
 import { discoverATSTarget } from '../lib/ats-registry';
 import { pool } from '../lib/concurrency';
+import { companyKey } from '../lib/company-key';
 
-export const companyKey = (company: string): string => company.trim().toLowerCase();
+export { companyKey };
 
 export interface ClassifyOutcome {
   /** Rows that were classified and remain active. */

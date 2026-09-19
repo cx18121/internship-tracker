@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { runCycle } from './agent';
 import { closePool } from '../lib/db';
 import { runMigrations } from '../lib/migrate';
-import { backfillJobKeys } from '../lib/store';
+import { backfillJobKeys, rekeyCompanies } from '../lib/store';
 import { reevaluate } from './reevaluate';
 import { withTimeout, TimeoutError } from './utils/with-timeout';
 
@@ -126,6 +126,8 @@ async function main(): Promise<void> {
   await runMigrations();
   const filled = await backfillJobKeys();
   if (filled > 0) console.log(`[poller] job_key backfilled on ${filled} rows`);
+  const rekeyed = await rekeyCompanies();
+  if (rekeyed.internships || rekeyed.profiles) console.log(`[poller] company_key set on ${rekeyed.internships} rows, ${rekeyed.profiles} profiles rekeyed`);
 
   // Initial run — do everything once so the DB has fresh state.
   // Wrapped so a transient startup failure (single source 500, DNS hiccup,

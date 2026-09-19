@@ -11,7 +11,8 @@
 
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, companyNameKey } from '../src/lib/store';
+import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, rekeyCompanies, getCompanyProfiles } from '../src/lib/store';
+import { companyKey } from '../src/lib/company-key';
 import { closePool } from '../src/lib/db';
 import type { StoredInternship, Internship } from '../src/lib/types';
 
@@ -93,10 +94,27 @@ describe('Company catalog', { skip }, () => {
       { domain: 'afterquery.com', name: 'AfterQuery', stage: 'Series B', investors: ['boxgroup'], batch: 'Winter 2025', headcount: 30, source: 'test' },
       { domain: 'bedrockrobotics.com', name: 'Bedrock Robotics, Inc.', stage: 'Series B', investors: ['8vc'], source: 'test' },
     ]);
-    assert.equal(companyNameKey('Bedrock Robotics, Inc.'), 'bedrockrobotics');
+    assert.equal(companyKey('Bedrock Robotics, Inc.'), 'bedrockrobotics');
     assert.equal((await findCompanyFacts('afterquery inc'))?.stage, 'Series B');
     assert.equal((await findCompanyFacts('Bedrock', 'bedrock-robotics'))?.domain, 'bedrockrobotics.com');
     assert.equal(await findCompanyFacts('Droyd Robotics'), null);
+  });
+});
+
+describe('Company rekey', { skip }, () => {
+  test('profiles under old exact-lowercase keys collapse onto one normalized key, curated winning', async () => {
+    const { getPool } = await import('../src/lib/db');
+    await getPool().query("INSERT INTO company_profiles (company_key, company, tier, known, model) VALUES ('etched.ai', 'Etched.ai', 'solid', false, 'claude'), ('etched', 'Etched', 'hot', true, 'claude') ON CONFLICT (company_key) DO NOTHING");
+    const row = fixture({ id: 'rekey-a', company: 'Etched.ai', link: 'https://jobs.ashbyhq.com/etched/11111111-1111-1111-1111-111111111111' });
+    await deduplicateAndStore([row]);
+    await rekeyCompanies();
+    const profiles = await getCompanyProfiles(['etched']);
+    assert.equal(profiles.size, 1);
+    assert.equal((await getPool().query("SELECT count(*)::int n FROM company_profiles WHERE company_key IN ('etched.ai', 'etched')")).rows[0].n, 1);
+    const { getInternship } = await import('../src/lib/store');
+    assert.equal((await getInternship('rekey-a'))?.companyTier, profiles.get('etched')?.tier);
+    await deleteInternship('rekey-a');
+    await getPool().query("DELETE FROM company_profiles WHERE company_key = 'etched'");
   });
 });
 

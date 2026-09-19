@@ -12,6 +12,7 @@ import { buildPosting } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
 import { listedCompanyTier } from '../../lib/scorer';
 import { getPromotedCompanyKeys } from '../../lib/store';
+import { companyKey } from '../../lib/company-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
 import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import {
@@ -293,7 +294,7 @@ const CURATED_ONLY_ATS = new Set<ATSTarget['ats']>(['workday', 'icims', 'smartre
 export function shouldPoll(target: ATSTarget, promoted: Set<string> = new Set()): boolean {
   if (!CURATED_ONLY_ATS.has(target.ats)) return true;
   const name = target.name || target.slug;
-  return listedCompanyTier(name) !== null || promoted.has(canonicalizeCompany(stripEmojiPrefix(name)).toLowerCase());
+  return listedCompanyTier(name) !== null || promoted.has(companyKey(canonicalizeCompany(stripEmojiPrefix(name))));
 }
 
 export async function pollATS(): Promise<RawPosting[]> {

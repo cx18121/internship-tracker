@@ -4,6 +4,7 @@ import type { Internship, StoredInternship } from './types';
 import type { RoleType, Degree, PostingClassification } from './classify/posting';
 import type { CompanyTier, CompanyProfile, CompanyFacts } from './classify/company';
 import { jobKey } from './job-key';
+import { companyKey } from './company-key';
 import type { Salary } from './salary';
 import { getState, setState } from './app-state';
 import { present } from './present';
@@ -35,6 +36,7 @@ interface Row {
   salary_unit: Salary['unit'];
   normalized_key: string | null;
   job_key: string | null;
+  company_key: string | null;
   season: string[] | null;
   role_type: RoleType | null;
   degrees: Degree[] | null;
@@ -66,6 +68,7 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: StoredInternship) => unknown]> = [
   ['salary_unit', i => i.salaryUnit ?? null],
   ['normalized_key', i => i.normalizedKey],
   ['job_key', i => i.link ? jobKey(i.link) : null],
+  ['company_key', i => companyKey(i.company)],
   ['season', i => JSON.stringify(i.season)],
   ['role_type', i => i.roleType ?? null],
   ['degrees', i => i.degrees ? JSON.stringify(i.degrees) : null],
@@ -115,7 +118,7 @@ function fromRow(r: Row): StoredInternship {
 }
 
 // Every read joins the company's judged tier; present() then applies curated overrides.
-const SELECT = `SELECT i.*, p.tier AS company_tier FROM internships i LEFT JOIN company_profiles p ON p.company_key = LOWER(TRIM(i.company))`;
+const SELECT = `SELECT i.*, p.tier AS company_tier FROM internships i LEFT JOIN company_profiles p ON p.company_key = i.company_key`;
 
 // ---------------------------------------------------------------------------
 // Write serialization. One in-process mutex so the poll cycle's transaction
@@ -369,6 +372,39 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
   }));
 }
 
+/**
+ * Move company_profiles and internships onto the normalized company key.
+ * Profiles that collapse onto one key keep the curated one, else the latest
+ * judgment. Idempotent; a no-op once every row carries the current key.
+ */
+export async function rekeyCompanies(): Promise<{ internships: number; profiles: number }> {
+  const p = getPool();
+  const rows = (await p.query<{ id: string; company: string }>('SELECT id, company FROM internships WHERE company_key IS NULL')).rows;
+  if (rows.length > 0) {
+    await p.query('UPDATE internships i SET company_key = x.k FROM jsonb_to_recordset($1::jsonb) AS x(id text, k text) WHERE i.id = x.id',
+      [JSON.stringify(rows.map(r => ({ id: r.id, k: companyKey(r.company) })))]);
+  }
+  const profiles = (await p.query<{ company_key: string; company: string }>('SELECT company_key, company FROM company_profiles')).rows
+    .filter(r => companyKey(r.company) !== r.company_key);
+  if (profiles.length > 0) {
+    await p.query(`
+      WITH moved AS (
+        SELECT x.k AS new_key, p.* FROM company_profiles p JOIN jsonb_to_recordset($1::jsonb) AS x(old text, k text) ON x.old = p.company_key
+      ), ranked AS (
+        SELECT *, row_number() OVER (PARTITION BY new_key ORDER BY (model = 'curated') DESC, classified_at DESC) AS rn FROM moved
+      ), deleted AS (
+        DELETE FROM company_profiles WHERE company_key IN (SELECT company_key FROM moved)
+      )
+      INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
+      SELECT new_key, company, tier, sector, known, reason, model, classified_at FROM ranked WHERE rn = 1
+      ON CONFLICT (company_key) DO UPDATE SET tier = EXCLUDED.tier, sector = EXCLUDED.sector, known = EXCLUDED.known, reason = EXCLUDED.reason,
+        model = EXCLUDED.model, classified_at = EXCLUDED.classified_at
+      WHERE company_profiles.model <> 'curated' OR EXCLUDED.model = 'curated'`,
+      [JSON.stringify(profiles.map(r => ({ old: r.company_key, k: companyKey(r.company) })))]);
+  }
+  return { internships: rows.length, profiles: profiles.length };
+}
+
 /** Set job_key on rows that predate the column. Returns the number filled. */
 export async function backfillJobKeys(): Promise<number> {
   const { rows } = await getPool().query<{ id: string; link: string }>('SELECT id, link FROM internships WHERE job_key IS NULL AND link <> \'\'');
@@ -418,19 +454,11 @@ export async function saveCompanyProfile(key: string, company: string, p: Compan
   );
 }
 
-/** Normalized name for matching postings to the company catalog. */
-export function companyNameKey(name: string): string {
-  return name.toLowerCase()
-    .replace(/\(.*?\)/g, ' ')
-    .replace(/\b(inc|llc|corp|corporation|co|ltd|limited|labs?|technologies|technology|ai|io|hq)\b/g, ' ')
-    .replace(/[^a-z0-9]/g, '');
-}
-
 const FACTS_SELECT = 'SELECT domain, stage, investors, batch, headcount, industry, location FROM company_facts';
 
 /** Catalog facts for a company, matched by normalized name or by ATS slug against the domain stem. */
 export async function findCompanyFacts(company: string, atsSlug?: string): Promise<CompanyFacts | null> {
-  const nameKey = companyNameKey(company);
+  const nameKey = companyKey(company);
   const stems = atsSlug ? [atsSlug.toLowerCase(), atsSlug.toLowerCase().replace(/-/g, '')] : [];
   if (!nameKey && stems.length === 0) return null;
   const { rows } = await getPool().query<CompanyFacts>(
@@ -449,7 +477,7 @@ export async function upsertCompanyFacts(rows: Array<CompanyFacts & { name: stri
      FROM jsonb_to_recordset($1::jsonb) AS x(domain text, name text, name_key text, stage text, investors text[], batch text, headcount int, industry text, location text, source text)
      ON CONFLICT (domain) DO UPDATE SET name = EXCLUDED.name, name_key = EXCLUDED.name_key, stage = EXCLUDED.stage, investors = EXCLUDED.investors,
        batch = EXCLUDED.batch, headcount = EXCLUDED.headcount, industry = EXCLUDED.industry, location = EXCLUDED.location, source = EXCLUDED.source, imported_at = now()`,
-    [JSON.stringify(rows.map(r => ({ ...r, name_key: companyNameKey(r.name) })))],
+    [JSON.stringify(rows.map(r => ({ ...r, name_key: companyKey(r.name) })))],
   );
   return res.rowCount ?? 0;
 }
