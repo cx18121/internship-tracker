@@ -2,6 +2,7 @@ import type { StoredInternship } from '../lib/types';
 import { getInternships, archiveInternshipsByIds, markLinkChecked } from '../lib/store';
 import { pool } from '../lib/concurrency';
 import { POLLED_SOURCES } from './sources';
+import { workdayDetailUrl } from './utils/description-fetchers';
 
 /**
  * Liveness of rows that only a feed vouches for. Rows from boards we poll
@@ -60,8 +61,48 @@ export async function checkLinkStatus(url: string, timeoutMs = TIMEOUT_MS): Prom
   }
 }
 
+/**
+ * ATS boards serve a friendly 200 page for a closed job, so HEAD says live
+ * when it is not. Ask the ATS API instead where the link shape lets us; the
+ * API 404s the moment the job closes.
+ */
+function atsProbeUrl(url: string): string | null {
+  let m = url.match(/greenhouse\.io\/(?:boards\/)?([^/?#]+)\/jobs\/(\d+)/);
+  if (m) return `https://boards-api.greenhouse.io/v1/boards/${m[1]}/jobs/${m[2]}`;
+  m = url.match(/jobs\.lever\.co\/([^/?#]+)\/([a-f0-9-]{36})/);
+  if (m) return `https://api.lever.co/v0/postings/${m[1]}/${m[2]}`;
+  m = url.match(/ats\.rippling\.com\/(?:[a-z]{2}-[A-Z]{2}\/)?([^/?#]+)\/jobs\/([0-9a-f-]+)/i);
+  if (m) return `https://api.rippling.com/platform/api/ats/v1/board/${m[1]}/jobs/${m[2]}`;
+  m = url.match(/jobs\.smartrecruiters\.com\/([^/?#]+)\/(\d+)/);
+  if (m) return `https://api.smartrecruiters.com/v1/companies/${m[1]}/postings/${m[2]}`;
+  return workdayDetailUrl(url);
+}
+
+async function ashbyState(url: string): Promise<LinkState> {
+  try {
+    const res = await fetch(url, { headers: { 'User-Agent': UA, Accept: 'text/html' }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+    if (!res.ok) return GONE_STATUSES.has(res.status) ? 'gone' : 'unknown';
+    const html = await res.text();
+    // A live posting embeds its data; a closed one renders the board with a notice.
+    return /"posting"\s*:\s*\{/.test(html) && !/no longer|isn.t available|has been closed/i.test(html) ? 'live' : 'gone';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export async function linkState(url: string): Promise<LinkState> {
   if (/linkedin\.com/.test(url)) return linkedInState(url);
+  if (/jobs\.ashbyhq\.com\/[^/]+\/[^/?#]+/.test(url)) return ashbyState(url);
+  const probe = atsProbeUrl(url);
+  if (probe) {
+    try {
+      const res = await fetch(probe, { headers: { Accept: 'application/json', 'User-Agent': UA }, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      if (res.ok) return 'live';
+      return GONE_STATUSES.has(res.status) ? 'gone' : 'unknown';
+    } catch {
+      return 'unknown';
+    }
+  }
   const status = await checkLinkStatus(url);
   if (GONE_STATUSES.has(status)) return 'gone';
   return status === -1 ? 'unknown' : 'live';
