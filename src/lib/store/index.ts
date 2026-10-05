@@ -120,7 +120,7 @@ function fromRow(r: Row): StoredInternship {
 }
 
 // Every read joins the company's judged tier; present() then applies curated overrides.
-const SELECT = `SELECT i.*, p.tier AS company_tier FROM internships i LEFT JOIN company_profiles p ON p.company_key = i.company_key`;
+const SELECT = `SELECT i.*, p.tier AS company_tier FROM internships i LEFT JOIN company_profiles p ON p.company_key = i.company_key AND i.company_key <> ''`;
 
 // ---------------------------------------------------------------------------
 // Write serialization. One in-process mutex so the poll cycle's transaction
@@ -351,7 +351,7 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
         continue;
       }
 
-      const sameRole = rowByKey.get(i.normalizedKey);
+      const sameRole = i.normalizedKey ? rowByKey.get(i.normalizedKey) : undefined;
       if (sameRole) {
         await client.query(BACKFILL_SQL, backfillArgs(i, sameRole.id));
         if (sameRole.link.includes('simplify.jobs') && !i.link.includes('simplify.jobs')) {
@@ -364,7 +364,7 @@ export async function deduplicateAndStore(incoming: StoredInternship[]): Promise
 
       await client.query(INSERT_SQL, toValues(i));
       if (key) rowByJob.set(key, i.id);
-      rowByKey.set(i.normalizedKey, { id: i.id, link: i.link });
+      if (i.normalizedKey) rowByKey.set(i.normalizedKey, { id: i.id, link: i.link });
       newInternships.push(i);
       netNewBySource[i.source] = (netNewBySource[i.source] ?? 0) + 1;
     }

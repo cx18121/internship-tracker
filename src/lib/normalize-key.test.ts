@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 import { normalizeKey } from './normalize-key';
 
 describe('normalizeKey', () => {
+  test('non-Latin employers never share a title-only dedup key', () => {
+    const title = 'Software Engineer Intern';
+    assert.notEqual(normalizeKey('凯斯纽荷兰(中国)管理有限公司', title), normalizeKey('北京五一视界数字孪生科技股份有限公司', title));
+    assert.equal(normalizeKey('↳', title), '');
+    assert.equal(normalizeKey('', title), '');
+  });
   test('normalizeKey: collapses cross-source noise but keeps distinguishing terms', () => {
     const decorated = normalizeKey('Stripe', 'Software Engineer Intern, Summer 2025 (Remote)');
     assert.equal(decorated, 'stripe::software engineer', 'season/location/parenthetical/intern noise must be stripped');

@@ -125,7 +125,7 @@ async function main(): Promise<void> {
   console.log(`[internship-tracker] Quiet hours: ${QUIET_WINDOW ? `${QUIET_WINDOW[0]}:00–${QUIET_WINDOW[1]}:00 ${POLL_TZ}` : 'disabled'}`);
   await runMigrations();
   const rekeyed = await rekeyRows();
-  if (rekeyed.internships || rekeyed.profiles) console.log(`[poller] keys recomputed on ${rekeyed.internships} rows, ${rekeyed.profiles} profiles rekeyed`);
+  if (rekeyed.internships || rekeyed.profiles || rekeyed.facts) console.log(`[poller] keys recomputed on ${rekeyed.internships} rows, ${rekeyed.profiles} profiles, ${rekeyed.facts} facts`);
 
   // Initial run — do everything once so the DB has fresh state.
   // Wrapped so a transient startup failure (single source 500, DNS hiccup,

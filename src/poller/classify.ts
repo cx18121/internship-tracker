@@ -71,7 +71,10 @@ export async function classifyRows(rows: StoredInternship[]): Promise<ClassifyOu
 /** Company tier per company key, classifying unseen companies with the model. */
 export async function resolveCompanyTiers(rows: StoredInternship[]): Promise<Map<string, CompanyTier>> {
   const byKey = new Map<string, StoredInternship>();
-  for (const r of rows) if (!byKey.has(companyKey(r.company))) byKey.set(companyKey(r.company), r);
+  for (const r of rows) {
+    const key = companyKey(r.company);
+    if (key && !byKey.has(key)) byKey.set(key, r);
+  }
 
   const tiers = new Map<string, CompanyTier>();
   const profiles = await getCompanyProfiles([...byKey.keys()]);

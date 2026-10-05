@@ -5,6 +5,7 @@ import { companyKey } from '../company-key';
 import { normalizeKey } from '../normalize-key';
 
 export async function getCompanyProfiles(keys: string[]): Promise<Map<string, CompanyProfile & { tier: CompanyTier }>> {
+  keys = keys.filter(Boolean);
   if (keys.length === 0) return new Map();
   const { rows } = await getPool().query<{ company_key: string; tier: CompanyTier; sector: string | null; known: boolean; reason: string | null }>(
     'SELECT company_key, tier, sector, known, reason FROM company_profiles WHERE company_key = ANY($1::text[])', [keys],
@@ -19,6 +20,7 @@ export async function getPromotedCompanyKeys(): Promise<Set<string>> {
 }
 
 export async function saveCompanyProfile(key: string, company: string, p: CompanyProfile, model: string): Promise<void> {
+  if (!key) throw new Error('Cannot save a company profile without an identity');
   await getPool().query(
     `INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
      VALUES ($1, $2, $3, $4, $5, $6, $7, now())
@@ -57,39 +59,61 @@ export async function upsertCompanyFacts(rows: Array<CompanyFacts & { name: stri
 }
 
 /**
- * Keys derived from names (company_key, normalized_key) are recomputed on
- * boot so a change to companyKey or normalizeKey applies to stored rows.
- * Profiles that collapse onto one key keep the curated one, else the latest
- * judgment. Idempotent; a no-op once every row carries the current keys.
+ * Recompute every name-derived key on boot, including the fact catalog.
+ * Empty-key profiles have no trustworthy identity and must be discarded,
+ * not carried forward to a newly identifiable company. Other collisions keep
+ * the curated judgment, else the latest. The repair is atomic and idempotent.
  */
-export async function rekeyRows(): Promise<{ internships: number; profiles: number }> {
-  const p = getPool();
-  const rows = (await p.query<{ id: string; company: string; title: string; company_key: string | null; normalized_key: string | null }>(
-    'SELECT id, company, title, company_key, normalized_key FROM internships')).rows
-    .map(r => ({ id: r.id, ck: companyKey(r.company), nk: normalizeKey(r.company, r.title), r }))
-    .filter(x => x.ck !== x.r.company_key || x.nk !== x.r.normalized_key);
-  if (rows.length > 0) {
-    await p.query('UPDATE internships i SET company_key = x.ck, normalized_key = x.nk FROM jsonb_to_recordset($1::jsonb) AS x(id text, ck text, nk text) WHERE i.id = x.id',
-      [JSON.stringify(rows.map(x => ({ id: x.id, ck: x.ck, nk: x.nk })))]);
+export async function rekeyRows(): Promise<{ internships: number; profiles: number; facts: number }> {
+  const p = await getPool().connect();
+  try {
+    await p.query('BEGIN');
+    const rows = (await p.query<{ id: string; company: string; title: string; company_key: string | null; normalized_key: string | null }>(
+      'SELECT id, company, title, company_key, normalized_key FROM internships')).rows
+      .map(r => ({ id: r.id, ck: companyKey(r.company), nk: normalizeKey(r.company, r.title), r }))
+      .filter(x => x.ck !== x.r.company_key || x.nk !== x.r.normalized_key);
+    if (rows.length > 0) {
+      await p.query('UPDATE internships i SET company_key = x.ck, normalized_key = x.nk FROM jsonb_to_recordset($1::jsonb) AS x(id text, ck text, nk text) WHERE i.id = x.id',
+        [JSON.stringify(rows.map(x => ({ id: x.id, ck: x.ck, nk: x.nk })))]);
+    }
+
+    const profiles = (await p.query<{
+      company_key: string; company: string; tier: CompanyTier; sector: string | null;
+      known: boolean; reason: string | null; model: string | null; classified_at: string;
+    }>('SELECT company_key, company, tier, sector, known, reason, model, classified_at::text FROM company_profiles')).rows
+      .map(r => ({ ...r, new_key: companyKey(r.company) }))
+      .filter(r => !r.company_key || !r.new_key || r.new_key !== r.company_key);
+    if (profiles.length > 0) {
+      await p.query('DELETE FROM company_profiles WHERE company_key = ANY($1::text[])', [profiles.map(r => r.company_key)]);
+      await p.query(`
+        WITH ranked AS (
+          SELECT *, row_number() OVER (PARTITION BY new_key ORDER BY CASE WHEN model = 'curated' THEN 1 ELSE 0 END DESC, classified_at DESC, company_key) AS rn
+          FROM jsonb_to_recordset($1::jsonb) AS x(new_key text, company_key text, company text, tier text, sector text,
+            known boolean, reason text, model text, classified_at timestamptz)
+        )
+        INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
+        SELECT new_key, company, tier, sector, known, reason, model, classified_at FROM ranked WHERE rn = 1
+        ON CONFLICT (company_key) DO UPDATE SET company = EXCLUDED.company, tier = EXCLUDED.tier, sector = EXCLUDED.sector,
+          known = EXCLUDED.known, reason = EXCLUDED.reason, model = EXCLUDED.model, classified_at = EXCLUDED.classified_at
+        WHERE ROW(CASE WHEN EXCLUDED.model = 'curated' THEN 1 ELSE 0 END, EXCLUDED.classified_at)
+          > ROW(CASE WHEN company_profiles.model = 'curated' THEN 1 ELSE 0 END, company_profiles.classified_at)`,
+        [JSON.stringify(profiles.filter(r => r.company_key && r.new_key))]);
+    }
+
+    const facts = (await p.query<{ domain: string; name: string; name_key: string }>('SELECT domain, name, name_key FROM company_facts')).rows
+      .map(r => ({ domain: r.domain, key: companyKey(r.name), old: r.name_key }))
+      .filter(r => r.key !== r.old);
+    if (facts.length > 0) {
+      await p.query('UPDATE company_facts f SET name_key = x.key FROM jsonb_to_recordset($1::jsonb) AS x(domain text, key text) WHERE f.domain = x.domain',
+        [JSON.stringify(facts)]);
+    }
+    await p.query('COMMIT');
+    return { internships: rows.length, profiles: profiles.length, facts: facts.length };
+  } catch (e) {
+    await p.query('ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    p.release();
   }
-  const profiles = (await p.query<{ company_key: string; company: string }>('SELECT company_key, company FROM company_profiles')).rows
-    .filter(r => companyKey(r.company) !== r.company_key);
-  if (profiles.length > 0) {
-    await p.query(`
-      WITH moved AS (
-        SELECT x.k AS new_key, p.* FROM company_profiles p JOIN jsonb_to_recordset($1::jsonb) AS x(old text, k text) ON x.old = p.company_key
-      ), ranked AS (
-        SELECT *, row_number() OVER (PARTITION BY new_key ORDER BY (model = 'curated') DESC, classified_at DESC) AS rn FROM moved
-      ), deleted AS (
-        DELETE FROM company_profiles WHERE company_key IN (SELECT company_key FROM moved)
-      )
-      INSERT INTO company_profiles (company_key, company, tier, sector, known, reason, model, classified_at)
-      SELECT new_key, company, tier, sector, known, reason, model, classified_at FROM ranked WHERE rn = 1
-      ON CONFLICT (company_key) DO UPDATE SET tier = EXCLUDED.tier, sector = EXCLUDED.sector, known = EXCLUDED.known, reason = EXCLUDED.reason,
-        model = EXCLUDED.model, classified_at = EXCLUDED.classified_at
-      WHERE company_profiles.model <> 'curated' OR EXCLUDED.model = 'curated'`,
-      [JSON.stringify(profiles.map(r => ({ old: r.company_key, k: companyKey(r.company) })))]);
-  }
-  return { internships: rows.length, profiles: profiles.length };
 }
 

@@ -11,8 +11,10 @@
 
 import { test, describe, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, rekeyRows, getCompanyProfiles } from '../src/lib/store';
+import { deduplicateAndStore, deleteInternship, upsertCompanyFacts, findCompanyFacts, rekeyRows, getCompanyProfiles, saveCompanyProfile, getInternship } from '../src/lib/store';
 import { companyKey } from '../src/lib/company-key';
+import { normalizeKey } from '../src/lib/normalize-key';
+import { resolveCompanyTiers } from '../src/poller/classify';
 import { jobKey } from '../src/poller/ats';
 import { closePool } from '../src/lib/db';
 import type { StoredInternship, Internship } from '../src/lib/types';
@@ -117,6 +119,119 @@ describe('Company rekey', { skip }, () => {
     assert.equal((await getInternship('rekey-a'))?.companyTier, profiles.get('etched')?.tier);
     await deleteInternship('rekey-a');
     await getPool().query("DELETE FROM company_profiles WHERE company_key = 'etched'");
+  });
+});
+
+describe('Company identity isolation', { skip }, () => {
+  test('legacy empty-key profiles cannot rate another employer, and boot repair is idempotent', async () => {
+    const { getPool } = await import('../src/lib/db');
+    const p = getPool();
+    const company = '凯斯纽荷兰(中国)管理有限公司';
+    const key = companyKey(company);
+    const cnh = fixture({ id: 'identity-cnh', company, title: 'SOFTWARE ENGINEER INTERN',
+      location: 'Sioux Falls, SD', locations: ['Sioux Falls, SD'], roleType: 'swe', degrees: ['bs'] });
+    const invalid = fixture({ id: 'identity-invalid', company: '↳', archived: true });
+    try {
+      await deduplicateAndStore([cnh, invalid]);
+      // Reproduce the old stored state, including a misleadingly named profile.
+      await p.query("UPDATE internships SET company_key = '', normalized_key = '::software engineer' WHERE id = ANY($1::text[])", [[cnh.id, invalid.id]]);
+      await p.query("INSERT INTO company_profiles (company_key, company, tier, known, model) VALUES ('', $1, 'elite', true, 'claude')", [company]);
+      assert.equal((await getCompanyProfiles([''])).size, 0);
+      assert.equal((await getInternship(cnh.id))?.score, 20, 'an unidentifiable stored employer cannot inherit elite');
+      await assert.rejects(saveCompanyProfile('', '↳', { tier: 'elite', sector: '', known: true, reason: '' }, 'claude'), /without an identity/);
+      assert.equal((await resolveCompanyTiers([invalid])).size, 0, 'invalid names are not sent to company classification');
+
+      await p.query("INSERT INTO company_facts (domain, name, name_key, source) VALUES ('identity-naive.test', 'Naïve', 'nave', 'test')");
+      const repaired = await rekeyRows();
+      assert.ok(repaired.internships >= 2);
+      assert.ok(repaired.profiles >= 1);
+      assert.ok(repaired.facts >= 1);
+      assert.equal((await getCompanyProfiles([key])).size, 0, 'ambiguous old profile is discarded, not renamed to CNH');
+      assert.equal((await p.query("SELECT count(*)::int n FROM company_profiles WHERE company_key = ''")).rows[0].n, 0);
+      assert.equal((await findCompanyFacts('Nai\u0308ve'))?.domain, 'identity-naive.test');
+      const rows = (await p.query('SELECT id, company, company_key, normalized_key, archived FROM internships WHERE id = ANY($1::text[])', [[cnh.id, invalid.id]])).rows;
+      assert.deepEqual(rows.find(r => r.id === invalid.id), { id: invalid.id, company: '↳', company_key: '', normalized_key: '', archived: true });
+      assert.deepEqual(rows.find(r => r.id === cnh.id), { id: cnh.id, company, company_key: key, normalized_key: normalizeKey(company, cnh.title), archived: false });
+      assert.deepEqual(await rekeyRows(), { internships: 0, profiles: 0, facts: 0 });
+
+      await saveCompanyProfile(key, company, { tier: 'solid', sector: 'industrial / manufacturing', known: true, reason: 'CNH Industrial' }, 'repair');
+      assert.equal((await getInternship(cnh.id))?.score, 32);
+      const res = await fetch(`${API}/${cnh.id}/score-breakdown`);
+      assert.ok(res.ok);
+      const score = await res.json();
+      assert.equal(score.score, 32);
+      assert.equal(score.scoreLabel, 'D');
+      assert.equal(score.companyTier, 'solid');
+    } finally {
+      await p.query('DELETE FROM internships WHERE id = ANY($1::text[])', [[cnh.id, invalid.id]]);
+      await p.query('DELETE FROM company_profiles WHERE company_key = ANY($1::text[])', [['', key]]);
+      await p.query("DELETE FROM company_facts WHERE domain = 'identity-naive.test'");
+    }
+  });
+
+  test('two nameless postings in one batch remain separate, but job identity still deduplicates', async () => {
+    const a = fixture({ id: 'identity-batch-a', company: '↳', normalizedKey: '' });
+    const b = fixture({ id: 'identity-batch-b', company: '', normalizedKey: '' });
+    const sameJob = fixture({ ...a, id: 'identity-batch-c' });
+    try {
+      assert.equal((await deduplicateAndStore([a, b, sameJob])).newInternships.length, 2);
+      assert.ok(await getInternship(a.id));
+      assert.ok(await getInternship(b.id));
+      assert.equal(await getInternship(sameJob.id), null);
+    } finally {
+      for (const row of [a, b, sameJob]) await deleteInternship(row.id);
+    }
+  });
+
+  test('a failed fact rekey rolls back internship and profile changes too', async () => {
+    const { getPool } = await import('../src/lib/db');
+    const p = getPool();
+    const row = fixture({ id: 'identity-rollback', company: 'RépáirRollback' });
+    try {
+      await deduplicateAndStore([row]);
+      await p.query("UPDATE internships SET company_key = 'repairrollback', normalized_key = 'legacy' WHERE id = $1", [row.id]);
+      await p.query("INSERT INTO company_profiles (company_key, company, tier, known, model) VALUES ('repairrollback', 'RépáirRollback', 'solid', true, 'claude')");
+      await p.query("INSERT INTO company_facts (domain, name, name_key, source) VALUES ('identity-rollback.test', 'Naïve', 'nave', 'test')");
+      await p.query(`CREATE FUNCTION identity_rekey_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN RAISE EXCEPTION 'test rekey rollback'; END $$;
+        CREATE TRIGGER identity_rekey_failure BEFORE UPDATE ON company_facts FOR EACH ROW
+          WHEN (OLD.domain = 'identity-rollback.test') EXECUTE FUNCTION identity_rekey_failure()`);
+      await assert.rejects(rekeyRows(), /test rekey rollback/);
+      assert.deepEqual((await p.query('SELECT company_key, normalized_key FROM internships WHERE id = $1', [row.id])).rows[0], { company_key: 'repairrollback', normalized_key: 'legacy' });
+      assert.equal((await getCompanyProfiles(['repairrollback'])).get('repairrollback')?.tier, 'solid');
+      assert.equal((await getCompanyProfiles([companyKey(row.company)])).size, 0);
+    } finally {
+      await p.query('DROP TRIGGER IF EXISTS identity_rekey_failure ON company_facts; DROP FUNCTION IF EXISTS identity_rekey_failure()');
+      await deleteInternship(row.id);
+      await p.query('DELETE FROM company_profiles WHERE company_key = ANY($1::text[])', [['repairrollback', companyKey(row.company)]]);
+      await p.query("DELETE FROM company_facts WHERE domain = 'identity-rollback.test'");
+    }
+  });
+
+  test('rekey collisions keep curated judgments first, otherwise the newer judgment', async () => {
+    const { getPool } = await import('../src/lib/db');
+    const p = getPool();
+    try {
+      await p.query(`INSERT INTO company_profiles (company_key, company, tier, known, model, classified_at) VALUES
+        ('identitycollision.ai', 'IdentityCollision.ai', 'elite', true, 'claude', '2026-01-02'),
+        ('identitycollision', 'IdentityCollision', 'solid', true, 'claude', '2026-01-03'),
+        ('identitycurated.ai', 'IdentityCurated.ai', 'solid', true, 'curated', '2026-01-02'),
+        ('identitycurated', 'IdentityCurated', 'elite', true, 'claude', '2026-01-03'),
+        ('identitynull-a', 'IdentityNull.ai', 'elite', true, 'claude', '2026-01-03 12:34:56.123455+00'),
+        ('identitynull-b', 'IdentityNull', 'solid', true, NULL, '2026-01-03 12:34:56.123456+00'),
+        ('identityprecision.ai', 'IdentityPrecision.ai', 'solid', true, 'claude', '2026-01-03 12:34:56.123456+00'),
+        ('identityprecision', 'IdentityPrecision', 'elite', true, 'claude', '2026-01-03 12:34:56.123455+00')`);
+      await rekeyRows();
+      const profiles = await getCompanyProfiles(['identitycollision', 'identitycurated']);
+      assert.equal(profiles.get('identitycollision')?.tier, 'solid');
+      assert.equal(profiles.get('identitycurated')?.tier, 'solid');
+      const precision = (await p.query("SELECT company_key, tier, model, classified_at::text AS stamp FROM company_profiles WHERE company_key IN ('identitynull', 'identityprecision') ORDER BY company_key")).rows;
+      assert.equal(precision.length, 2);
+      assert.ok(precision.every(r => r.tier === 'solid' && r.stamp.includes('.123456')));
+      assert.equal(precision[0].model, null, 'newer uncurated judgment wins even without a model');
+    } finally {
+      await p.query("DELETE FROM company_profiles WHERE company_key LIKE 'identitycollision%' OR company_key LIKE 'identitycurated%' OR company_key LIKE 'identitynull%' OR company_key LIKE 'identityprecision%'");
+    }
   });
 });
 

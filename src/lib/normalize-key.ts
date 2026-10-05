@@ -47,6 +47,9 @@ const FILLER_WORDS = new Set([
 ]);
 
 export function normalizeKey(company: string, title: string): string {
+  const key = companyKey(company);
+  // Without an employer identity, matching titles cannot establish a duplicate.
+  if (!key) return '';
   const cleanedTitle = title
     .toLowerCase()
     // Drop parenthesized / bracketed content first
@@ -62,5 +65,5 @@ export function normalizeKey(company: string, title: string): string {
     .join(' ')
     .trim();
 
-  return `${companyKey(company)}::${cleanedTitle}`;
+  return `${key}::${cleanedTitle}`;
 }
