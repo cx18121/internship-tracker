@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobKey, postingKey, discoverATSTarget } from './index';
+import { jobKey, postingKey, discoverATSTarget, ATS, ATS_SOURCES } from './index';
+import { ENTERPRISE_ATS, STARTUP_ATS } from '../pollers/ats';
 import { greenhouseEmbedTenant } from './greenhouse';
 import reposts from '../../../tests/fixtures/reposted-openings.json';
 import { workdayDetailUrl } from './workday';
@@ -38,6 +39,17 @@ test('a Greenhouse embed supplies its tenant through official canonical metadata
   assert.equal(greenhouseEmbedTenant(html, '999'), undefined);
   assert.equal(greenhouseEmbedTenant(html.replace('job-boards.greenhouse.io', 'unrelated.example'), '8175462'), undefined);
   assert.equal(greenhouseEmbedTenant(html.replace('for=coinbase&amp;', ''), '8175462'), undefined);
+});
+
+test('iCIMS is retired from direct polling but its feed links keep their posting identity', () => {
+  const link = 'https://campus-americas.icims.com/jobs/26271/data-scientist-intern/job';
+  assert.equal(jobKey(link), 'icims:26271');
+  assert.equal(postingKey(link), 'icims:campus-americas:post:26271');
+  assert.equal(discoverATSTarget(link, 'Atlassian'), null);
+  assert.ok(!Object.keys(ATS).includes('icims'));
+  assert.ok(!ATS_SOURCES.includes('iCIMS'));
+  assert.ok(!new Set<string>([...ENTERPRISE_ATS, ...STARTUP_ATS]).has('icims'));
+  assert.equal(Object.keys(ATS).length, 7);
 });
 
 describe('discoverATSTarget', () => {

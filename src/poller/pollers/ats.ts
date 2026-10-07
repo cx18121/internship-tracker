@@ -18,7 +18,7 @@ import {
 // slow (Workday needs a browser for some tenants) and dominated by employers
 // nobody curated, so they run hourly and only for companies in the scoring
 // tiers or judged elite/top/hot by the classifier.
-export const ENTERPRISE_ATS = new Set<ATSTarget['ats']>(['workday', 'icims', 'smartrecruiters']);
+export const ENTERPRISE_ATS = new Set<ATSTarget['ats']>(['workday', 'smartrecruiters']);
 export const STARTUP_ATS = new Set<ATSTarget['ats']>(['greenhouse', 'ashby', 'lever', 'rippling', 'workable']);
 const CURATED_ONLY_ATS = ENTERPRISE_ATS;
 

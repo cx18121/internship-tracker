@@ -1,17 +1,21 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { ATSTarget } from '../types';
+import { ATS_KINDS, type ATSTarget } from '../types';
 
 export type { ATSTarget } from '../types';
 
 const DATA_DIR = process.env.DATA_DIR ?? path.join(process.cwd(), 'data');
 const CONFIG_PATH = path.join(DATA_DIR, 'ats-targets.json');
 
-/** Loader for data/ats-targets.json. Empty array when missing or malformed. */
+function supportedTarget(target: ATSTarget): boolean {
+  return target != null && ATS_KINDS.includes(target.ats);
+}
+
+/** Loader for data/ats-targets.json. Retired systems on persistent volumes are ignored. */
 export function loadATSTargets(): ATSTarget[] {
   try {
     const config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-    return Array.isArray(config?.targets) ? config.targets : [];
+    return Array.isArray(config?.targets) ? config.targets.filter(supportedTarget) : [];
   } catch {
     return [];
   }
@@ -54,18 +58,21 @@ export function saveDiscoveredTargets(targets: ATSTarget[]): number {
   if (targets.length === 0) return 0;
 
   const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-  let existing: ATSTarget[] = raw.targets || [];
+  const saved: ATSTarget[] = raw.targets || [];
+  let existing = saved.filter(supportedTarget);
   const denied = loadDenylist();
 
   // Prune any existing target whose slug is on the deny-list. Counts toward
   // a "pruned" log line so deploy-time cleanup is visible.
-  let pruned = 0;
+  let pruned = saved.length - existing.length;
+  if (pruned > 0) console.log(`[ats-discovery] Pruned ${pruned} unsupported target(s) from ats-targets.json`);
   if (denied.size > 0) {
     const before = existing.length;
     existing = existing.filter(t => !denied.has(t.slug));
-    pruned = before - existing.length;
-    if (pruned > 0) {
-      console.log(`[ats-discovery] Pruned ${pruned} deny-listed target(s) from ats-targets.json`);
+    const deniedCount = before - existing.length;
+    pruned += deniedCount;
+    if (deniedCount > 0) {
+      console.log(`[ats-discovery] Pruned ${deniedCount} deny-listed target(s) from ats-targets.json`);
     }
   }
 
@@ -73,7 +80,7 @@ export function saveDiscoveredTargets(targets: ATSTarget[]): number {
   let enriched = 0;
   let rejected = 0;
   for (const target of targets) {
-    if (denied.has(target.slug)) {
+    if (!supportedTarget(target) || denied.has(target.slug)) {
       rejected++;
       continue;
     }
@@ -98,7 +105,7 @@ export function saveDiscoveredTargets(targets: ATSTarget[]): number {
   }
 
   if (rejected > 0) {
-    console.log(`[ats-discovery] Rejected ${rejected} deny-listed discovery candidate(s)`);
+    console.log(`[ats-discovery] Rejected ${rejected} unsupported or deny-listed discovery candidate(s)`);
   }
 
   if (added > 0 || enriched > 0 || pruned > 0) {

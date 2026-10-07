@@ -16,6 +16,8 @@ export interface PostingDetails {
 
 /** What the tracker can do with a link to a hiring system or feed. */
 export interface LinkHandler {
+  /** Posting identity namespace, including systems retained only for feed links. */
+  kind?: string;
   /** Both arguments lowercased by the registry. */
   matchUrl(hostname: string, pathname: string): boolean;
   /** Null for a board landing page or a link with no job id. */

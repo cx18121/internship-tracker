@@ -18,12 +18,12 @@ import { isGoneStatus, UA } from './http';
 
 export type { Ats, ATSKind, JobRef, LinkHandler, LinkState } from './types';
 
-export const ATS: Record<ATSKind, Ats> = { greenhouse, lever, ashby, workday, icims, smartrecruiters, rippling, workable };
+export const ATS: Record<ATSKind, Ats> = { greenhouse, lever, ashby, workday, smartrecruiters, rippling, workable };
 
 /** Source labels the ATS pollers write. */
 export const ATS_SOURCES: readonly string[] = Object.values(ATS).map(a => a.source);
 
-const HANDLERS: readonly LinkHandler[] = [...Object.values(ATS), linkedin];
+const HANDLERS: readonly LinkHandler[] = [...Object.values(ATS), linkedin, icims];
 
 function parse(link: string): URL | null {
   try { return new URL(link); } catch { return null; }
@@ -61,7 +61,7 @@ export function jobKey(link: string): string {
     const handler = handlerFor(url);
     const job = handler?.jobFromUrl(url);
     if (handler && job) {
-      const kind = (handler as Ats).kind ?? 'linkedin';
+      const kind = handler.kind ?? 'linkedin';
       return `${kind}:${job.jobId.toLowerCase()}`;
     }
   }
@@ -74,7 +74,7 @@ export function postingKey(link: string): string {
   const handler = url && handlerFor(url);
   const job = handler && handler.jobFromUrl(url!);
   if (!handler || !job) return `url:${jobKey(link)}`;
-  const kind = (handler as Partial<Ats>).kind ?? 'linkedin';
+  const kind = handler.kind ?? 'linkedin';
   return kind === 'linkedin' ? `linkedin:post:${job.jobId}`
     : `${kind}:${job.slug.toLowerCase() || '_'}:post:${job.jobId.toLowerCase()}`;
 }

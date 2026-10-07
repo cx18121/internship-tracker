@@ -443,11 +443,6 @@
       "board": "EXTERNAL_CAREERS"
     },
     {
-      "slug": "generaldynamics",
-      "ats": "icims",
-      "name": "General Dynamics"
-    },
-    {
       "slug": "spgi",
       "ats": "workday",
       "name": "S&P Global",
@@ -522,11 +517,6 @@
       "name": "The Walt Disney Company",
       "board": "disneycareer",
       "wdInstance": "wd5"
-    },
-    {
-      "slug": "scires",
-      "ats": "icims",
-      "name": "Scientific Research Corporation"
     },
     {
       "slug": "parsons",
@@ -612,24 +602,9 @@
       "wdInstance": "wd501"
     },
     {
-      "slug": "gdms",
-      "ats": "icims",
-      "name": "General Dynamics Mission Systems"
-    },
-    {
       "slug": "embedding-vc",
       "ats": "ashby",
       "name": "Creatify"
-    },
-    {
-      "slug": "biorad",
-      "ats": "icims",
-      "name": "Bio-Rad Laboratories"
-    },
-    {
-      "slug": "revolutioncompany",
-      "ats": "icims",
-      "name": "Revolution"
     },
     {
       "slug": "point72",
@@ -682,7 +657,7 @@
     {
       "slug": "salesforce",
       "ats": "workday",
-      "name": "\ud83d\udd25 Salesforce",
+      "name": "🔥 Salesforce",
       "board": "External_Career_Site",
       "wdInstance": "wd12"
     },
@@ -728,11 +703,6 @@
       "name": "Wounded Warrior Project",
       "board": "wwp",
       "wdInstance": "wd5"
-    },
-    {
-      "slug": "kinaxis",
-      "ats": "icims",
-      "name": "Kinaxis"
     },
     {
       "slug": "elekta",
@@ -888,11 +858,6 @@
       "name": "Presence"
     },
     {
-      "slug": "benjaminmoore",
-      "ats": "icims",
-      "name": "Benjamin Moore"
-    },
-    {
       "slug": "transcarent",
       "ats": "greenhouse",
       "name": "Transcarent"
@@ -958,11 +923,6 @@
       "name": "Coverdash"
     },
     {
-      "slug": "calamp",
-      "ats": "icims",
-      "name": "CalAmp"
-    },
-    {
       "slug": "skechers",
       "ats": "workday",
       "name": "Skechers",
@@ -992,11 +952,6 @@
       "name": "Cisive",
       "board": "Cisive",
       "wdInstance": "wd108"
-    },
-    {
-      "slug": "berkley",
-      "ats": "icims",
-      "name": "Intrepid Direct Insurance"
     },
     {
       "slug": "ingrammicro",
@@ -1046,11 +1001,6 @@
       "wdInstance": "wd12"
     },
     {
-      "slug": "urbanscience",
-      "ats": "icims",
-      "name": "Urban Science"
-    },
-    {
       "slug": "generac",
       "ats": "workday",
       "name": "Generac",
@@ -1095,11 +1045,6 @@
       "slug": "lgelectronics",
       "ats": "greenhouse",
       "name": "LG Electronics"
-    },
-    {
-      "slug": "walterpmoore",
-      "ats": "icims",
-      "name": "Walter P Moore"
     },
     {
       "slug": "rb",
@@ -1173,11 +1118,6 @@
       "wdInstance": "wd1"
     },
     {
-      "slug": "external-canoncareers",
-      "ats": "icims",
-      "name": "Canon"
-    },
-    {
       "slug": "alarmcom",
       "ats": "greenhouse",
       "name": "Alarm.com"
@@ -1205,11 +1145,6 @@
       "slug": "gingerlabsinc",
       "ats": "greenhouse",
       "name": "Notability"
-    },
-    {
-      "slug": "powerschool",
-      "ats": "icims",
-      "name": "PowerSchool Group"
     },
     {
       "slug": "leonardocompany",
@@ -1397,11 +1332,6 @@
       "name": "Tatari"
     },
     {
-      "slug": "peraton",
-      "ats": "icims",
-      "name": "Peraton"
-    },
-    {
       "slug": "cccis",
       "ats": "workday",
       "name": "CCC Intelligent Solutions",
@@ -1430,7 +1360,7 @@
     {
       "slug": "snowflake",
       "ats": "ashby",
-      "name": "\ud83d\udd25 Snowflake"
+      "name": "🔥 Snowflake"
     },
     {
       "slug": "lplfinancial",
@@ -1515,19 +1445,9 @@
       "wdInstance": "wd1"
     },
     {
-      "slug": "ntrepidcorp",
-      "ats": "icims",
-      "name": "Ntrepid Corporation"
-    },
-    {
       "slug": "deliveroo",
       "ats": "ashby",
       "name": "Deliveroo"
-    },
-    {
-      "slug": "eaglepicher",
-      "ats": "icims",
-      "name": "EaglePicher Technologies"
     },
     {
       "slug": "truveta",
@@ -1589,11 +1509,6 @@
       "name": "Aptiv",
       "board": "aptiv_careers",
       "wdInstance": "wd5"
-    },
-    {
-      "slug": "staff-emory",
-      "ats": "icims",
-      "name": "Emory University"
     },
     {
       "slug": "rakuten",
@@ -1670,11 +1585,6 @@
       "name": "Deluxe",
       "board": "USA_CAN",
       "wdInstance": "wd5"
-    },
-    {
-      "slug": "uscareers-waters",
-      "ats": "icims",
-      "name": "Waters Corporation"
     },
     {
       "slug": "woven-by-toyota",
@@ -1801,11 +1711,6 @@
       "wdInstance": "wd5"
     },
     {
-      "slug": "werfen",
-      "ats": "icims",
-      "name": "Werfen"
-    },
-    {
       "slug": "elevancehealth",
       "ats": "workday",
       "name": "Elevance Health",
@@ -1883,11 +1788,6 @@
       "name": "Vantage Data Centers",
       "board": "Vantage",
       "wdInstance": "wd1"
-    },
-    {
-      "slug": "sharpusa",
-      "ats": "icims",
-      "name": "Sharp Electronics"
     },
     {
       "slug": "amcor",
@@ -2079,11 +1979,6 @@
       "wdInstance": "wd1"
     },
     {
-      "slug": "uscareers-lennox",
-      "ats": "icims",
-      "name": "Lennox International"
-    },
-    {
       "slug": "scoutmotors",
       "ats": "greenhouse",
       "name": "Scout Motors"
@@ -2233,11 +2128,6 @@
       "wdInstance": "wd3"
     },
     {
-      "slug": "itcfederal",
-      "ats": "icims",
-      "name": "ITC Federal"
-    },
-    {
       "slug": "inmar",
       "ats": "workday",
       "name": "Inmar Intelligence",
@@ -2294,7 +2184,7 @@
     {
       "slug": "adobe",
       "ats": "workday",
-      "name": "\ud83d\udd25 Adobe",
+      "name": "🔥 Adobe",
       "board": "external_experienced",
       "wdInstance": "wd5"
     },
@@ -2334,11 +2224,6 @@
       "wdInstance": "wd5"
     },
     {
-      "slug": "gotyto",
-      "ats": "icims",
-      "name": "TALON"
-    },
-    {
       "slug": "tri",
       "ats": "lever",
       "name": "Toyota Research Institute"
@@ -2349,11 +2234,6 @@
       "name": "Xcel Energy",
       "board": "External",
       "wdInstance": "wd1"
-    },
-    {
-      "slug": "careersen-mackenzieinvestments",
-      "ats": "icims",
-      "name": "Mackenzie Investments"
     },
     {
       "slug": "argonne",
@@ -2541,11 +2421,6 @@
       "name": "Hone Health"
     },
     {
-      "slug": "slco",
-      "ats": "icims",
-      "name": "Salt Lake County"
-    },
-    {
       "slug": "group1001wd",
       "ats": "workday",
       "name": "Group 1001",
@@ -2646,11 +2521,6 @@
       "wdInstance": "wd5"
     },
     {
-      "slug": "lmi",
-      "ats": "icims",
-      "name": "LMI"
-    },
-    {
       "slug": "lumosfiber",
       "ats": "greenhouse",
       "name": "Lumos"
@@ -2708,11 +2578,6 @@
       "name": "Tokyo Electron",
       "board": "tel-careers",
       "wdInstance": "wd3"
-    },
-    {
-      "slug": "gannettfleming",
-      "ats": "icims",
-      "name": "Gannet Fleming"
     },
     {
       "slug": "eversource",
@@ -3037,7 +2902,7 @@
     {
       "slug": "slihrms",
       "ats": "workday",
-      "name": "AtkinsR\u00e9alis",
+      "name": "AtkinsRéalis",
       "board": "careers",
       "wdInstance": "wd3"
     },
@@ -3080,12 +2945,12 @@
     {
       "slug": "fccincinnati",
       "ats": "greenhouse",
-      "name": "Fussball Club Cincinnati LLC (\u201cFC Cincinnati\u201d)"
+      "name": "Fussball Club Cincinnati LLC (“FC Cincinnati”)"
     },
     {
       "slug": "nvidia",
       "ats": "workday",
-      "name": "\ud83d\udd25 NVIDIA",
+      "name": "🔥 NVIDIA",
       "board": "NVIDIAExternalCareerSite",
       "wdInstance": "wd5"
     },
@@ -3165,11 +3030,6 @@
       "name": "Aypa Power"
     },
     {
-      "slug": "wseinc",
-      "ats": "icims",
-      "name": "Weston & Sampson"
-    },
-    {
       "slug": "coorstek",
       "ats": "workday",
       "name": "CoorsTek",
@@ -3177,26 +3037,11 @@
       "wdInstance": "wd1"
     },
     {
-      "slug": "jointcommission",
-      "ats": "icims",
-      "name": "Joint Commission International"
-    },
-    {
-      "slug": "steampunk",
-      "ats": "icims",
-      "name": "Steampunk"
-    },
-    {
       "slug": "abb",
       "ats": "workday",
       "name": "ABB",
       "board": "external_career_page",
       "wdInstance": "wd3"
-    },
-    {
-      "slug": "i3-corps",
-      "ats": "icims",
-      "name": "Integration Innovation (i3)"
     },
     {
       "slug": "appliedintuition",
@@ -3240,11 +3085,6 @@
       "wdInstance": "wd103"
     },
     {
-      "slug": "cotiviti",
-      "ats": "icims",
-      "name": "Cotiviti"
-    },
-    {
       "slug": "fhlbny",
       "ats": "workday",
       "name": "Federal Home Loan Bank of New York",
@@ -3257,11 +3097,6 @@
       "name": "HNTB",
       "board": "hntb_careers",
       "wdInstance": "wd5"
-    },
-    {
-      "slug": "lynker",
-      "ats": "icims",
-      "name": "Lynker"
     },
     {
       "slug": "supplyhouse",
@@ -3377,7 +3212,7 @@
     {
       "slug": "gelbergroup",
       "ats": "greenhouse",
-      "name": "\u21b3"
+      "name": "↳"
     },
     {
       "slug": "gardacp",
@@ -3466,11 +3301,6 @@
       "name": "Philips",
       "board": "jobs-and-careers",
       "wdInstance": "wd3"
-    },
-    {
-      "slug": "stellantsystems",
-      "ats": "icims",
-      "name": "Stellant Systems"
     },
     {
       "slug": "generalmotors",
@@ -3583,11 +3413,6 @@
       "wdInstance": "wd3"
     },
     {
-      "slug": "sri",
-      "ats": "icims",
-      "name": "SRI International"
-    },
-    {
       "slug": "teleo",
       "ats": "lever",
       "name": "Teleo"
@@ -3598,11 +3423,6 @@
       "name": "Allegro MicroSystems",
       "board": "allegrocareers",
       "wdInstance": "wd5"
-    },
-    {
-      "slug": "snapon",
-      "ats": "icims",
-      "name": "Snap-on"
     },
     {
       "slug": "hermeus",
@@ -3742,11 +3562,6 @@
       "name": "Analytical Mechanics Associates"
     },
     {
-      "slug": "americansystems",
-      "ats": "icims",
-      "name": "AMERICAN SYSTEMS"
-    },
-    {
       "slug": "usventure",
       "ats": "workday",
       "board": "usvexternal",
@@ -3788,11 +3603,6 @@
       "board": "External",
       "wdInstance": "wd1",
       "name": "T-Mobile"
-    },
-    {
-      "slug": "external-telecom-teldta",
-      "ats": "icims",
-      "name": "TDS"
     },
     {
       "slug": "graybar",
@@ -3964,7 +3774,7 @@
     {
       "slug": "SGS",
       "ats": "smartrecruiters",
-      "name": "Soci\u00e9t\u00e9 G\u00e9n\u00e9rale de Surveillance (SGS)"
+      "name": "Société Générale de Surveillance (SGS)"
     },
     {
       "slug": "Collabera2",
@@ -4058,7 +3868,7 @@
     {
       "slug": "Visa",
       "ats": "smartrecruiters",
-      "name": "\ud83d\udd25 Visa"
+      "name": "🔥 Visa"
     },
     {
       "slug": "snapchat",
@@ -4066,7 +3876,7 @@
       "board": "snap",
       "wdInstance": "wd1",
       "wdDomain": "myworkdaysite.com",
-      "name": "\ud83d\udd25 Snap"
+      "name": "🔥 Snap"
     },
     {
       "slug": "Assent",
@@ -4118,11 +3928,6 @@
       "name": "AllTrails"
     },
     {
-      "slug": "se",
-      "ats": "icims",
-      "name": "Schneider Electric"
-    },
-    {
       "slug": "uva",
       "ats": "workday",
       "board": "uvastudentjobs",
@@ -4153,11 +3958,6 @@
       "wdInstance": "wd1",
       "name": "Ribbon",
       "wdSkipPlaywright": true
-    },
-    {
-      "slug": "alcami",
-      "ats": "icims",
-      "name": "Alcami"
     },
     {
       "slug": "xylem",
@@ -4323,11 +4123,6 @@
       "name": "Cerence"
     },
     {
-      "slug": "empowerai",
-      "ats": "icims",
-      "name": "Empower AI"
-    },
-    {
       "slug": "ymcaatlanta",
       "ats": "workday",
       "board": "ymca-careers",
@@ -4358,11 +4153,6 @@
       "slug": "relaypro",
       "ats": "greenhouse",
       "name": "Relay"
-    },
-    {
-      "slug": "jobs-legrand",
-      "ats": "icims",
-      "name": "Legrand North America"
     },
     {
       "slug": "smithnephew",
@@ -4491,11 +4281,6 @@
       "board": "amn_careers",
       "wdInstance": "wd1",
       "name": "AMN Healthcare"
-    },
-    {
-      "slug": "sig",
-      "ats": "icims",
-      "name": "Susquehanna International Group (SIG)"
     },
     {
       "slug": "equifax",
@@ -4650,11 +4435,6 @@
       "name": "Rite Hite"
     },
     {
-      "slug": "usopen",
-      "ats": "icims",
-      "name": "United States Tennis Association"
-    },
-    {
       "slug": "tamus",
       "ats": "workday",
       "board": "pvamu_external",
@@ -4720,11 +4500,6 @@
       "name": "The Boyd Group"
     },
     {
-      "slug": "eyesouthpartners",
-      "ats": "icims",
-      "name": "EyeSouth Partners"
-    },
-    {
       "slug": "sonoco",
       "ats": "workday",
       "board": "CorporateCareers",
@@ -4765,11 +4540,6 @@
       "name": "Carrier Global"
     },
     {
-      "slug": "geosyntec",
-      "ats": "icims",
-      "name": "Geosyntec Consultants"
-    },
-    {
       "slug": "tmx",
       "ats": "workday",
       "board": "TMX_Careers",
@@ -4803,11 +4573,6 @@
       "name": "Advanced Space"
     },
     {
-      "slug": "us-erac",
-      "ats": "icims",
-      "name": "Enterprise Mobility"
-    },
-    {
       "slug": "ulse",
       "ats": "workday",
       "board": "ulsecareers",
@@ -4830,11 +4595,6 @@
       "board": "mgic",
       "wdInstance": "wd5",
       "name": "MGIC"
-    },
-    {
-      "slug": "jkmoving",
-      "ats": "icims",
-      "name": "JK Moving Services"
     },
     {
       "slug": "imerys",
@@ -4901,11 +4661,6 @@
       "slug": "appian",
       "ats": "greenhouse",
       "name": "Appian"
-    },
-    {
-      "slug": "university-uber",
-      "ats": "icims",
-      "name": "\ud83d\udd25 Uber"
     },
     {
       "slug": "mcafee",
@@ -5032,11 +4787,6 @@
       "slug": "lexeotx",
       "ats": "lever",
       "name": "Lexeo Therapeutics"
-    },
-    {
-      "slug": "stifel",
-      "ats": "icims",
-      "name": "Stifel"
     },
     {
       "slug": "wustl",
@@ -5290,11 +5040,6 @@
       "name": "Haize Labs"
     },
     {
-      "slug": "westernsouthern",
-      "ats": "icims",
-      "name": "Western & Southern Financial Group"
-    },
-    {
       "slug": "vendelux",
       "ats": "ashby",
       "name": "Vendelux"
@@ -5307,21 +5052,11 @@
       "name": "Blue Cross and Blue Shield of Kansas"
     },
     {
-      "slug": "endeavorair",
-      "ats": "icims",
-      "name": "Endeavor Air"
-    },
-    {
       "slug": "regions",
       "ats": "workday",
       "board": "regions_careers",
       "wdInstance": "wd5",
       "name": "Regions Bank"
-    },
-    {
-      "slug": "ice",
-      "ats": "icims",
-      "name": "Intercontinental Exchange"
     },
     {
       "slug": "csagroup",
@@ -5351,11 +5086,6 @@
       "wdInstance": "wd5",
       "wdDomain": "myworkdaysite.com",
       "name": "Western Alliance"
-    },
-    {
-      "slug": "magaero",
-      "ats": "icims",
-      "name": "MAG Aerospace"
     },
     {
       "slug": "jeffersonhealth",
@@ -5397,16 +5127,6 @@
       "slug": "pivotenergy",
       "ats": "lever",
       "name": "Pivot Energy"
-    },
-    {
-      "slug": "axway",
-      "ats": "icims",
-      "name": "Axway"
-    },
-    {
-      "slug": "jobs-bylight",
-      "ats": "icims",
-      "name": "By Light Professional IT Services"
     },
     {
       "slug": "coxhealth",
@@ -5477,11 +5197,6 @@
       "slug": "oleria-security",
       "ats": "lever",
       "name": "Oleria Security"
-    },
-    {
-      "slug": "uwmcareers",
-      "ats": "icims",
-      "name": "United Wholesale Mortgage"
     },
     {
       "slug": "revantage",
@@ -5589,11 +5304,6 @@
       "board": "External_Career_Site",
       "wdInstance": "wd1",
       "name": "Cognex"
-    },
-    {
-      "slug": "here",
-      "ats": "icims",
-      "name": "HERE Technologies"
     },
     {
       "slug": "onapsis",
@@ -5725,16 +5435,6 @@
       "name": "Radiance Technologies"
     },
     {
-      "slug": "cooperhealth",
-      "ats": "icims",
-      "name": "Cooper University Health Care"
-    },
-    {
-      "slug": "cadent",
-      "ats": "icims",
-      "name": "Adtheorant"
-    },
-    {
       "slug": "osu",
       "ats": "workday",
       "board": "OSUCareers",
@@ -5791,11 +5491,6 @@
       "board": "NebraskaStateCareers",
       "wdInstance": "wd108",
       "name": "State of Nebraska"
-    },
-    {
-      "slug": "vhb",
-      "ats": "icims",
-      "name": "Vanasse Hangen Brustlin (VHB)"
     },
     {
       "slug": "farfetch",
@@ -6006,11 +5701,6 @@
       "name": "Accel Learning"
     },
     {
-      "slug": "psaairlines",
-      "ats": "icims",
-      "name": "PSA Airlines"
-    },
-    {
       "slug": "ttc",
       "ats": "workday",
       "board": "Toro_External_Careers",
@@ -6040,11 +5730,6 @@
       "board": "scancareers",
       "wdInstance": "wd108",
       "name": "SCAN"
-    },
-    {
-      "slug": "mercuryinsurance",
-      "ats": "icims",
-      "name": "Mercury Insurance"
     },
     {
       "slug": "skhynixamerica",
@@ -6114,11 +5799,6 @@
       "slug": "endpointclinical",
       "ats": "lever",
       "name": "Endpoint Clinical"
-    },
-    {
-      "slug": "jobs-cesi",
-      "ats": "icims",
-      "name": "Cole Engineering Services"
     },
     {
       "slug": "triumph-arcade",
@@ -6311,11 +5991,6 @@
       "name": "Docugami"
     },
     {
-      "slug": "nikkiso",
-      "ats": "icims",
-      "name": "Nikkiso"
-    },
-    {
       "slug": "phil",
       "ats": "ashby",
       "name": "Phil"
@@ -6351,11 +6026,6 @@
       "slug": "genscript",
       "ats": "greenhouse",
       "name": "GenScript"
-    },
-    {
-      "slug": "fsg",
-      "ats": "icims",
-      "name": "Facility Solutions Group"
     },
     {
       "slug": "clarivate",
@@ -10514,7 +10184,7 @@
     {
       "slug": "dots",
       "ats": "greenhouse",
-      "name": "Dots \ud83d\udcb8",
+      "name": "Dots 💸",
       "source": "sparrow"
     },
     {
@@ -11270,7 +10940,7 @@
     {
       "slug": "flix",
       "ats": "greenhouse",
-      "name": "F\u00e9lix",
+      "name": "Félix",
       "source": "sparrow"
     },
     {
@@ -13364,7 +13034,7 @@
     {
       "slug": "its",
       "ats": "greenhouse",
-      "name": "It\u2019s Good",
+      "name": "It’s Good",
       "source": "sparrow"
     },
     {
@@ -17156,7 +16826,7 @@
     {
       "slug": "protege",
       "ats": "ashby",
-      "name": "Prot\u00e9g\u00e9",
+      "name": "Protégé",
       "source": "sparrow"
     },
     {
@@ -17954,7 +17624,7 @@
     {
       "slug": "rothys",
       "ats": "ashby",
-      "name": "Rothy\u2019s",
+      "name": "Rothy’s",
       "source": "sparrow"
     },
     {
@@ -19862,7 +19532,7 @@
     {
       "slug": "thefarmersdog",
       "ats": "greenhouse",
-      "name": "The Farmer\u2019s Dog",
+      "name": "The Farmer’s Dog",
       "source": "sparrow"
     },
     {
@@ -20072,7 +19742,7 @@
     {
       "slug": "torchystacos",
       "ats": "smartrecruiters",
-      "name": "Torchy\u2019s Tacos",
+      "name": "Torchy’s Tacos",
       "source": "sparrow"
     },
     {
@@ -24255,11 +23925,6 @@
       "name": "G2i"
     },
     {
-      "slug": "ideas-sas",
-      "ats": "icims",
-      "name": "IDeaS"
-    },
-    {
       "slug": "liveramp",
       "ats": "workday",
       "board": "LiveRampCareers",
@@ -24277,11 +23942,6 @@
       "board": "cs_careers",
       "wdInstance": "wd1",
       "name": "C&S Wholesale Grocers"
-    },
-    {
-      "slug": "qinetiqus",
-      "ats": "icims",
-      "name": "QinetiQ"
     },
     {
       "slug": "evrealty-us",
@@ -24340,11 +24000,6 @@
       "board": "ge_externalsite",
       "wdInstance": "wd5",
       "name": "GE Aerospace"
-    },
-    {
-      "slug": "persistentsystems",
-      "ats": "icims",
-      "name": "Persistent Systems"
     },
     {
       "slug": "nvent",
@@ -26708,7 +26363,7 @@
     {
       "slug": "ceribell",
       "ats": "greenhouse",
-      "name": "Ceribell \u2502 AI-Powered Point-of-Care EEG"
+      "name": "Ceribell │ AI-Powered Point-of-Care EEG"
     },
     {
       "slug": "ironflow",

@@ -115,13 +115,16 @@ export interface Internship extends StoredInternship {
   matchedKeywords: string[];
 }
 
+/** Hiring systems supported for board polling and automatic target discovery. */
+export const ATS_KINDS = ['greenhouse', 'lever', 'ashby', 'workday', 'smartrecruiters', 'rippling', 'workable'] as const;
+
 /**
  * Entry in data/ats-targets.json. The Workday-only fields (wd*) may also be
  * overlaid at runtime from the workday-flags sidecar (see ats.ts).
  */
 export interface ATSTarget {
   slug: string;
-  ats: 'greenhouse' | 'lever' | 'ashby' | 'workday' | 'icims' | 'smartrecruiters' | 'rippling' | 'workable';
+  ats: typeof ATS_KINDS[number];
   name?: string;
   board?: string;             // Workday: job board path (e.g. 'NVIDIAExternalCareerSite')
   wdInstance?: string;        // Workday: wd1 (default), wd3, wd5, etc.

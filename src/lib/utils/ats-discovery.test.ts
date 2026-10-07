@@ -2,9 +2,38 @@ import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'node:os';
+import { execFileSync } from 'node:child_process';
 import { discoverATSTarget } from '../../poller/ats';
 
 describe('ATS targets config integrity', () => {
+  test('iCIMS targets are absent from the maintained board list', () => {
+    const config = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'data', 'ats-targets.json'), 'utf8'));
+    assert.equal(config.targets.filter((t: { ats: string }) => t.ats === 'icims').length, 0);
+  });
+
+  test('stale volume targets and incoming discoveries cannot restore retired iCIMS polling', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tracker-retired-ats-'));
+    const filename = path.join(dir, 'ats-targets.json');
+    fs.writeFileSync(filename, JSON.stringify({ targets: [
+      { slug: 'retired', ats: 'icims', name: 'Retired Source' },
+      { slug: 'keep', ats: 'greenhouse', name: 'Keep Source' },
+    ] }));
+    try {
+      const script = `
+        const assert = require('node:assert/strict');
+        const fs = require('node:fs');
+        const { loadATSTargets, saveDiscoveredTargets } = require('./src/lib/utils/ats-discovery.ts');
+        assert.deepEqual(loadATSTargets().map(t => t.slug), ['keep']);
+        assert.equal(saveDiscoveredTargets([{ slug: 'new-retired', ats: 'icims', name: 'Must not return' }]), 0);
+        assert.deepEqual(JSON.parse(fs.readFileSync(process.env.DATA_DIR + '/ats-targets.json')).targets.map(t => t.slug), ['keep']);
+        assert.equal(saveDiscoveredTargets([{ slug: 'new', ats: 'ashby', name: 'New Source' }]), 1);
+        assert.deepEqual(loadATSTargets().map(t => t.slug), ['keep', 'new']);
+      `;
+      execFileSync(process.execPath, ['--require', 'tsx/cjs', '-e', script], { cwd: process.cwd(), env: { ...process.env, DATA_DIR: dir }, stdio: 'pipe' });
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  });
+
   test('ats-targets.json: NVIDIA has board and wdInstance configured', () => {
     const configPath = path.join(process.cwd(), 'data', 'ats-targets.json');
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
