@@ -1,0 +1,221 @@
+import { describe, test } from 'node:test';
+import assert from 'node:assert/strict';
+import fixture from '../../tests/fixtures/sigma-openings.json';
+import { greenhouseDetails } from '../poller/ats/greenhouse';
+import { linkedInDetails } from '../poller/ats/linkedin';
+import { leverDetails } from '../poller/ats/lever';
+import { ashbyDetails } from '../poller/ats/ashby';
+import { enrichForStorage } from '../poller/utils/enrich';
+import { buildPosting } from '../poller/utils/build-row';
+import { OpportunityIndex, openingFacts, explicitInternshipTerms, roleContentSupport, employerSpelling, roleSignature, mergeIdentities, compareOpportunityAge } from './opportunity';
+import type { StoredInternship, PostingIdentity } from './types';
+
+const gh = greenhouseDetails('sigmacomputing', fixture.greenhouse);
+const li = linkedInDetails(fixture.linkedInHtml, '4476525612');
+const now = '2026-10-07T02:00:00Z';
+function row(id: string, identity: PostingIdentity, company: string, link = identity.sourceUrl): StoredInternship {
+  return { ...enrichForStorage({ company, title: identity.title, link, locations: ['NYC'], source: identity.postingKey.split(':')[0], identity }, now), id };
+}
+const official = () => row('official', gh.identity!, 'Sigma Computing');
+const feed = () => row('feed', li.identity!, 'Sigma');
+function generic(id: string, source: string, company: string, description?: string, title = 'Software Engineer Intern (Summer 2027)'): StoredInternship {
+  return { ...enrichForStorage({ company, title, link: `https://${source}.example/jobs/${id}`, locations: ['NYC'], source, description }, now), id };
+}
+
+describe('same-opening inference', () => {
+  test('actual Sigma sources retain qualified opening evidence without requiring identical descriptions', () => {
+    assert.equal(gh.description.length, 6000);
+    assert.equal(li.description.length, 6000);
+    assert.equal(gh.identity?.openingKey, 'greenhouse:sigmacomputing:internal:5816425003');
+    assert.equal(gh.identity?.requisitionKey, 'greenhouse:sigmacomputing:req:809');
+    assert.equal(gh.identity?.employer?.name, 'Sigma Computing');
+    assert.equal(li.identity?.employer?.name, 'sigmacomputing');
+    assert.equal(roleContentSupport(gh.identity?.facts, li.identity?.facts), 'supports');
+    assert.ok(!fixture.linkedInHtml.includes('sigmacomputing.com'));
+    assert.equal(new OpportunityIndex([official()]).find(feed())?.id, 'official');
+  });
+
+  test('a harmless heading edit, omitted boilerplate and shortened/reworded duties still merge', () => {
+    const edited = linkedInDetails(fixture.linkedInHtml.replace('Our Internship Program At Sigma', 'Our Student Engineering Program'), '4476525612');
+    assert.equal(new OpportunityIndex([official()]).find(row('edited', edited.identity!, 'Sigma'))?.id, 'official');
+    const shortened = { ...li.identity!, facts: openingFacts('About the role:\nShip analytics features with an engineering mentor. Build scalable backend services, user interfaces and automated tests.\nRequirements:\nMust be pursuing a Bachelor degree.') };
+    assert.equal(new OpportunityIndex([official()]).find(row('shortened', shortened, 'Sigma'))?.id, 'official');
+    const noBoilerplate = { ...li.identity!, facts: openingFacts('About the role:\n' + gh.description.split(/About the role:/i)[1]?.split(/About us:/i)[0]) };
+    assert.equal(new OpportunityIndex([official()]).find(row('no-boilerplate', noBoilerplate, 'Sigma'))?.id, 'official');
+  });
+
+  test('agreed singleton policy can infer without descriptions, but not from defaults or a bare year', () => {
+    const first = generic('first', 'feed-a', 'Example Labs');
+    assert.equal(new OpportunityIndex([first]).find(generic('later', 'feed-b', 'Example Labs'))?.id, 'first');
+    for (const title of ['Software Engineer Intern', 'Software Engineer Intern 2027']) {
+      assert.equal(new OpportunityIndex([generic('first', 'feed-a', 'Example Labs', undefined, title)])
+        .find(generic('later', 'feed-b', 'Example Labs', undefined, title)), undefined);
+    }
+    assert.equal(new OpportunityIndex([first]).find(generic('different-year', 'feed-b', 'Example Labs', undefined, 'Software Engineer Intern (Summer 2028)')), undefined);
+  });
+
+  test('substantive responsibilities can corroborate when one title omits the term', () => {
+    const incoming = { ...li.identity!, title: 'Software Engineer Intern', terms: [] };
+    assert.equal(new OpportunityIndex([official()]).find(row('no-term', incoming, 'Sigma'))?.id, 'official');
+    assert.equal(new OpportunityIndex([official()]).find(row('no-term', { ...incoming, facts: undefined }, 'Sigma')), undefined);
+  });
+
+  test('an ordinary lexical similarity miss is unknown, not a veto', () => {
+    const left = openingFacts('Responsibilities:\nImplement reliable visualization dashboards using efficient browser rendering techniques and optimized client interactions across multiple product surfaces.');
+    const right = openingFacts('Responsibilities:\nDeliver polished charts within interactive web applications, improve painting latency, manage event handlers, build accessibility controls and responsive layouts.');
+    assert.equal(roleContentSupport(left, right), 'unknown');
+    assert.equal(new OpportunityIndex([generic('a', 'feed-a', 'Example', 'Responsibilities:\nImplement reliable visualization dashboards using efficient browser rendering techniques and optimized client interactions across multiple product surfaces.')])
+      .find(generic('b', 'feed-b', 'Example', 'Responsibilities:\nDeliver polished charts within interactive web applications, improve painting latency, manage event handlers, build accessibility controls and responsive layouts.'))?.id, 'a');
+  });
+
+  test('requirements-only descriptions retain explicit programming-language conflicts', () => {
+    const cpp = generic('a', 'feed-a', 'Example', 'Requirements:\nMust be proficient in C++.');
+    const cs = generic('b', 'feed-b', 'Example', 'Requirements:\nMust be proficient in C#.');
+    assert.deepEqual(cpp.identities?.[0].facts?.technologies, ['c++']);
+    assert.deepEqual(cs.identities?.[0].facts?.technologies, ['c#']);
+    assert.equal(new OpportunityIndex([cpp]).find(cs), undefined);
+  });
+
+  test('partial rediscovery cannot erase retained eligibility, team or technology constraints', () => {
+    const old = generic('a', 'feed-a', 'Example', 'Responsibilities:\nBuild production software using C++.\nRequirements:\nMust be enrolled in a Bachelor program.\nTeam: Analytics');
+    const partial = generic('a', 'feed-a', 'Example', 'Responsibilities:\nBuild production software.');
+    const updated = { ...old, identities: mergeIdentities(old.identities!, partial.identities!) };
+    assert.deepEqual(updated.identities[0].facts?.degrees, ['bs']);
+    assert.deepEqual(updated.identities[0].facts?.teams, ['analytics']);
+    assert.deepEqual(updated.identities[0].facts?.technologies, ['c++']);
+    const phd = generic('b', 'feed-b', 'Example', 'Responsibilities:\nBuild production software.\nRequirements:\nPh.D. required.');
+    assert.equal(new OpportunityIndex([old]).find(phd), undefined);
+    assert.equal(new OpportunityIndex([updated]).find(phd), undefined);
+  });
+
+  test('generic intern titles cannot hide competing roles or supply a qualified-role match', () => {
+    const genericRole = generic('a', 'feed-a', 'Example', undefined, 'Intern (Summer 2027)');
+    const specific = generic('b', 'feed-b', 'Example');
+    const incoming = generic('c', 'feed-c', 'Example', undefined, 'Intern (Summer 2027)');
+    assert.equal(roleSignature(incoming.title), '');
+    assert.equal(new OpportunityIndex([genericRole, specific]).find(incoming), undefined);
+    assert.equal(new OpportunityIndex([genericRole]).find(incoming), undefined, 'an unknown role is not positive role evidence');
+    for (const pending of [[genericRole, specific, incoming], [incoming, genericRole, specific]]) {
+      assert.equal(new OpportunityIndex([genericRole], pending).find(incoming), undefined);
+    }
+  });
+
+  test('different responsibilities and programming-language constraints are counterevidence', () => {
+    const a = 'Responsibilities:\nDesign spacecraft firmware telemetry navigation propulsion actuators embedded microcontrollers flight sensors hardware electronics avionics radio communication guidance thrusters orbital simulation radiation qualification satellite power payload integration.';
+    const b = 'Responsibilities:\nCreate storefront checkout inventory pricing promotions payments coupons shopping cart catalog search merchandising retail recommendations fraud transactions invoicing shipping discounts warehouse fulfillment customer subscription billing.';
+    assert.equal(roleContentSupport(openingFacts(a), openingFacts(b)), 'contradicts');
+    assert.equal(new OpportunityIndex([generic('a', 'feed-a', 'Example', a)]).find(generic('b', 'feed-b', 'Example', b)), undefined);
+    const common = 'Responsibilities:\nBuild production software and collaborate with engineers on reliable distributed systems, implement new features, improve testing infrastructure and maintain automated integration workflows.\n';
+    assert.equal(new OpportunityIndex([generic('a', 'feed-a', 'Example', common + 'Use C++ for this work.')])
+      .find(generic('b', 'feed-b', 'Example', common + 'Use C# for this work.')), undefined);
+  });
+
+  test('mandatory degree/team evidence survives the 6000-character cap; preferences do not become requirements', () => {
+    const prefix = 'Responsibilities:\nBuild production software and collaborate with engineers on reliable systems.\n' + 'Additional project information. '.repeat(250);
+    const undergrad = buildPosting({ company: 'Example', companyObserved: true, title: 'Software Engineer Intern (Summer 2027)', source: 'feed-a', link: 'https://feed-a.example/a', now,
+      description: prefix + '\nRequirements:\nMust be enrolled in an undergraduate program.\nTeam: Visualizations' });
+    const phd = buildPosting({ ...undergrad, now, source: 'feed-b', link: 'https://feed-b.example/b', description: prefix + '\nRequirements:\nPh.D. required.\nTeam: Visualizations' });
+    assert.equal(undergrad.description?.length, 6000);
+    assert.deepEqual(undergrad.openingFacts?.degrees, ['bs']);
+    assert.deepEqual(phd.openingFacts?.degrees, ['phd']);
+    assert.equal(new OpportunityIndex([enrichForStorage(undergrad, now)]).find(enrichForStorage(phd, now)), undefined);
+    assert.deepEqual(openingFacts('Requirements:\nMust be enrolled in a Bachelor program.\nPhD preferred.')?.degrees, ['bs']);
+    assert.deepEqual(openingFacts('Requirements:\nBachelor degree required.\nMust be enrolled in a graduate program.')?.degrees, ['ms', 'phd']);
+    assert.deepEqual(openingFacts('Requirements:\nBachelor degree required.\nPh.D. required.')?.degrees, ['phd']);
+    assert.equal(new OpportunityIndex([generic('a', 'feed-a', 'Example', 'Responsibilities:\nTeam: Payments')])
+      .find(generic('b', 'feed-b', 'Example', 'Responsibilities:\nTeam: Search')), undefined);
+  });
+
+  test('raw employer spelling is independent of display aliases and configured ATS slugs', () => {
+    const a = generic('a', 'feed-a', 'Acme (Robotics)');
+    const b = generic('b', 'feed-b', 'Acme (Finance)');
+    assert.equal(a.company, b.company, 'display canonicalization deliberately collapses these labels');
+    assert.equal(a.identities?.[0].employer?.name, 'Acme (Robotics)');
+    assert.equal(new OpportunityIndex([a]).find(b), undefined);
+    assert.notEqual(employerSpelling('Acme Labs'), employerSpelling('Acme'));
+    const configured = buildPosting({ title: a.title, company: 'Acme (Robotics)', source: 'Lever', link: 'https://jobs.lever.co/acme/11111111-1111-1111-1111-111111111111', now });
+    assert.equal(enrichForStorage(configured, now).identities?.[0].employer, undefined);
+    assert.equal(new OpportunityIndex([a]).find(enrichForStorage(configured, now)), undefined);
+  });
+
+  test('different public Greenhouse posts sharing an underlying job remain one opening', () => {
+    const second = greenhouseDetails('sigmacomputing', { ...fixture.greenhouse, id: 8001295003 });
+    assert.equal(new OpportunityIndex([official()]).find(row('nyc', second.identity!, 'Sigma Computing'))?.id, 'official');
+    const reqOnly = { ...second.identity!, openingKey: undefined };
+    assert.equal(new OpportunityIndex([official(), row('nyc', reqOnly, 'Sigma Computing')]).find(feed())?.id, 'nyc');
+  });
+
+  test('known opening IDs can fill a missing team qualifier but cannot override conflicting named teams', () => {
+    const named = { ...gh.identity!, postingKey: 'greenhouse:sigmacomputing:post:8001295003', title: 'Software Engineer Intern (Backend)' };
+    assert.equal(new OpportunityIndex([official()]).find(row('named', named, 'Sigma Computing'))?.id, 'official');
+    const frontend = { ...named, title: 'Software Engineer Intern (Frontend)', postingKey: 'greenhouse:sigmacomputing:post:999' };
+    assert.equal(new OpportunityIndex([row('named', named, 'Sigma Computing')]).find(row('frontend', frontend, 'Sigma Computing')), undefined);
+  });
+
+  test('known different requisitions veto inference even with the same employer, role and term', () => {
+    for (const changes of [{ internal_job_id: 99 }, { internal_job_id: undefined, requisition_id: '999' }]) {
+      const other = greenhouseDetails('sigmacomputing', { ...fixture.greenhouse, id: 999, ...changes });
+      assert.equal(new OpportunityIndex([official()]).find(row('other', other.identity!, 'Sigma Computing')), undefined);
+    }
+  });
+
+  test('ambiguity includes missing-term competitors with different descriptions across ATS kinds and batch orders', () => {
+    for (const kind of ['greenhouse', 'lever', 'ashby', 'workday', 'workable', 'rippling', 'smartrecruiters', 'icims']) {
+      const known = { ...gh.identity!, postingKey: `${kind}:example:post:1`, openingKey: undefined, requisitionKey: undefined };
+      const unknown = { ...known, postingKey: `${kind}:example:post:2`, terms: [], facts: openingFacts('Responsibilities:\nHelp engineers deliver thoughtful product improvements.') };
+      const a = row('a', known, 'Sigma Computing'), b = row('b', unknown, 'Sigma Computing');
+      for (const pending of [[feed(), a, b], [b, a, feed()], [a, feed(), b]]) {
+        assert.equal(new OpportunityIndex([a, b], pending).find(feed()), undefined, kind);
+        assert.equal(new OpportunityIndex([feed()], pending).find(a), undefined, `${kind} reverse arrival`);
+      }
+    }
+  });
+
+  test('a generic title cannot choose between named teams and location suffixes retain team words', () => {
+    assert.notEqual(roleSignature('Software Engineer Intern, NYC - Backend'), roleSignature('Software Engineer Intern, NYC - Frontend'));
+    const a = { ...gh.identity!, title: 'Software Engineer Intern, NYC - Backend' };
+    const b = { ...gh.identity!, title: 'Software Engineer Intern, NYC - Frontend', postingKey: 'greenhouse:sigmacomputing:post:999', openingKey: undefined, requisitionKey: undefined };
+    assert.equal(new OpportunityIndex([row('a', a, 'Sigma Computing'), row('b', b, 'Sigma Computing')]).find(feed()), undefined);
+  });
+
+  test('bare years, graduation years and conversion dates are not explicit internship matching terms', () => {
+    assert.deepEqual(explicitInternshipTerms('Software Engineer Intern', 'Must graduate in 2028. Start full-time in Summer 2028.'), []);
+    assert.deepEqual(explicitInternshipTerms('Software Engineer Intern', 'Internship program runs Summer 2027.\nMust graduate in 2028.'), ['summer-2027']);
+    assert.deepEqual(explicitInternshipTerms('Software Engineering Intern (Summer 2028)', 'Our Summer 2027 program'), ['summer-2028']);
+    assert.deepEqual(openingFacts('We offer excellent company benefits and flexible vacation.')?.roleTokens, []);
+    assert.equal(roleContentSupport(openingFacts('We offer excellent company benefits.'), gh.identity?.facts), 'unknown');
+  });
+
+  test('source parsers preserve non-GH role/eligibility evidence before caps without inventing employers', () => {
+    const description = 'Responsibilities:\nBuild reliable software.\n' + 'Company information. '.repeat(400) + '\nRequirements:\nMust be enrolled in a Master program.';
+    const lever = leverDetails('configured-slug', '11111111-1111-1111-1111-111111111111', { text: 'Software Engineer Intern (Summer 2027)', descriptionPlain: description });
+    const ashby = ashbyDetails('configured-slug', { id: '11111111-1111-1111-1111-111111111111', title: lever.identity!.title, descriptionPlain: description });
+    for (const d of [lever, ashby]) {
+      assert.equal(d.description.length, 6000);
+      assert.deepEqual(d.identity?.facts?.degrees, ['ms']);
+      assert.equal(d.identity?.employer, undefined);
+    }
+  });
+
+  test('rediscovery retains the canonical requisition veto against another opening', () => {
+    const canonical = { ...feed(), identities: [li.identity!, gh.identity!] };
+    const other = row('different-req', { ...gh.identity!, postingKey: 'greenhouse:sigmacomputing:post:999', openingKey: 'greenhouse:sigmacomputing:internal:99', requisitionKey: 'greenhouse:sigmacomputing:req:999' }, 'Sigma Computing');
+    assert.equal(new OpportunityIndex([canonical, other]).find(feed()), undefined);
+  });
+
+  test('canonical age preserves microseconds and compares mixed ISO precision', () => {
+    const early = { ...official(), id: 'z-first', firstSeenAt: '2026-10-07T01:01:01.123100Z' };
+    const later = { ...feed(), id: 'a-later', firstSeenAt: '2026-10-07T01:01:01.123900Z' };
+    assert.ok(compareOpportunityAge(early, later) < 0);
+    assert.ok(compareOpportunityAge({ ...early, firstSeenAt: '2026-10-07T01:01:01.123Z' }, early) < 0);
+    assert.equal(compareOpportunityAge({ ...early, firstSeenAt: '2026-10-07T01:01:01.1231Z' }, early), 0);
+  });
+
+  test('rediscovery updates an observation without deleting retained facts or accepted aliases', () => {
+    const combined = mergeIdentities([li.identity!], [gh.identity!]);
+    const updated = mergeIdentities(combined, [{ ...gh.identity!, facts: undefined, employer: undefined }]);
+    assert.equal(updated.length, 2);
+    assert.deepEqual(updated.find(x => x.postingKey === gh.identity!.postingKey)?.facts, gh.identity?.facts);
+    assert.equal(updated.find(x => x.postingKey === li.identity!.postingKey)?.employer?.name, 'sigmacomputing');
+  });
+});

@@ -93,6 +93,7 @@ export async function pollYCWaaS(): Promise<RawPosting[]> {
     location: j.location,
     link: `${BASE_URL}/jobs/${j.id}`,
     source: 'YC WaaS',
+    companyObserved: true,
     now,
     descriptionHtml: descriptions.get(j.id) ?? j.companyOneLiner,
     salary: j.salary ? parseSalary(j.salary) : undefined,

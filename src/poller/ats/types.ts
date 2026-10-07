@@ -1,4 +1,4 @@
-import type { ATSTarget, RawPosting } from '../../lib/types';
+import type { ATSTarget, RawPosting, PostingIdentity } from '../../lib/types';
 
 export type ATSKind = ATSTarget['ats'];
 export type LinkState = 'live' | 'gone' | 'unknown';
@@ -9,6 +9,11 @@ export interface JobRef {
   jobId: string;
 }
 
+export interface PostingDetails {
+  description: string;
+  identity?: PostingIdentity;
+}
+
 /** What the tracker can do with a link to a hiring system or feed. */
 export interface LinkHandler {
   /** Both arguments lowercased by the registry. */
@@ -17,6 +22,8 @@ export interface LinkHandler {
   jobFromUrl(url: URL): JobRef | null;
   /** Job description text, '' when unavailable. */
   describe?(job: JobRef, url: string): Promise<string>;
+  /** Fetch description and opening evidence together, without a second request. */
+  details?(job: JobRef, url: string): Promise<PostingDetails>;
   /** Whether the job still exists. Omit when only an HTTP status check is possible. */
   alive?(job: JobRef, url: string): Promise<LinkState>;
 }

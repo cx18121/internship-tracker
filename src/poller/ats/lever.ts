@@ -1,8 +1,9 @@
 import axios from 'axios';
-import type { Ats } from './types';
+import type { Ats, PostingDetails } from './types';
+import { openingFacts, explicitInternshipTerms } from '../../lib/opportunity';
 import { TIMEOUT_MS, MAX_DESC_LEN, probe, boardAnswers } from './http';
 import { isInternTitle } from '../utils/intern-signal';
-import { stripHtml } from '../utils/html';
+import { identityText } from '../utils/html';
 import { buildPosting } from '../utils/build-row';
 
 interface LeverPosting {
@@ -23,9 +24,17 @@ const jobApi = (slug: string, id: string) => `https://api.lever.co/v0/postings/$
 
 /** Same shape from the board API and the single-posting API. */
 function extractDescription(p: LeverPosting): string {
-  if (p.descriptionPlain) return String(p.descriptionPlain).slice(0, MAX_DESC_LEN);
-  const parts = [stripHtml(p.description ?? ''), ...(p.lists ?? []).map(l => `${l.text ?? ''} ${stripHtml(l.content ?? '')}`)];
-  return parts.join(' ').replace(/\s+/g, ' ').trim().slice(0, MAX_DESC_LEN);
+  const parts = [p.descriptionPlain ?? identityText(p.description ?? ''), ...(p.lists ?? []).map(l => `${l.text ?? ''}\n${identityText(l.content ?? '')}`)];
+  return parts.join('\n').trim();
+}
+
+export function leverDetails(slug: string, id: string, p: LeverPosting): PostingDetails {
+  const full = extractDescription(p), title = p.text ?? '';
+  return { description: full.slice(0, MAX_DESC_LEN), identity: {
+    postingKey: `lever:${slug.toLowerCase()}:post:${id.toLowerCase()}`,
+    sourceUrl: p.hostedUrl || p.applyUrl || `https://jobs.lever.co/${slug}/${id}`,
+    title, terms: explicitInternshipTerms(title, full), facts: openingFacts(full),
+  } };
 }
 
 /** Links: jobs.lever.co/{slug}/{uuid}[/apply]. */
@@ -43,12 +52,12 @@ export const lever: Ats = {
   },
   boardExists: (slug, timeoutMs) => boardAnswers(boardApi(slug), Array.isArray, timeoutMs),
   alive: (job) => probe(jobApi(job.slug, job.jobId)),
-  describe: async (job) => {
+  details: async (job) => {
     try {
       const { data } = await axios.get<LeverPosting>(jobApi(job.slug, job.jobId), { timeout: TIMEOUT_MS });
-      return extractDescription(data);
+      return leverDetails(job.slug, job.jobId, data);
     } catch {
-      return '';
+      return { description: '' };
     }
   },
   poll: async (target, now) => {

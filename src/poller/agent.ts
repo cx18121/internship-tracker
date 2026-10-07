@@ -9,6 +9,7 @@ import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { enrichForStorage } from './utils/enrich';
 import { sendBatchAlert, checkAndAlertSourceHealth, recordSourceFetches } from './notifier';
 import { classifyRows } from './classify';
+import { enrichPostingIdentities } from './identity';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
@@ -83,6 +84,7 @@ export async function runCycle(tier: CycleTier = 'all'): Promise<void> {
   const { passed, excluded } = filterPostings(raw);
   console.log(`[agent] Filtered: ${passed.length} passed, ${raw.length - passed.length} excluded ${JSON.stringify(excluded)}`);
 
+  await enrichPostingIdentities(passed);
   const now = new Date().toISOString();
   const { newInternships, totalStored, netNewBySource } = await deduplicateAndStore(passed.map(p => enrichForStorage(p, now)));
   console.log(`[agent] ${newInternships.length} new postings stored (total: ${totalStored})`);

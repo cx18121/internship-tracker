@@ -5,6 +5,29 @@ import type { Metro } from './metros';
 
 export type ScoreLabel = 'A' | 'B' | 'C' | 'D' | 'F';
 
+/** Compact facts extracted from source text, not classifier defaults. */
+export interface OpeningFacts {
+  version: 1;
+  roleTokens: string[];
+  degrees: Degree[];
+  teams: string[];
+  technologies: string[];
+}
+
+/** Opening-local source evidence. Never a global employer alias or rating. */
+export interface PostingIdentity {
+  postingKey: string;
+  sourceUrl: string;
+  title: string;
+  /** Only source-stated terms, never the tracker's default summer cycle. */
+  terms: string[];
+  openingKey?: string;
+  requisitionKey?: string;
+  employer?: { name: string; reference: string; kind: 'greenhouse' | 'linkedin' | 'source' };
+  /** Extracted before the source description is capped. Absence means unavailable. */
+  facts?: OpeningFacts;
+}
+
 /**
  * One listing as a poller reports it. Everything derived (id, score,
  * default season, normalizedKey, trimmed description, parsed salary) is
@@ -25,6 +48,13 @@ export interface RawPosting {
   season?: string[];
   /** Only when the source states compensation explicitly. */
   salary?: Salary;
+  identity?: PostingIdentity;
+  /** False for configured ATS display labels and tenant-slug fallbacks. */
+  companyObserved?: boolean;
+  /** Source-text evidence retained before buildPosting caps the description. */
+  openingFacts?: OpeningFacts;
+  /** Dated internship evidence, separate from display-season defaults. */
+  explicitTerms?: string[];
 }
 
 /**
@@ -60,6 +90,8 @@ export interface StoredInternship {
   normalizedKey: string;
   /** Identity of the job across links to it (src/poller/ats jobKey); absent only for link-less rows. */
   jobKey?: string;
+  /** Accepted source aliases and the evidence tying them to this opportunity. */
+  identities?: PostingIdentity[];
   /** Season tokens like "summer-2027" as parsed at ingest. */
   season: string[];
   /** Model classification. Absent until the row has been classified. */

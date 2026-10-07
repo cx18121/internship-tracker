@@ -1,9 +1,11 @@
-import type { Internship, StoredInternship } from '../lib/types';
-import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified } from '../lib/store';
+import type { StoredInternship, RawPosting } from '../lib/types';
+import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified, deduplicateAndStore, consolidateOpportunities } from '../lib/store';
 import { isExpiredSeasonTokens } from '../lib/seasons';
 import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason } from './classify';
-import { describeByUrl } from './ats';
+import { detailsByUrl, postingKey } from './ats';
+import { enrichPostingIdentities } from './identity';
+import { mergeIdentities } from '../lib/opportunity';
 import { fetchWorkdayDetailByUrl } from './ats/workday';
 import { pool } from '../lib/concurrency';
 import { POLLED_SOURCES } from './sources';
@@ -50,40 +52,12 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   const active = await getInternships();
 
   const toArchive = new Map<string, string[]>();
-  const stale = new Set<string>();
   for (const i of active) {
     const reason = staleReason(i);
     if (!reason) continue;
-    stale.add(i.id);
     toArchive.set(reason, [...(toArchive.get(reason) ?? []), i.id]);
     result.archived[reason] = (result.archived[reason] ?? 0) + 1;
   }
-  // One row per job (same ATS job id behind different links) and per
-  // (company, normalized title): keep the best-scored copy, fold the others'
-  // locations into it, archive them.
-  const byKey = new Map<string, Internship[]>();
-  const add = (k: string, i: Internship) => byKey.set(k, [...(byKey.get(k) ?? []), i]);
-  for (const i of active) {
-    if (stale.has(i.id)) continue;
-    if (i.jobKey) add(`job:${i.jobKey}`, i);
-    if (i.normalizedKey) add(`role:${i.normalizedKey}`, i);
-  }
-  const dupes = new Set<string>();
-  for (const candidates of byKey.values()) {
-    const group = candidates.filter(g => !dupes.has(g.id));
-    if (group.length < 2) continue;
-    const direct = (i: Internship) => (/simplify\.jobs|linkedin\.com/.test(i.link) ? 0 : 1);
-    group.sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || direct(b) - direct(a) || (b.description?.length ?? 0) - (a.description?.length ?? 0));
-    const keep = group[0];
-    const merged = [...new Set(group.flatMap(g => g.locations))].filter(l => !/^\d+ locations?$/i.test(l));
-    if (merged.length > keep.locations.length) {
-      keep.locations = merged;
-      await updateLocations(keep.id, merged);
-    }
-    for (const g of group.slice(1)) dupes.add(g.id);
-  }
-  if (dupes.size > 0) { toArchive.set('duplicate', [...dupes]); result.archived.duplicate = dupes.size; }
-
   for (const [reason, ids] of toArchive) await archiveInternshipsByIds(ids, reason);
   const archivedIds = new Set([...toArchive.values()].flat());
   const remaining = active.filter(i => !archivedIds.has(i.id));
@@ -93,12 +67,13 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   // location is still the list endpoint's "N Locations" count. The detail
   // call that supplies the description also supplies the real locations.
   const isCount = (l: string) => /^\d+ locations?$/i.test(l);
-  const needsWorkdayDetail = (i: Internship) => /myworkday(jobs|site)\.com/.test(i.link) && (!i.description || i.locations.some(isCount));
+  const needsWorkdayDetail = (i: StoredInternship) => /myworkday(jobs|site)\.com/.test(i.link) && (!i.description || i.locations.some(isCount));
   // Unclassified rows first so the classifier sees the text.
   const missing = remaining
     .filter(i => !i.description || needsWorkdayDetail(i))
     .sort((a, b) => Number(!!a.classifiedAt) - Number(!!b.classifiedAt))
     .slice(0, caps.descriptions);
+  const identityUpdates = new Set<string>();
   await pool(missing, 6, async (i) => {
     if (needsWorkdayDetail(i)) {
       const d = await fetchWorkdayDetailByUrl(i.link);
@@ -109,17 +84,41 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
       if (d.description && !i.description) { await updateDescription(i.id, d.description); i.description = d.description; result.descriptionsFetched++; }
       return;
     }
-    const desc = await describeByUrl(i.link);
-    if (!desc) return;
-    await updateDescription(i.id, desc);
-    i.description = desc;
+    const detail = await detailsByUrl(i.link);
+    if (detail.identity) {
+      i.identities = mergeIdentities(i.identities ?? [], [detail.identity]);
+      identityUpdates.add(i.id);
+    }
+    if (!detail.description) return;
+    await updateDescription(i.id, detail.description);
+    i.description = detail.description;
     result.descriptionsFetched++;
   });
   console.log(`[reevaluate] fetched ${result.descriptionsFetched}/${missing.length} missing descriptions`);
 
-  // Classification backlog (new rows are classified in the poll cycle; this
-  // catches failures and the pre-classifier corpus).
-  const unclassified = (await getUnclassified(caps.classify)).map(u => remaining.find(r => r.id === u.id) ?? u);
+  // Legacy rows can have descriptions but no source identity. Resolve that
+  // before cleanup, rather than depending on a capped stored description.
+  const evidenceRows = remaining.filter(i => /^(greenhouse|linkedin):/.test(postingKey(i.link)))
+    .filter(i => !identityUpdates.has(i.id) && !i.identities?.some(x => x.facts?.version === 1 && x.employer)).slice(0, caps.descriptions);
+  const raw: RawPosting[] = evidenceRows.map(i => ({ title: i.title, company: i.company, locations: i.locations, link: i.link,
+    source: i.source, description: i.description }));
+  await enrichPostingIdentities(raw, caps.descriptions);
+  for (let n = 0; n < raw.length; n++) {
+    if (raw[n].identity) {
+      evidenceRows[n].identities = mergeIdentities(evidenceRows[n].identities ?? [], [raw[n].identity!]);
+      identityUpdates.add(evidenceRows[n].id);
+    }
+    if (!evidenceRows[n].description && raw[n].description) evidenceRows[n].description = raw[n].description;
+  }
+  const enriched = remaining.filter(i => identityUpdates.has(i.id));
+  if (enriched.length) await deduplicateAndStore(enriched);
+  await consolidateOpportunities();
+  const keptIds = new Set((await getInternships()).map(i => i.id));
+  const duplicates = remaining.filter(i => !keptIds.has(i.id)).length;
+  if (duplicates) result.archived.duplicate = duplicates;
+
+  // Read fresh canonical rows after consolidation, not snapshots of absorbed variants.
+  const unclassified = await getUnclassified(caps.classify);
   const outcome = await classifyRows(unclassified);
   result.classified = unclassified.length - outcome.failed;
 

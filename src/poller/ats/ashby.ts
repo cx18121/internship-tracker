@@ -1,8 +1,9 @@
 import axios from 'axios';
-import type { Ats } from './types';
+import type { Ats, PostingDetails } from './types';
+import { openingFacts, explicitInternshipTerms } from '../../lib/opportunity';
 import { TIMEOUT_MS, MAX_DESC_LEN, JSON_HEADERS, boardAnswers, isGoneStatus } from './http';
 import { isInternTitle } from '../utils/intern-signal';
-import { stripHtml } from '../utils/html';
+import { identityText } from '../utils/html';
 import { buildPosting } from '../utils/build-row';
 
 interface AshbyJob {
@@ -32,6 +33,15 @@ async function fetchBoard(slug: string): Promise<AshbyJob[]> {
   return data.jobs ?? [];
 }
 
+export function ashbyDetails(slug: string, j: AshbyJob): PostingDetails {
+  const full = j.descriptionPlain ?? identityText(j.descriptionHtml ?? '');
+  return { description: full.slice(0, MAX_DESC_LEN), identity: {
+    postingKey: `ashby:${slug.toLowerCase()}:post:${j.id.toLowerCase()}`,
+    sourceUrl: j.jobUrl || `https://jobs.ashbyhq.com/${slug}/${j.id}`,
+    title: j.title, terms: explicitInternshipTerms(j.title, full), facts: openingFacts(full),
+  } };
+}
+
 export const ashby: Ats = {
   kind: 'ashby',
   source: 'Ashby',
@@ -56,12 +66,12 @@ export const ashby: Ats = {
       return 'unknown';
     }
   },
-  describe: async (job) => {
+  details: async (job) => {
     try {
       const j = (await fetchBoard(job.slug)).find(x => x.id.toLowerCase() === job.jobId);
-      return (j?.descriptionPlain ?? stripHtml(j?.descriptionHtml ?? '')).slice(0, MAX_DESC_LEN);
+      return j ? ashbyDetails(job.slug, j) : { description: '' };
     } catch {
-      return '';
+      return { description: '' };
     }
   },
   poll: async (target, now) => {

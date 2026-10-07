@@ -5,7 +5,8 @@ import { parseSalary } from '../../lib/salary';
 import { normalizeKey } from '../../lib/normalize-key';
 import { canonicalizeCompany } from '../../lib/canonicalize-company';
 import { deriveSeasonWithDefault, openSeasonTokens } from '../../lib/seasons';
-import { jobKey } from '../ats';
+import { jobKey, postingKey, ATS_SOURCES } from '../ats';
+import { openingFacts, explicitInternshipTerms } from '../../lib/opportunity';
 
 /**
  * Promote a poller's RawPosting into a stored row. This is the only place a
@@ -41,6 +42,16 @@ export function enrichForStorage(p: RawPosting, now: string): StoredInternship {
     failedCheckCount: 0,
     normalizedKey: normalizeKey(company, p.title),
     ...(link ? { jobKey: jobKey(link) } : {}),
+    identities: [{ ...p.identity,
+      postingKey: p.identity?.postingKey ?? postingKey(link),
+      sourceUrl: p.identity?.sourceUrl ?? link,
+      title: p.identity?.title ?? p.title,
+      terms: [...new Set(p.identity?.terms.length ? p.identity.terms : p.explicitTerms ?? p.season ?? explicitInternshipTerms(p.title, p.description))],
+      facts: p.identity?.facts ?? p.openingFacts ?? openingFacts(p.description ?? ''),
+      // Capture raw spelling BEFORE canonicalizeCompany, which has display/scoring aliases.
+      employer: p.identity?.employer ?? ((p.companyObserved ?? !ATS_SOURCES.includes(p.source)) && p.company.trim()
+        ? { name: stripEmojiPrefix(p.company), reference: link, kind: 'source' as const } : undefined),
+    }],
     // Expired tokens on a multi-season posting are dropped; all-expired rows never reach here.
     season: openSeasonTokens(p.season ?? deriveSeasonWithDefault(p.title)),
     ...(description ? { description } : {}),

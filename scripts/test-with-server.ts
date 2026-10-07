@@ -91,7 +91,7 @@ async function shutdown(server: ChildProcess): Promise<void> {
   log('Server ready. Running tests…\n');
 
   // No shell: the glob is passed literally and expanded by node's test runner.
-  const tester = spawn('npx', ['tsx', '--test', 'src/**/*.test.ts', 'tests/integration.test.ts'], {
+  const tester = spawn('npx', ['tsx', '--test', 'src/**/*.test.ts', 'tests/*.test.ts'], {
     cwd: process.cwd(),
     env: { ...process.env, TEST_BASE_URL: process.env.TEST_BASE_URL ?? `http://localhost:${PORT}` },
     stdio: 'inherit',

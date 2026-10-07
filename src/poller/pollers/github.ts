@@ -1,7 +1,7 @@
 import axios from 'axios';
 import type { RawPosting } from '../../lib/types';
 import { saveDiscoveredTargets } from '../../lib/utils/ats-discovery';
-import { discoverATSTarget, describeByUrl } from '../ats';
+import { discoverATSTarget, detailsByUrl } from '../ats';
 import { stripHtml } from '../utils/html';
 import { stripEmojiPrefix } from '../../lib/utils/normalize';
 import { buildPosting } from '../utils/build-row';
@@ -212,6 +212,7 @@ export async function pollGitHub(): Promise<RawPosting[]> {
     locations: row.locations,
     link: row.link,
     source: 'SimplifyJobs',
+    companyObserved: true,
     upstreamPostedAt: row.postedAt,
     now,
     season: row.season ? parseSeason(row.season) : undefined,
@@ -222,8 +223,9 @@ export async function pollGitHub(): Promise<RawPosting[]> {
   let enriched = 0;
   await pool(results, 5, async (entry) => {
     if (!entry.link) return;
-    const desc = await describeByUrl(entry.link);
-    if (desc) { entry.description = desc; enriched++; }
+    const detail = await detailsByUrl(entry.link);
+    if (detail.description) { entry.description = detail.description; enriched++; }
+    if (detail.identity) entry.identity = detail.identity;
   });
   console.log(`[github poller] Description backfill: ${enriched}/${results.length} via ATS APIs`);
 

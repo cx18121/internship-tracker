@@ -104,11 +104,30 @@ async function discordPost(body: object): Promise<boolean> {
   }
 }
 
+/** Discord field values allow 1,024 characters. Keep whole location lines when possible. */
+export function notificationLocations(posting: Pick<Internship, 'locations' | 'location'>): string {
+  const nonempty = posting.locations.filter(l => l.trim());
+  const locations = nonempty.length ? nonempty : [posting.location.trim() || 'Unknown'];
+  const full = locations.join('\n');
+  if (full.length <= 1024) return full;
+  let shown = '', count = 0;
+  for (let n = 0; n < locations.length; n++) {
+    const next = shown ? `${shown}\n${locations[n]}` : locations[n];
+    const suffix = `\n… (+${locations.length - n - 1} more)`;
+    if (next.length + suffix.length > 1024) break;
+    shown = next;
+    count++;
+  }
+  if (shown) return `${shown}\n… (+${locations.length - count} more)`;
+  const suffix = locations.length > 1 ? `\n… (+${locations.length - 1} more)` : '…';
+  return locations[0].slice(0, 1024 - suffix.length).replace(/[\uD800-\uDBFF]$/, '') + suffix;
+}
+
 function buildPostingEmbed(posting: Internship): object {
   const sourceEmoji = SOURCE_EMOJIS[posting.source];
   const fields = [
     { name: 'Score', value: `${posting.scoreLabel ?? '—'} (${posting.score ?? 0})${posting.companyTier && posting.companyTier !== 'other' ? ` · ${posting.companyTier}` : ''}`, inline: true },
-    { name: 'Location', value: posting.location || 'Unknown', inline: true },
+    { name: 'Location', value: notificationLocations(posting), inline: true },
     { name: 'Source', value: posting.source, inline: true },
   ];
   if (posting.degrees && posting.degrees.length > 0 && !posting.degrees.includes('bs')) {

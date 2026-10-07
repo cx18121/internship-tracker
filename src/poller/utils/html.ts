@@ -15,6 +15,11 @@ export function decodeHtmlEntities(str: string): string {
     .replace(/&#x([0-9a-fA-F]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
+/** Preserve paragraphs/list boundaries for opening evidence before display caps. */
+export function identityText(html: string): string {
+  return stripHtml(decodeHtmlEntities(html).replace(/<\/(?:p|li|h[1-6]|div)>/gi, '\n'));
+}
+
 /**
  * Strip HTML to plain text. Preserves `<br>` as `\n` so multi-paragraph
  * descriptions stay readable in the UI's `whitespace-pre-wrap` renderer.

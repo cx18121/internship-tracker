@@ -4,7 +4,7 @@
  * liveness); this file only dispatches on a link.
  */
 import type { ATSTarget } from '../../lib/types';
-import type { Ats, ATSKind, JobRef, LinkHandler, LinkState } from './types';
+import type { Ats, ATSKind, JobRef, LinkHandler, LinkState, PostingDetails } from './types';
 import { greenhouse } from './greenhouse';
 import { lever } from './lever';
 import { ashby } from './ashby';
@@ -68,13 +68,30 @@ export function jobKey(link: string): string {
   return link.toLowerCase().replace(/#.*$/, '').replace(/\/+(\?|$)/, '$1');
 }
 
+/** Source-posting alias, qualified by tenant rather than an unqualified job id. */
+export function postingKey(link: string): string {
+  const url = parse(link);
+  const handler = url && handlerFor(url);
+  const job = handler && handler.jobFromUrl(url!);
+  if (!handler || !job) return `url:${jobKey(link)}`;
+  const kind = (handler as Partial<Ats>).kind ?? 'linkedin';
+  return kind === 'linkedin' ? `linkedin:post:${job.jobId}`
+    : `${kind}:${job.slug.toLowerCase() || '_'}:post:${job.jobId.toLowerCase()}`;
+}
+
+/** Structured detail when supported; other ATS adapters still supply descriptions. */
+export async function detailsByUrl(link: string): Promise<PostingDetails> {
+  const url = parse(link);
+  const handler = url && handlerFor(url);
+  const job = handler && handler.jobFromUrl(url!);
+  if (!handler || !job) return { description: '' };
+  if (handler.details) return handler.details(job, link);
+  return { description: handler.describe ? await handler.describe(job, link) : '' };
+}
+
 /** Job description for a link, '' when the system is unknown or the fetch fails. */
 export async function describeByUrl(link: string): Promise<string> {
-  const url = parse(link);
-  if (!url) return '';
-  const handler = handlerFor(url);
-  const job = handler?.jobFromUrl(url);
-  return handler?.describe && job ? handler.describe(job, link) : '';
+  return (await detailsByUrl(link)).description;
 }
 
 /** HTTP status of a HEAD request (GET on HEAD error); -1 on network error or timeout. */
