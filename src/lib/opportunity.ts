@@ -86,6 +86,14 @@ export function roleContentSupport(a?: OpeningFacts, b?: OpeningFacts): ContentS
   if (Math.min(left.length, right.length) >= 20 && fraction <= 0.08) return 'contradicts';
   return 'unknown';
 }
+/** Content-only inference must support every retained substantive observation.
+ * Missing text is unknown; one verbose alias cannot bridge two unsupported roles. */
+function contentCorroborates(a: PostingIdentity[], b: PostingIdentity[]): boolean {
+  const left = a.filter(x => (x.facts?.roleTokens.length ?? 0) >= 12);
+  const right = b.filter(x => (x.facts?.roleTokens.length ?? 0) >= 12);
+  return left.length > 0 && right.length > 0 && left.every(x => right.every(y => roleContentSupport(x.facts, y.facts) === 'supports'));
+}
+
 function factsAgree(a?: OpeningFacts, b?: OpeningFacts): boolean {
   return !disjoint(a?.degrees ?? [], b?.degrees ?? []) && !disjoint(a?.teams ?? [], b?.teams ?? []) &&
     !disjoint(a?.technologies ?? [], b?.technologies ?? []) && roleContentSupport(a, b) !== 'contradicts';
@@ -130,7 +138,7 @@ function sameEmployer(a: PostingIdentity[], b: PostingIdentity[]): boolean {
   return a.some(x => x.employer && b.some(y => y.employer && employerSpelling(x.employer!.name) !== '' &&
     employerSpelling(x.employer!.name) === employerSpelling(y.employer.name)));
 }
-function plausibleRole(a: string, b: string): boolean {
+export function plausibleRole(a: string, b: string): boolean {
   const leftRole = roleSignature(a), rightRole = roleSignature(b);
   if (!leftRole || !rightRole) return true; // Generic titles cannot make competing openings disappear.
   const left = leftRole.split(' '), right = rightRole.split(' ');
@@ -147,6 +155,19 @@ function separateAuthoritativePosts(a: PostingIdentity[], b: PostingIdentity[]):
   return a.some(x => postingIssuer(x) && b.some(y => postingIssuer(x) === postingIssuer(y) && x.postingKey !== y.postingKey &&
     !sharedKey([x], [y], 'openingKey') && !sharedKey([x], [y], 'requisitionKey')));
 }
+/** Multiple feed IDs are not competing openings when every pair is corroborated.
+ * No transitive bridges: one unsupported pair keeps the ambiguity veto. */
+function corroboratedCopies(rows: StoredInternship[]): boolean {
+  return rows.every((a, n) => rows.slice(n + 1).every(b => {
+    const left = a.identities ?? [], right = b.identities ?? [];
+    if (!identitiesAgree(left, right) || separateAuthoritativePosts(left, right)) return false;
+    if (['postingKey', 'openingKey', 'requisitionKey'].some(k => sharedKey(left, right, k as 'postingKey' | 'openingKey' | 'requisitionKey'))) return true;
+    const roles = new Set([...left, ...right].map(x => roleSignature(x.title)));
+    return sameEmployer(left, right) && roles.size === 1 && !roles.has('') &&
+      contentCorroborates(left, right);
+  }));
+}
+
 function authoritativeGroups(evidence: PostingIdentity[]): number {
   const groups: PostingIdentity[][] = [];
   for (const x of evidence.filter(x => postingIssuer(x))) {
@@ -210,11 +231,16 @@ export class OpportunityIndex {
     // Named teams are separate plausible openings even if the incoming title omits the team.
     const roles = new Set(all.map(x => roleSignature(x.title)).filter(Boolean));
     if (roles.size > 1) return undefined;
-    if (!groups && new Set([...related, ...pending].map(r => r.id)).size > 1) return undefined;
+    const provisional = new Map<string, StoredInternship>();
+    for (const r of [...related, ...pending]) {
+      const old = provisional.get(r.id);
+      provisional.set(r.id, old ? { ...old, identities: mergeIdentities(old.identities ?? [], r.identities ?? []) } : r);
+    }
+    if (!groups && provisional.size > 1 && !corroboratedCopies([...provisional.values(), { ...incoming, identities: evidence }])) return undefined;
     const qualifiedRole = (r: StoredInternship) => evidence.some(x => roleSignature(x.title) &&
       r.identities?.some(y => roleSignature(x.title) === roleSignature(y.title)));
-    const matches = related.filter(r => r.source.toLowerCase() !== incoming.source.toLowerCase() && qualifiedRole(r) && compatible(r) && (sameExplicitTerm(evidence, r.identities ?? []) ||
-      evidence.some(x => r.identities?.some(y => roleContentSupport(x.facts, y.facts) === 'supports'))));
+    const matches = related.filter(r => qualifiedRole(r) && compatible(r) && (sameExplicitTerm(evidence, r.identities ?? []) ||
+      contentCorroborates(evidence, r.identities ?? [])));
     return matches[0];
   }
 }

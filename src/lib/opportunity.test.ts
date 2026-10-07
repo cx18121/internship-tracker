@@ -1,12 +1,14 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fixture from '../../tests/fixtures/sigma-openings.json';
+import reposts from '../../tests/fixtures/reposted-openings.json';
 import { greenhouseDetails } from '../poller/ats/greenhouse';
 import { linkedInDetails } from '../poller/ats/linkedin';
 import { leverDetails } from '../poller/ats/lever';
 import { ashbyDetails } from '../poller/ats/ashby';
 import { enrichForStorage } from '../poller/utils/enrich';
 import { buildPosting } from '../poller/utils/build-row';
+import { jobSpyPosting } from '../poller/pollers/jobspy';
 import { OpportunityIndex, openingFacts, explicitInternshipTerms, roleContentSupport, employerSpelling, roleSignature, mergeIdentities, compareOpportunityAge } from './opportunity';
 import type { StoredInternship, PostingIdentity } from './types';
 
@@ -23,6 +25,60 @@ function generic(id: string, source: string, company: string, description?: stri
 }
 
 describe('same-opening inference', () => {
+  test('captured same-source reposts match the already stored opening, including same-batch copies', () => {
+    for (const pair of reposts.sameSource) {
+      const old = pair.old as unknown as StoredInternship;
+      const incoming = pair.incoming as unknown as StoredInternship;
+      assert.equal(old.source, incoming.source);
+      assert.equal(new OpportunityIndex([old]).find(incoming)?.id, old.id, old.company);
+      const copy = { ...incoming, id: 'another-feed-copy', identities: incoming.identities!.map(x => ({ ...x, postingKey: 'linkedin:post:9999999999' })) };
+      for (const pending of [[incoming, copy], [copy, incoming]]) {
+        assert.equal(new OpportunityIndex([old], pending).find(incoming)?.id, old.id, `${old.company} batch`);
+      }
+    }
+  });
+
+  test('copy grouping requires every pair to be corroborated, not a transitive similarity bridge', () => {
+    const facts = (tokens: string[]) => ({ version: 1 as const, roleTokens: tokens, degrees: [], teams: [], technologies: [] });
+    const common = Array.from({ length: 8 }, (_, n) => `common${n}`);
+    const first = [...common, ...Array.from({ length: 4 }, (_, n) => `left${n}`)];
+    const third = Array.from({ length: 12 }, (_, n) => `right${n}`);
+    const middle = [...first, ...third];
+    const a = generic('a', 'feed-a', 'Example'), b = generic('b', 'feed-b', 'Example'), c = generic('c', 'feed-c', 'Example');
+    a.identities![0].facts = facts(first); b.identities![0].facts = facts(middle); c.identities![0].facts = facts(third);
+    assert.equal(roleContentSupport(a.identities![0].facts, b.identities![0].facts), 'supports');
+    assert.equal(roleContentSupport(b.identities![0].facts, c.identities![0].facts), 'supports');
+    assert.equal(roleContentSupport(a.identities![0].facts, c.identities![0].facts), 'unknown');
+    for (const pending of [[a, b, c], [c, b, a]]) assert.equal(new OpportunityIndex([a, b, c], pending).find(generic('new', 'feed-d', 'Example')), undefined);
+    c.identities![0].facts = undefined;
+    assert.equal(new OpportunityIndex([a, c]).find(generic('new', 'feed-d', 'Example')), undefined, 'missing details still represent ambiguity');
+  });
+
+  test('incoming and retained observations cannot bridge unsupported roles through ingestion or cleanup', () => {
+    const left = Array.from({ length: 12 }, (_, n) => `left${n}`).join(' ');
+    const right = Array.from({ length: 12 }, (_, n) => `right${n}`).join(' ');
+    const make = (id: string, content: string) => generic(id, 'Linkedin', 'Bridge Example', `Responsibilities:\n${content}`, 'Software Engineer Intern');
+    const a = make('a', left), b = make('b', `${left} ${right}`), c = make('c', right);
+    assert.deepEqual(a.identities![0].terms, []);
+    const index = new OpportunityIndex([a], [b, c]);
+    assert.equal(index.find(b), undefined);
+    index.add(b);
+    assert.equal(index.find(c), undefined, 'incoming C is part of the clique, not just A and B');
+    index.add(c);
+    for (const candidate of [a, b, c]) assert.equal(index.find(candidate), undefined, 'cleanup cannot borrow B to bridge A and C');
+    const combined = { ...a, identities: mergeIdentities(a.identities!, b.identities!) };
+    assert.equal(new OpportunityIndex([combined]).find(c), undefined, 'all retained substantive aliases must corroborate a content-only match');
+    const bc = { ...b, identities: mergeIdentities(b.identities!, c.identities!) };
+    assert.equal(new OpportunityIndex([bc]).find(a), undefined, 'a previously folded B/C cannot absorb A');
+  });
+
+  test('JobSpy preserves actual employer spelling even when detail lookup is unavailable', () => {
+    const raw = jobSpyPosting({ company: 'Example (Robotics)', title: 'Software Engineer Intern (Summer 2027)', source: 'Linkedin', link: 'https://www.linkedin.com/jobs/view/123', location: 'NYC', postedAt: now }, now);
+    assert.equal(raw.companyObserved, true);
+    assert.equal(enrichForStorage(raw, now).identities?.[0].employer?.name, 'Example (Robotics)');
+    assert.equal(jobSpyPosting({ ...raw, company: ' ', location: 'NYC', postedAt: now }, now).companyObserved, false);
+  });
+
   test('actual Sigma sources retain qualified opening evidence without requiring identical descriptions', () => {
     assert.equal(gh.description.length, 6000);
     assert.equal(li.description.length, 6000);

@@ -357,6 +357,30 @@ export async function getPostingIdentities(keys: string[]): Promise<Map<string, 
   return new Map(rows.flatMap(r => r.identities).filter(x => wanted.has(x.postingKey)).map(x => [x.postingKey, x]));
 }
 
+/** Display company names are retrieval hints only. They never establish employer identity. */
+export async function getIdentityCandidates(companies: string[]): Promise<StoredInternship[]> {
+  if (!companies.length) return [];
+  const { rows } = await getPool().query<Row>(`${SELECT} WHERE i.archived=false AND i.company=ANY($1::text[]) ORDER BY i.first_seen_at,i.id`, [companies]);
+  return rows.map(fromRow);
+}
+
+/** Backfill source evidence onto existing IDs without inserting, notifying, or changing archive/classification state. */
+export async function saveExistingIdentities(updates: Array<{ id: string; identities: PostingIdentity[]; description?: string }>): Promise<void> {
+  if (!updates.length) return;
+  await withLock(() => withTxn(async client => {
+    await client.query(OPPORTUNITY_LOCK);
+    const existing = (await client.query<Row>(`${SELECT} WHERE i.id=ANY($1::text[])`, [updates.map(x => x.id)])).rows.map(fromRow);
+    const byId = new Map(existing.map(x => [x.id, x]));
+    for (const update of updates) {
+      const row = byId.get(update.id);
+      if (!row) continue;
+      row.identities = mergeIdentities(row.identities ?? [], update.identities);
+      await client.query(`UPDATE internships SET identities=$2, description=COALESCE(NULLIF(description,''),$3) WHERE id=$1`,
+        [row.id, JSON.stringify(row.identities), update.description ?? null]);
+    }
+  }));
+}
+
 /** Match before alerting; persist every accepted alias and return final same-batch metadata. */
 export async function deduplicateAndStore(input: StoredInternship[]): Promise<StoreResult> {
   return withLock(() => withTxn(async (client) => {

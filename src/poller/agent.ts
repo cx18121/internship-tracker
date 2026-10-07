@@ -9,7 +9,7 @@ import { deduplicateAndStore, savePollStats } from '../lib/store';
 import { enrichForStorage } from './utils/enrich';
 import { sendBatchAlert, checkAndAlertSourceHealth, recordSourceFetches } from './notifier';
 import { classifyRows } from './classify';
-import { enrichPostingIdentities } from './identity';
+import { enrichPostingIdentities, prepareStoredIdentityCandidates } from './identity';
 
 export type CycleTier = 'fast' | 'slow' | 'all';
 
@@ -86,7 +86,9 @@ export async function runCycle(tier: CycleTier = 'all'): Promise<void> {
 
   await enrichPostingIdentities(passed);
   const now = new Date().toISOString();
-  const { newInternships, totalStored, netNewBySource } = await deduplicateAndStore(passed.map(p => enrichForStorage(p, now)));
+  const incoming = passed.map(p => enrichForStorage(p, now));
+  await prepareStoredIdentityCandidates(incoming);
+  const { newInternships, totalStored, netNewBySource } = await deduplicateAndStore(incoming);
   console.log(`[agent] ${newInternships.length} new postings stored (total: ${totalStored})`);
   if (newInternships.length > 0) {
     console.log(`[agent] Net-new by source: ${Object.entries(netNewBySource).map(([s, n]) => `${s}=${n}`).join(' ')}`);

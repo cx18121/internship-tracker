@@ -1,6 +1,8 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { jobKey, discoverATSTarget } from './index';
+import { jobKey, postingKey, discoverATSTarget } from './index';
+import { greenhouseEmbedTenant } from './greenhouse';
+import reposts from '../../../tests/fixtures/reposted-openings.json';
 import { workdayDetailUrl } from './workday';
 
 describe('jobKey', () => {
@@ -27,6 +29,15 @@ describe('jobKey', () => {
     assert.equal(jobKey('https://jobs.lever.co/acme'), 'https://jobs.lever.co/acme');
     assert.equal(jobKey('https://www.linkedin.com/jobs/search/'), 'https://www.linkedin.com/jobs/search');
   });
+});
+
+test('a Greenhouse embed supplies its tenant through official canonical metadata, not an unqualified numeric ID', () => {
+  const html = reposts.coinbase.embedHead;
+  assert.equal(greenhouseEmbedTenant(html, '8175462'), 'coinbase');
+  assert.equal(postingKey('https://boards.greenhouse.io/embed/job_app?for=coinbase&token=8175462'), 'greenhouse:coinbase:post:8175462');
+  assert.equal(greenhouseEmbedTenant(html, '999'), undefined);
+  assert.equal(greenhouseEmbedTenant(html.replace('job-boards.greenhouse.io', 'unrelated.example'), '8175462'), undefined);
+  assert.equal(greenhouseEmbedTenant(html.replace('for=coinbase&amp;', ''), '8175462'), undefined);
 });
 
 describe('discoverATSTarget', () => {

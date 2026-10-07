@@ -1,9 +1,9 @@
 import axios from 'axios';
 import type { Ats, PostingDetails } from './types';
-import { TIMEOUT_MS, MAX_DESC_LEN, JSON_HEADERS, probe, boardAnswers } from './http';
+import { TIMEOUT_MS, MAX_DESC_LEN, JSON_HEADERS, HTML_HEADERS, probe, boardAnswers } from './http';
 import { openingFacts, explicitInternshipTerms } from '../../lib/opportunity';
 import { isInternTitle } from '../utils/intern-signal';
-import { stripHtml, identityText } from '../utils/html';
+import { stripHtml, identityText, decodeHtmlEntities } from '../utils/html';
 import { buildPosting } from '../utils/build-row';
 
 interface GreenhouseJob {
@@ -35,6 +35,21 @@ export function greenhouseDetails(slug: string, job: GreenhouseJob): PostingDeta
     ...(job.company_name ? { employer: { name: job.company_name, reference: jobApi(slug, String(job.id)), kind: 'greenhouse' as const } } : {}),
     facts: openingFacts(full),
   } };
+}
+
+/** The official embed's canonical URL can supply a missing tenant. Never infer it from a job ID or company name. */
+export function greenhouseEmbedTenant(html: string, id: string): string | undefined {
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    if (!/\brel=["']canonical["']/i.test(tag)) continue;
+    const href = tag.match(/\bhref=["']([^"']+)["']/i)?.[1];
+    try {
+      const url = new URL(decodeHtmlEntities(href ?? ''));
+      const tenant = url.searchParams.get('for');
+      if (/^https?:$/.test(url.protocol) && /^(?:boards|job-boards)\.greenhouse\.io$/.test(url.hostname) &&
+          url.pathname === '/embed/job_app' && url.searchParams.get('token') === id && tenant && /^[a-z0-9_-]+$/i.test(tenant)) return tenant.toLowerCase();
+    } catch { /* No source-provided tenant. */ }
+  }
+  return undefined;
 }
 
 // The board response, unlike the configured display name, is employer evidence.
@@ -71,15 +86,24 @@ export const greenhouse: Ats = {
     const m = url.pathname.match(/^\/([^/]+)\/jobs\/(\d+)/);
     if (m && m[1] !== 'embed') return { slug: m[1], jobId: m[2] };
     const id = url.searchParams.get('gh_jid') ?? (url.pathname.includes('/embed/job_app') ? url.searchParams.get('token') : null);
-    return id && /^\d+$/.test(id) ? { slug: '', jobId: id } : null;
+    const tenant = url.pathname.includes('/embed/job_app') ? url.searchParams.get('for') : null;
+    return id && /^\d+$/.test(id) ? { slug: tenant && /^[a-z0-9_-]+$/i.test(tenant) ? tenant : '', jobId: id } : null;
   },
   boardExists: (slug, timeoutMs) => boardAnswers(boardApi(slug), d => Array.isArray((d as { jobs?: unknown })?.jobs), timeoutMs),
   alive: (job) => (job.slug ? probe(jobApi(job.slug, job.jobId)) : Promise.resolve('unknown')),
-  details: async (job) => {
-    if (!job.slug) return { description: '' };
+  details: async (job, link) => {
     try {
-      const r = await fetch(jobApi(job.slug, job.jobId), { headers: JSON_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
-      return r.ok ? greenhouseDetails(job.slug, await r.json() as GreenhouseJob) : { description: '' };
+      let tenant = job.slug;
+      if (!tenant) {
+        const url = new URL(link);
+        if (!/^(?:boards|job-boards)\.greenhouse\.io$/.test(url.hostname) || url.pathname !== '/embed/job_app') return { description: '' };
+        const page = await fetch(url, { headers: HTML_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+        if (!page.ok || !/^(?:boards|job-boards)\.greenhouse\.io$/.test(new URL(page.url || link).hostname)) return { description: '' };
+        tenant = greenhouseEmbedTenant(await page.text(), job.jobId) ?? '';
+        if (!tenant) return { description: '' };
+      }
+      const r = await fetch(jobApi(tenant, job.jobId), { headers: JSON_HEADERS, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      return r.ok ? greenhouseDetails(tenant, await r.json() as GreenhouseJob) : { description: '' };
     } catch { return { description: '' }; }
   },
   poll: async (target, now) => {

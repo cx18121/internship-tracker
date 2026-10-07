@@ -23,6 +23,15 @@ interface RawJob {
   postedAt: string;
 }
 
+/** JobSpy's company field is observed feed data, unlike configured ATS target labels. */
+export function jobSpyPosting(j: RawJob, now: string): RawPosting {
+  return buildPosting({
+    title: j.title || '', company: j.company || '', companyObserved: !!j.company?.trim(),
+    location: j.location || '', link: j.link || '', source: j.source || 'JobSpy',
+    upstreamPostedAt: j.postedAt, now, descriptionHtml: j.description,
+  });
+}
+
 export async function pollJobSpy(): Promise<RawPosting[]> {
   if (!fs.existsSync(SCRIPT_PATH)) {
     console.warn('[jobspy] Runner script not found:', SCRIPT_PATH);
@@ -68,16 +77,7 @@ export async function pollJobSpy(): Promise<RawPosting[]> {
       }
 
       const now = new Date().toISOString();
-      const results: RawPosting[] = parsed.map((j) => buildPosting({
-        title: j.title || '',
-        company: j.company || '',
-        location: j.location || '',
-        link: j.link || '',
-        source: j.source || 'JobSpy',
-        upstreamPostedAt: j.postedAt,
-        now,
-        descriptionHtml: j.description,
-      }));
+      const results = parsed.map(j => jobSpyPosting(j, now));
 
       console.log(`[jobspy] Fetched ${results.length} jobs`);
       resolve(results);

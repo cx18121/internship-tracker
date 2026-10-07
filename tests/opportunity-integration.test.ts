@@ -5,12 +5,13 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import sigma from './fixtures/sigma-openings.json';
+import reposts from './fixtures/reposted-openings.json';
 import { deduplicateAndStore, deleteInternship, getInternship, getPostingIdentities, consolidateOpportunities } from '../src/lib/store';
 import { getPool, closePool } from '../src/lib/db';
 import { loadNotifSettings, saveNotifSettings } from '../src/lib/app-state';
 import { greenhouseDetails } from '../src/poller/ats/greenhouse';
 import { linkedInDetails } from '../src/poller/ats/linkedin';
-import { enrichPostingIdentities } from '../src/poller/identity';
+import { enrichPostingIdentities, prepareStoredIdentityCandidates } from '../src/poller/identity';
 import { enrichForStorage } from '../src/poller/utils/enrich';
 import { openingFacts } from '../src/lib/opportunity';
 import { sendBatchAlert } from '../src/poller/notifier';
@@ -41,7 +42,7 @@ function examples(): StoredInternship[] {
 async function cleanup(rows: StoredInternship[]): Promise<void> { for (const r of rows) await deleteInternship(r.id); }
 
 type DiscordBody = { embeds: Array<{ fields: Array<{ name: string; value: string }>; footer: { text: string } }> };
-async function withSources(run: (posts: DiscordBody[], requests: string[]) => Promise<void>, guestHtml = sigma.linkedInHtml): Promise<void> {
+async function withSources(run: (posts: DiscordBody[], requests: string[]) => Promise<void>, guestHtml = sigma.linkedInHtml, responses: Record<string, string | object> = {}): Promise<void> {
   const fetch = globalThis.fetch;
   const token = process.env.DISCORD_BOT_TOKEN;
   const channel = process.env.DISCORD_CHANNEL_INTERNSHIPS;
@@ -60,6 +61,7 @@ async function withSources(run: (posts: DiscordBody[], requests: string[]) => Pr
       posts.push(body);
       return new Response('{}', { status: 200 });
     }
+    if (url in responses) return typeof responses[url] === 'string' ? new Response(responses[url] as string, { status: 200 }) : Response.json(responses[url]);
     if (url.includes('linkedin.com/jobs-guest/')) return new Response(guestHtml, { status: 200 });
     if (url.includes('sigmacomputing/jobs/8001295003')) return Response.json(nyJob);
     if (url.includes('sigmacomputing/jobs/7850795003')) return Response.json(sigma.greenhouse);
@@ -74,6 +76,103 @@ async function withSources(run: (posts: DiscordBody[], requests: string[]) => Pr
 }
 
 describe('Opportunity storage and alerts', { skip }, () => {
+  test('captured same-source reposts do not announce already alerted openings, including reordered batches and restarts', async () => {
+    for (const pair of reposts.sameSource) {
+      const old = pair.old as unknown as StoredInternship;
+      const incoming = pair.incoming as unknown as StoredInternship;
+      const copy = { ...incoming, id: `${incoming.id}-another`, identities: incoming.identities!.map(x => ({ ...x, postingKey: 'linkedin:post:9999999999' })) };
+      const rows = [old, incoming, copy];
+      for (const batch of [[incoming, copy], [copy, incoming]]) {
+        try {
+          await withSources(async posts => {
+            const first = await deduplicateAndStore([old]);
+            const clock = Date.now;
+            Date.now = () => Date.parse(pair.priorAlertAt);
+            try { await sendBatchAlert(first.newInternships.map(r => present(r, new Date(pair.priorAlertAt)))); }
+            finally { Date.now = clock; }
+            assert.equal(posts.length, 1);
+            await closePool();
+            const result = await deduplicateAndStore(batch);
+            await sendBatchAlert(result.newInternships.map(r => present(r)));
+            assert.equal(result.newInternships.length, 0, old.company);
+            assert.equal(posts.length, 1, 'no second Discord request for an already alerted opening');
+            assert.equal((await getInternship(old.id))?.identities?.length, 3);
+          });
+        } finally { await cleanup(rows); }
+      }
+    }
+  });
+
+  test('content-only inference cannot form a transitive bridge during ingestion and daily consolidation', async () => {
+    const left = Array.from({ length: 12 }, (_, n) => `left${n}`).join(' ');
+    const right = Array.from({ length: 12 }, (_, n) => `right${n}`).join(' ');
+    const prefix = `bridge-${Date.now()}-${sequence++}`;
+    const make = (id: string, content: string): StoredInternship => ({ ...enrichForStorage({ company: prefix, companyObserved: true,
+      title: 'Software Engineer Intern', source: 'Linkedin', locations: ['NYC'], link: `https://feed.example/${prefix}/${id}`,
+      description: `Responsibilities:\n${content}` }, new Date().toISOString()), id: `${prefix}-${id}` });
+    const a = make('a', left), b = make('b', `${left} ${right}`), c = make('c', right);
+    try {
+      await deduplicateAndStore([a]);
+      assert.equal((await deduplicateAndStore([b, c])).newInternships.length, 2);
+      await consolidateOpportunities();
+      for (const r of [a, b, c]) assert.equal((await getInternship(r.id))?.archived, false, 'no unsupported pair is folded or archived');
+      await cleanup([b, c]);
+      assert.equal((await deduplicateAndStore([b])).newInternships.length, 0, 'the isolated A/B pair is positively corroborated');
+      assert.equal((await deduplicateAndStore([c])).newInternships.length, 1, 'C cannot use retained B to bypass its unsupported A comparison');
+      await consolidateOpportunities();
+      assert.equal((await getInternship(a.id))?.archived, false);
+      assert.equal((await getInternship(c.id))?.archived, false);
+      assert.equal((await getInternship(a.id))?.identities?.length, 2);
+    } finally { await cleanup([a, b, c]); }
+  });
+
+  test('startup backfills captured historical source evidence before alerting a new cross-source ID', async () => {
+    const old = { ...reposts.coinbase.old, identities: [] } as unknown as StoredInternship;
+    const embed = { ...reposts.coinbase.embed, identities: [] } as unknown as StoredInternship;
+    const incoming = reposts.coinbase.incoming as unknown as StoredInternship;
+    const rows = [old, embed, incoming];
+    try {
+      await withSources(async (posts, requests) => {
+        const first = await deduplicateAndStore([old, embed]);
+        await sendBatchAlert(first.newInternships.filter(r => r.id === old.id).map(r => present(r)));
+        assert.equal(posts.length, 1);
+        await getPool().query('UPDATE internships SET identities=\'[]\'::jsonb WHERE id=ANY($1::text[])', [[old.id, embed.id]]);
+        const before = (await getPool().query('SELECT id,first_seen_at::text,classified_at::text,archived,archive_reason FROM internships WHERE id=ANY($1::text[]) ORDER BY id', [[old.id, embed.id]])).rows;
+        await closePool();
+        await prepareStoredIdentityCandidates([incoming]);
+        const after = (await getPool().query('SELECT id,first_seen_at::text,classified_at::text,archived,archive_reason FROM internships WHERE id=ANY($1::text[]) ORDER BY id', [[old.id, embed.id]])).rows;
+        assert.deepEqual(after, before, 'source backfill cannot reset discovery, classification, or archive state');
+        assert.ok(requests.includes('https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4473969080'));
+        assert.ok(requests.includes(embed.link));
+        const result = await deduplicateAndStore([incoming]);
+        await sendBatchAlert(result.newInternships.map(r => present(r)));
+        assert.equal(result.newInternships.length, 0);
+        assert.equal(posts.length, 1, 'historical recognition happens before notification selection');
+        assert.equal(await getInternship(incoming.id), null);
+        assert.ok((await getInternship(embed.id))?.identities?.some(x => x.postingKey === 'greenhouse:coinbase:post:8175462'));
+      }, sigma.linkedInHtml, {
+        'https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/4473969080': reposts.coinbase.linkedInHtml,
+        [embed.link]: reposts.coinbase.embedHead,
+        'https://boards-api.greenhouse.io/v1/boards/coinbase/jobs/8175462?content=true': reposts.coinbase.greenhouse,
+      });
+    } finally { await cleanup(rows); }
+  });
+
+  test('capped historical lookup does not manufacture employer proof or suppress an uncertain immediate alert', async () => {
+    const old = { ...reposts.coinbase.old, identities: [] } as unknown as StoredInternship;
+    const incoming = reposts.coinbase.incoming as unknown as StoredInternship;
+    try {
+      await deduplicateAndStore([old]);
+      await getPool().query('UPDATE internships SET identities=\'[]\'::jsonb WHERE id=$1', [old.id]);
+      await withSources(async (_posts, requests) => {
+        await prepareStoredIdentityCandidates([incoming], 0);
+        assert.equal(requests.length, 0);
+        assert.equal((await deduplicateAndStore([incoming])).newInternships.length, 1);
+        assert.equal((await getInternship(old.id))?.identities?.[0].employer, undefined);
+      });
+    } finally { await cleanup([old, incoming]); }
+  });
+
   test('LinkedIn first, SimplifyJobs later, then Greenhouse: one opportunity and one alert', async () => {
     const rows = examples();
     // Source discovery and store matching are exercised, not just hand-fed aliases.

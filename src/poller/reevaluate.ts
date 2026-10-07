@@ -1,10 +1,10 @@
-import type { StoredInternship, RawPosting } from '../lib/types';
-import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified, deduplicateAndStore, consolidateOpportunities } from '../lib/store';
+import type { StoredInternship } from '../lib/types';
+import { getInternships, archiveInternshipsByIds, updateDescription, updateLocations, getUnclassified, saveExistingIdentities, consolidateOpportunities } from '../lib/store';
 import { isExpiredSeasonTokens } from '../lib/seasons';
 import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason } from './classify';
 import { detailsByUrl, postingKey } from './ats';
-import { enrichPostingIdentities } from './identity';
+import { enrichStoredPostingIdentities } from './identity';
 import { mergeIdentities } from '../lib/opportunity';
 import { fetchWorkdayDetailByUrl } from './ats/workday';
 import { pool } from '../lib/concurrency';
@@ -100,18 +100,9 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   // before cleanup, rather than depending on a capped stored description.
   const evidenceRows = remaining.filter(i => /^(greenhouse|linkedin):/.test(postingKey(i.link)))
     .filter(i => !identityUpdates.has(i.id) && !i.identities?.some(x => x.facts?.version === 1 && x.employer)).slice(0, caps.descriptions);
-  const raw: RawPosting[] = evidenceRows.map(i => ({ title: i.title, company: i.company, locations: i.locations, link: i.link,
-    source: i.source, description: i.description }));
-  await enrichPostingIdentities(raw, caps.descriptions);
-  for (let n = 0; n < raw.length; n++) {
-    if (raw[n].identity) {
-      evidenceRows[n].identities = mergeIdentities(evidenceRows[n].identities ?? [], [raw[n].identity!]);
-      identityUpdates.add(evidenceRows[n].id);
-    }
-    if (!evidenceRows[n].description && raw[n].description) evidenceRows[n].description = raw[n].description;
-  }
+  await enrichStoredPostingIdentities(evidenceRows, caps.descriptions);
   const enriched = remaining.filter(i => identityUpdates.has(i.id));
-  if (enriched.length) await deduplicateAndStore(enriched);
+  await saveExistingIdentities(enriched.map(i => ({ id: i.id, identities: i.identities ?? [], description: i.description })));
   await consolidateOpportunities();
   const keptIds = new Set((await getInternships()).map(i => i.id));
   const duplicates = remaining.filter(i => !keptIds.has(i.id)).length;
