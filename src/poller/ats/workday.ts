@@ -1,10 +1,11 @@
 import axios from 'axios';
 import type { Page } from 'playwright';
 import type { RawPosting, ATSTarget } from '../../lib/types';
-import type { Ats } from './types';
+import type { Ats, PostingDetails } from './types';
+import { openingFacts, explicitInternshipTerms } from '../../lib/opportunity';
 import { MAX_DESC_LEN, LOCALE_RE, probe } from './http';
 import { isInternTitle } from '../utils/intern-signal';
-import { stripHtml } from '../utils/html';
+import { stripHtml, identityText } from '../utils/html';
 import { buildPosting } from '../utils/build-row';
 import { pool } from '../../lib/concurrency';
 import { jsonStore } from '../../lib/sidecar';
@@ -32,7 +33,7 @@ interface WorkdayPosting {
   locationsText?: string;
 }
 interface WorkdayDetailResponse {
-  jobPostingInfo?: { jobDescription?: string; location?: string; additionalLocations?: string[]; /** Post date, YYYY-MM-DD. */ startDate?: string };
+  jobPostingInfo?: { title?: string; jobReqId?: string; jobDescription?: string; location?: string; additionalLocations?: string[]; /** Post date, YYYY-MM-DD. */ startDate?: string };
 }
 
 export interface WorkdayClient {
@@ -179,7 +180,7 @@ async function pollTenant(target: ATSTarget, client: WorkdayClient, now: string)
     const listed = j.locationsText && !/^\d+ locations?$/i.test(j.locationsText) && j.locationsText !== t.company ? j.locationsText : '';
     const locations = info?.location ? [info.location, ...(info.additionalLocations ?? [])] : [listed || 'United States'];
     return buildPosting({
-      title: j.title || '',
+      title: info?.title || j.title || '',
       company: t.company,
       locations,
       link: `${t.boardUrl}${j.externalPath}`,
@@ -187,6 +188,7 @@ async function pollTenant(target: ATSTarget, client: WorkdayClient, now: string)
       upstreamPostedAt: info?.startDate,
       now,
       description: stripHtml(info?.jobDescription ?? ''),
+      identity: info ? workdayDetails(`${t.boardUrl}${j.externalPath}`,info).identity : undefined,
     });
   });
   return result;
@@ -302,8 +304,22 @@ export function workdayDetailUrl(url: string): string | null {
   return `https://${host}/wday/cxs/${tenant}/${board}/${parts.slice(jobIdx).join('/')}`;
 }
 
+/** The public CXS requisition bridges board variants. Never infer it by
+ * trimming a public posting suffix, which can identify a different opening. */
+export function workdayDetails(url: string, info: NonNullable<WorkdayDetailResponse['jobPostingInfo']>): PostingDetails {
+  const full = identityText(info.jobDescription ?? '');
+  const job = workday.jobFromUrl(new URL(url));
+  return { description: stripHtml(info.jobDescription ?? '').slice(0,MAX_DESC_LEN),
+    ...(job && info.title ? { identity: { origin: 'board' as const,
+      postingKey: `workday:${job.slug.toLowerCase()}:post:${job.jobId}`, sourceUrl: url,
+      title: info.title, terms: explicitInternshipTerms(info.title,full), facts: openingFacts(full),
+      ...(info.jobReqId ? { requisitionKey: `workday:${job.slug.toLowerCase()}:req:${info.jobReqId.toLowerCase()}` } : {}),
+    } } : {}) };
+}
+
 export interface WorkdayDetail {
   description: string;
+  identity?: PostingDetails['identity'];
   /** Real location list; empty when the detail call fails. */
   locations: string[];
   /** Post date, YYYY-MM-DD. */
@@ -317,7 +333,7 @@ export async function fetchWorkdayDetailByUrl(url: string): Promise<WorkdayDetai
     const { data } = await axios.get<WorkdayDetailResponse>(detail, { timeout: REQUEST_TIMEOUT, headers: JSON_HEADERS });
     const info = data?.jobPostingInfo;
     return {
-      description: stripHtml(info?.jobDescription ?? '').slice(0, MAX_DESC_LEN),
+      ...workdayDetails(url,info ?? {}),
       locations: info?.location ? [info.location, ...(info.additionalLocations ?? [])] : [],
       postedAt: info?.startDate,
     };
@@ -351,7 +367,7 @@ export const workday: Ats = {
     const parts = url.pathname.split('/').filter(Boolean);
     const jobIdx = parts.indexOf('job');
     const last = parts[parts.length - 1] ?? '';
-    const m = jobIdx >= 0 ? last.match(/_([A-Za-z]*\d[\w-]*)$/) : null;
+    const m = jobIdx >= 0 ? last.match(/_((?:[A-Za-z]+-?)?\d[\w-]*)$/) : null;
     if (!m) return null;
     const slug = url.hostname.endsWith('.myworkdaysite.com') ? parts[parts.indexOf('recruiting') + 1] ?? '' : url.hostname.split('.')[0];
     return { slug, jobId: m[1].toLowerCase() };
@@ -361,4 +377,5 @@ export const workday: Ats = {
     return detail ? probe(detail) : Promise.resolve('unknown');
   },
   describe: async (_job, url) => (await fetchWorkdayDetailByUrl(url)).description,
+  details: async (_job, url) => fetchWorkdayDetailByUrl(url),
 };

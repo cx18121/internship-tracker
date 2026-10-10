@@ -2,6 +2,11 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import fixture from '../../tests/fixtures/sigma-openings.json';
 import reposts from '../../tests/fixtures/reposted-openings.json';
+import doordash from '../../tests/fixtures/doordash-opening.json';
+import recent from '../../tests/fixtures/recent-opening-audit.json';
+import legacyEdits from '../../tests/fixtures/legacy-posting-edits.json';
+import nativeMetadata from '../../tests/fixtures/native-metadata-audit.json';
+import { workdayDetails } from '../poller/ats/workday';
 import { greenhouseDetails } from '../poller/ats/greenhouse';
 import { linkedInDetails } from '../poller/ats/linkedin';
 import { leverDetails } from '../poller/ats/lever';
@@ -11,6 +16,7 @@ import { buildPosting } from '../poller/utils/build-row';
 import { jobSpyPosting } from '../poller/pollers/jobspy';
 import { OpportunityIndex, openingFacts, explicitInternshipTerms, roleContentSupport, employerSpelling, roleSignature, mergeIdentities, compareOpportunityAge } from './opportunity';
 import type { StoredInternship, PostingIdentity } from './types';
+import { detailsByUrl, postingKey } from '../poller/ats';
 
 const gh = greenhouseDetails('sigmacomputing', fixture.greenhouse);
 const li = linkedInDetails(fixture.linkedInHtml, '4476525612');
@@ -36,6 +42,168 @@ describe('same-opening inference', () => {
         assert.equal(new OpportunityIndex([old], pending).find(incoming)?.id, old.id, `${old.company} batch`);
       }
     }
+  });
+
+  test('captured Workday board variants bridge only through the explicit native requisition', () => {
+    const c = nativeMetadata.find(c => c.name === 'marvell')!;
+    const alias = c.verifiedAlias!;
+    const official = row('current',workdayDetails(c.capturedRows[0].link,c.source).identity!,'Marvell');
+    const duplicate = row('variant',workdayDetails(alias.externalUrl,alias).identity!,'Marvell');
+    assert.notEqual(official.identities![0].postingKey,duplicate.identities![0].postingKey);
+    assert.equal(official.identities![0].requisitionKey,'workday:marvell:req:2603760');
+    assert.equal(duplicate.identities![0].requisitionKey,'workday:marvell:req:2603760');
+    assert.equal(new OpportunityIndex([official]).find(duplicate)?.id,official.id);
+    const other = row('distinct',workdayDetails(alias.externalUrl,{ ...alias,jobReqId:'99999' }).identity!,'Marvell');
+    assert.equal(new OpportunityIndex([official]).find(other),undefined);
+  });
+
+  test('source ownership never erases known requisitions, requirements or hiring employers', () => {
+    const board = { ...gh.identity!, origin: 'board' as const, employer: { ...gh.identity!.employer!, hiringNames: ['Beta Financial'] } };
+    const weak = { ...board, origin: 'feed' as const, employer: { ...board.employer, hiringNames: [] as string[] } };
+    for (const changes of [
+      { requisitionKey: 'greenhouse:sigmacomputing:req:different' },
+      { openingKey: 'greenhouse:sigmacomputing:internal:different' },
+      { facts: { ...board.facts!, degrees: ['phd' as const] } },
+      { employer: { ...board.employer, hiringNames: ['Acme Robotics'] } },
+    ]) {
+      const incoming = row('weak-conflict',{ ...weak,...changes },'Sigma');
+      assert.equal(new OpportunityIndex([row('board',board,'Sigma')]).find(incoming),undefined,
+        'known counterevidence survives source-owner resolution');
+      const retained = mergeIdentities(incoming.identities!,[board]);
+      assert.equal(new OpportunityIndex([{ ...incoming,identities: retained }]).find(row('candidate',board,'Sigma')),undefined,
+        'merging observations cannot silently erase the same conflict');
+    }
+  });
+
+  test('employer-owned metadata corrects weak labels, but feeds cannot choose between native cohorts', () => {
+    const board = row('board', { ...gh.identity!, origin: 'board' }, 'Sigma');
+    const future = row('future', { ...gh.identity!, origin: 'board', terms: ['summer-2028'] }, 'Sigma');
+    const weak = row('weak', { ...gh.identity!, origin: 'feed', terms: ['winter-2026'],
+      employer: { name: 'Sigma', kind: 'source', reference: gh.identity!.sourceUrl } }, 'Sigma');
+    assert.equal(new OpportunityIndex([board]).find(weak)?.id, board.id, 'same physical posting owns aggregator labels');
+    assert.equal(new OpportunityIndex([board,future]).find(weak), undefined, 'contradictory native cohorts need fresh proof');
+    assert.equal(new OpportunityIndex([board]).find(future), undefined);
+  });
+
+  test('captured same-post title edits keep one opening without relying on title synonyms', () => {
+    for (const pair of [legacyEdits.slice(0, 2), legacyEdits.slice(2, 4)]) {
+      const rows = pair.map(r => ({ ...generic(r.id, r.source, r.company), ...r,
+        firstSeenAt: r.first_seen_at, identities: r.identities.length ? r.identities as PostingIdentity[] : [{
+          postingKey: postingKey(r.link), sourceUrl: r.link, title: r.title,
+          terms: explicitInternshipTerms(r.title, r.description), facts: openingFacts(r.description),
+        }] }));
+      assert.equal(new OpportunityIndex([rows[0]]).find(rows[1])?.id, rows[0].id, pair[0].company);
+      assert.equal(new OpportunityIndex([rows[1]]).find(rows[0])?.id, rows[1].id, `${pair[0].company} reverse`);
+      const nextYear = { ...rows[1], identities: rows[1].identities.map(x => ({ ...x, terms: ['summer-2028'] })) };
+      if (rows[0].identities[0].terms.length) assert.equal(new OpportunityIndex([rows[0]]).find(nextYear), undefined);
+    }
+  });
+
+  test('a recruiting profile cannot join explicitly different hiring employers', () => {
+    const jd = 'Responsibilities:\nBuild production software and collaborate with engineers on reliable distributed systems, implement new features, improve testing infrastructure and maintain automated integration workflows.';
+    const make = (id: string, employer: string) => row(id, linkedInDetails(`<h2>Software Engineer Intern (Summer 2027)</h2><a data-tracking-control-name="public_jobs_topcard-org-name" href="https://www.linkedin.com/company/recruiting-agency">Agency</a><div class="show-more-less-html__markup"><p>${jd}</p><p>${employer} is an equal opportunity employer.</p></div>`, id).identity!, 'Recruiting Agency');
+    assert.equal(new OpportunityIndex([make('1', 'Acme Robotics')]).find(make('2', 'Beta Financial')), undefined);
+    assert.equal(new OpportunityIndex([make('1', 'Acme Robotics')]).find(make('3', 'Acme Robotics'))?.id, '1');
+  });
+
+  test('audited recent same-posting duplicates recognize source URL aliases and abbreviated titles', () => {
+    for (const c of recent.duplicateCases.filter(c => 'greenhouse' in c)) {
+      const pair = c.capturedRows.map(r => ({ ...generic(r.id, r.source, r.company), ...r,
+        identities: r.identities as PostingIdentity[], firstSeenAt: r.first_seen_at }));
+      assert.equal(new OpportunityIndex([pair[0]]).find(pair[1])?.id, pair[0].id, c.name);
+      assert.equal(new OpportunityIndex([pair[1]]).find(pair[0])?.id, pair[1].id, `${c.name} reverse`);
+    }
+  });
+
+  test('audited employer job IDs and explicit hiring-employer statements bridge Amazon copies', async () => {
+    for (const c of recent.duplicateCases.filter(c => 'linkedin' in c)) {
+      const feeds = c.linkedin!.map(j => {
+        const f = j.fields;
+        const html = `<h2>${f.title}</h2><a data-tracking-control-name="public_jobs_topcard-org-name" href="${f.employerAnchor.href}">${f.employerAnchor.text}</a><div class="show-more-less-html__markup">${f.descriptionHtml}</div>`;
+        return row(j.jobId, linkedInDetails(html, j.jobId).identity!, 'Amazon');
+      });
+      assert.equal(new OpportunityIndex([feeds[0]]).find(feeds[1])?.id, feeds[0].id, c.name);
+      if (c.name.startsWith('amazon-leo')) {
+        const direct = c.capturedRows[0];
+        const details = await detailsByUrl(direct.link);
+        const known = enrichForStorage({ company: direct.company, title: direct.title, link: direct.link,
+          source: direct.source, locations: [], identity: details.identity }, now);
+        assert.equal(feeds[0].identities?.[0].requisitionKey, 'amazon:amazon:req:10571374');
+        assert.equal(new OpportunityIndex([known, generic('other-amazon-role', 'feed-a', 'Amazon')]).find(feeds[0])?.id, known.id,
+          'explicit requisition evidence wins over broad generic/named-role ambiguity');
+      }
+    }
+  });
+
+  test('audited different seasons, placeholder requisitions and distinct internship durations stay separate', () => {
+    for (const c of recent.deliberatelySeparateCases) {
+      let observations: StoredInternship[];
+      if ('greenhouse' in c) observations = c.greenhouse!.map((j, n) => row(`${c.name}-${n}`, greenhouseDetails(j.boardSlug, j.job).identity!, 'Example'));
+      else observations = c.linkedin.map(j => row(j.jobId, linkedInDetails(`<h2>${j.fields.title}</h2><a data-tracking-control-name="public_jobs_topcard-org-name" href="${j.fields.employerAnchor.href}">${j.fields.employerAnchor.text}</a><div class="show-more-less-html__markup">${j.fields.descriptionHtml}</div>`, j.jobId).identity!, 'Docusign'));
+      assert.equal(new OpportunityIndex([observations[0]]).find(observations[1]), undefined, c.name);
+    }
+  });
+
+  test('unqualified Greenhouse IDs never bridge different employer application URLs or erase conflicting qualified evidence', () => {
+    const a = official();
+    const unrelated = row('other', { ...gh.identity!, postingKey: gh.identity!.postingKey.replace('sigmacomputing', '_'),
+      sourceUrl: 'https://unrelated.example/careers?gh_jid=7850795003', employer: { name: 'Other Company', reference: 'https://unrelated.example', kind: 'source' },
+      openingKey: undefined, requisitionKey: undefined }, 'Other Company');
+    assert.equal(new OpportunityIndex([a]).find(unrelated), undefined);
+    const unknown = row('unknown', { ...unrelated.identities![0], sourceUrl: 'https://first.example/careers?gh_jid=7850795003' }, 'First Company');
+    assert.equal(new OpportunityIndex([unknown]).find(unrelated), undefined, 'tenantless IDs are never global posting identities');
+    const contradiction = row('other', { ...gh.identity!, postingKey: gh.identity!.postingKey, terms: ['summer-2028'] }, 'Sigma');
+    assert.equal(new OpportunityIndex([a]).find(contradiction), undefined, 'authoritative season conflicts still veto a reused ID');
+    for (const changes of [
+      { requisitionKey: 'greenhouse:sigmacomputing:req:different' },
+      { openingKey: 'greenhouse:sigmacomputing:internal:different' },
+      { facts: { ...gh.identity!.facts!, degrees: ['phd' as const] } },
+      { facts: { ...gh.identity!.facts!, durationWeeks: [16] } },
+    ]) {
+      const keep = { ...a, identities: a.identities!.map(x => ({ ...x, facts: { ...x.facts!, durationWeeks: [12] } })) };
+      assert.equal(new OpportunityIndex([keep]).find(row('counterevidence', { ...gh.identity!, title: 'Edited role label', ...changes }, 'Sigma')), undefined,
+        'same-post label changes never erase known opening, requisition, degree or duration conflicts');
+    }
+  });
+
+  test('captured DoorDash history recognizes new feed IDs after its canonical was archived', () => {
+    const captured = (id: string): StoredInternship => {
+      const r = doordash.history.find(r => r.id === id)!;
+      return { ...enrichForStorage({ company: r.company, title: r.title, link: r.link,
+        source: r.source, locations: r.locations }, now), ...r, firstSeenAt: r.first_seen_at,
+        archiveReason: r.archive_reason ?? undefined, identities: r.identities as PostingIdentity[] };
+    };
+    const canonical = captured('55a303cad8fc61eb1806587baa835d59');
+    const absorbed = captured('0d297bfe3e471ce4ce90c15fe1732f23');
+    const incoming = captured('304ed301936487a9c521bee16c459e6c');
+    const official = row('fresh-official', greenhouseDetails('doordashusa', doordash.greenhouse).identity!, 'DoorDash');
+    for (const pending of [[incoming, official], [official, incoming]]) {
+      assert.equal(new OpportunityIndex([canonical, absorbed], pending).find(incoming)?.id, canonical.id);
+    }
+    assert.equal(new OpportunityIndex([{ ...canonical, archived: false }]).find(incoming)?.id, canonical.id,
+      'accepted generic and Labs titles are observations of one opening, not competing roles');
+  });
+
+  test('archived history needs positive content evidence, not just a matching role and season', () => {
+    const archived = { ...generic('old', 'feed-a', 'Example'), archived: true };
+    assert.equal(new OpportunityIndex([archived]).find(generic('new', 'feed-b', 'Example')), undefined);
+    const description = 'Responsibilities:\nBuild production software and collaborate with engineers on reliable distributed systems, implement new features, improve testing infrastructure and maintain automated integration workflows.';
+    const old = { ...generic('old', 'feed-a', 'Example', description), archived: true };
+    assert.equal(new OpportunityIndex([old]).find(generic('new', 'feed-b', 'Example', description))?.id, old.id);
+    assert.equal(new OpportunityIndex([old]).find(generic('future', 'feed-b', 'Example', description, 'Software Engineer Intern (Summer 2028)')), undefined);
+  });
+
+  test('a retained generic title can refine to one named role, but cannot choose between other named roles', () => {
+    const common = 'Responsibilities:\nBuild production software and collaborate with engineers on reliable distributed systems, implement new features, improve testing infrastructure and maintain automated integration workflows.';
+    const named = generic('old', 'feed-a', 'Example', common, 'Software Engineer Intern (Backend) (Summer 2027)');
+    named.identities = [...named.identities!, ...generic('legacy', 'feed-a', 'Example', common).identities!];
+    const backend = generic('new', 'feed-b', 'Example', common, 'Software Engineer Intern (Backend) (Summer 2027)');
+    assert.equal(new OpportunityIndex([named]).find(backend)?.id, named.id);
+    const frontend = generic('frontend', 'feed-c', 'Example', common, 'Software Engineer Intern (Frontend) (Summer 2027)');
+    assert.equal(new OpportunityIndex([named]).find(frontend), undefined);
+    assert.equal(new OpportunityIndex([named, frontend]).find(generic('unknown', 'feed-d', 'Example', common)), undefined);
+    assert.equal(new OpportunityIndex([named, generic('competitor', 'feed-c', 'Example', common)]).find(backend), undefined,
+      'a separate generic posting remains a competitor');
   });
 
   test('copy grouping requires every pair to be corroborated, not a transitive similarity bridge', () => {

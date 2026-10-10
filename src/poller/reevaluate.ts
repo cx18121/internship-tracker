@@ -4,7 +4,7 @@ import { isExpiredSeasonTokens } from '../lib/seasons';
 import { classifyLocation } from './iso-locations';
 import { classifyRows, archiveReason } from './classify';
 import { detailsByUrl, postingKey } from './ats';
-import { enrichStoredPostingIdentities } from './identity';
+import { enrichStoredPostingIdentities, hasCurrentIdentity } from './identity';
 import { mergeIdentities } from '../lib/opportunity';
 import { fetchWorkdayDetailByUrl } from './ats/workday';
 import { pool } from '../lib/concurrency';
@@ -77,6 +77,10 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
   await pool(missing, 6, async (i) => {
     if (needsWorkdayDetail(i)) {
       const d = await fetchWorkdayDetailByUrl(i.link);
+      if (d.identity) {
+        i.identities = mergeIdentities(i.identities ?? [], [d.identity]);
+        identityUpdates.add(i.id);
+      }
       if (d.locations.length > 0 && i.locations.some(isCount)) {
         i.locations = d.locations;
         await updateLocations(i.id, i.locations);
@@ -98,8 +102,8 @@ export async function reevaluate(caps: { descriptions: number; classify: number 
 
   // Legacy rows can have descriptions but no source identity. Resolve that
   // before cleanup, rather than depending on a capped stored description.
-  const evidenceRows = remaining.filter(i => /^(greenhouse|linkedin):/.test(postingKey(i.link)))
-    .filter(i => !identityUpdates.has(i.id) && !i.identities?.some(x => x.facts?.version === 1 && x.employer)).slice(0, caps.descriptions);
+  const evidenceRows = remaining.filter(i => !postingKey(i.link).startsWith('url:'))
+    .filter(i => !identityUpdates.has(i.id) && !i.identities?.some(x => x.postingKey === postingKey(i.link) && hasCurrentIdentity(x))).slice(0, caps.descriptions);
   await enrichStoredPostingIdentities(evidenceRows, caps.descriptions);
   const enriched = remaining.filter(i => identityUpdates.has(i.id));
   await saveExistingIdentities(enriched.map(i => ({ id: i.id, identities: i.identities ?? [], description: i.description })));

@@ -1,5 +1,6 @@
 import type { LinkHandler, PostingDetails } from './types';
-import { openingFacts, explicitInternshipTerms } from '../../lib/opportunity';
+import { openingFacts, explicitInternshipTerms, employerSpelling, statedEmployers } from '../../lib/opportunity';
+import { amazonRequisitionKey } from './amazon';
 import { TIMEOUT_MS, MAX_DESC_LEN, HTML_HEADERS, isGoneStatus } from './http';
 import { stripHtml, decodeHtmlEntities, identityText } from '../utils/html';
 
@@ -33,10 +34,22 @@ export function linkedInDetails(html: string, id: string): PostingDetails {
       name: decodeURIComponent(handle), reference: `https://www.linkedin.com/company/${handle}`, kind: 'linkedin',
     };
   } catch { /* Missing/blocked employer evidence means no cross-name merge. */ }
+  // A showcase or staffing profile can differ from the hiring employer. Use
+  // an explicit employer statement in this JD, never display/scoring aliases.
+  const names = statedEmployers(full);
+  if (names.length) {
+    employer = employer ? { ...employer, hiringNames: names }
+      : { name: names[0], hiringNames: names, reference: guestApi(id), kind: 'source' };
+  }
+  // This issuer-specific source field is beyond the 6000-character cap on Leo
+  // postings. Unqualified job numbers from other employers are not Amazon IDs.
+  const amazonId = (employerSpelling(employer?.name ?? '') === 'amazon' || /\bCompany\s*-\s*Amazon\.com Services LLC\b/i.test(full))
+    ? full.match(/\bJob ID\s*:\s*A(\d+)\b/i)?.[1] : undefined;
   return { description: full.slice(0, MAX_DESC_LEN), ...(title ? { identity: {
-    postingKey: `linkedin:post:${id}`,
+    version: 1, postingKey: `linkedin:post:${id}`,
     sourceUrl: `https://www.linkedin.com/jobs/search/?currentJobId=${id}`,
     title, terms: explicitInternshipTerms(title, full), employer, facts: openingFacts(full),
+    ...(amazonId ? { requisitionKey: amazonRequisitionKey(amazonId) } : {}),
   } } : {}) };
 }
 

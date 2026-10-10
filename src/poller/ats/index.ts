@@ -14,6 +14,7 @@ import { smartrecruiters } from './smartrecruiters';
 import { rippling } from './rippling';
 import { workable } from './workable';
 import { linkedin } from './linkedin';
+import { amazon } from './amazon';
 import { isGoneStatus, UA } from './http';
 
 export type { Ats, ATSKind, JobRef, LinkHandler, LinkState } from './types';
@@ -23,7 +24,7 @@ export const ATS: Record<ATSKind, Ats> = { greenhouse, lever, ashby, workday, sm
 /** Source labels the ATS pollers write. */
 export const ATS_SOURCES: readonly string[] = Object.values(ATS).map(a => a.source);
 
-const HANDLERS: readonly LinkHandler[] = [...Object.values(ATS), linkedin, icims];
+const HANDLERS: readonly LinkHandler[] = [...Object.values(ATS), linkedin, icims, amazon];
 
 function parse(link: string): URL | null {
   try { return new URL(link); } catch { return null; }
@@ -85,7 +86,11 @@ export async function detailsByUrl(link: string): Promise<PostingDetails> {
   const handler = url && handlerFor(url);
   const job = handler && handler.jobFromUrl(url!);
   if (!handler || !job) return { description: '' };
-  if (handler.details) return handler.details(job, link);
+  if (handler.details) {
+    const detail = await handler.details(job, link);
+    if (detail.identity && Object.values(ATS).some(a => a === handler)) detail.identity.origin = 'board';
+    return detail;
+  }
   return { description: handler.describe ? await handler.describe(job, link) : '' };
 }
 

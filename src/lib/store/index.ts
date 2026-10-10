@@ -5,9 +5,10 @@ import type { RoleType, Degree, PostingClassification } from '../classify/postin
 import type { Salary } from '../salary';
 import type { CompanyTier } from '../classify/company';
 import { companyKey } from '../company-key';
+import { normalizeKey } from '../normalize-key';
 import { parseSeason } from '../seasons';
-import { OpportunityIndex, mergeIdentities, identitiesAgree, compareOpportunityAge } from '../opportunity';
-import { postingKey, jobKey, discoverATSTarget } from '../../poller/ats';
+import { OpportunityIndex, mergeIdentities, identitiesAgree, compareOpportunityAge, sourceUrlKey, employerNames, employerSpelling, openingFacts } from '../opportunity';
+import { postingKey, jobKey, discoverATSTarget, ATS_SOURCES } from '../../poller/ats';
 import type { PostingIdentity } from '../types';
 
 export * from './companies';
@@ -34,6 +35,7 @@ interface Row {
   /** Text projection retains PostgreSQL microseconds for canonical ID selection. */
   first_seen_precise?: string;
   archived: boolean;
+  archive_reason: string | null;
   failed_check_count: number;
   last_checked_at: Date | null;
   locations: string[] | null;
@@ -67,6 +69,7 @@ const COLUMNS: ReadonlyArray<[keyof Row, (i: StoredInternship) => unknown]> = [
   ['seen_at', i => i.seenAt],
   ['first_seen_at', i => i.firstSeenAt],
   ['archived', i => i.archived],
+  ['archive_reason', i => i.archiveReason ?? null],
   ['failed_check_count', i => i.failedCheckCount],
   ['last_checked_at', i => i.lastCheckedAt ?? null],
   ['locations', i => JSON.stringify(i.locations)],
@@ -96,7 +99,7 @@ function toValues(i: StoredInternship): unknown[] {
 const iso = (d: Date | null): string | undefined => d?.toISOString();
 
 function fromRow(r: Row): StoredInternship {
-  return {
+  return withEvidence({
     id: r.id,
     title: r.title,
     company: r.company,
@@ -108,6 +111,7 @@ function fromRow(r: Row): StoredInternship {
     seenAt: r.seen_at.toISOString(),
     firstSeenAt: r.first_seen_precise ?? r.first_seen_at.toISOString(),
     archived: r.archived,
+    archiveReason: r.archive_reason ?? undefined,
     failedCheckCount: r.failed_check_count,
     lastCheckedAt: iso(r.last_checked_at),
     locations: r.locations ?? (r.location ? [r.location] : []),
@@ -117,9 +121,7 @@ function fromRow(r: Row): StoredInternship {
     salaryUnit: r.salary_unit ?? undefined,
     normalizedKey: r.normalized_key ?? '',
     jobKey: r.job_key ?? undefined,
-    identities: r.identities?.length ? r.identities : [{
-      postingKey: postingKey(r.link), sourceUrl: r.link, title: r.title, terms: parseSeason(r.title),
-    }],
+    identities: r.identities ?? [],
     season: r.season ?? [],
     roleType: r.role_type ?? undefined,
     degrees: r.degrees ?? undefined,
@@ -127,7 +129,7 @@ function fromRow(r: Row): StoredInternship {
     isInternship: r.is_internship ?? undefined,
     classifiedAt: iso(r.classified_at),
     companyTier: r.company_tier ?? undefined,
-  };
+  }, true);
 }
 
 // Every read joins the company's judged tier; present() then applies curated overrides.
@@ -306,13 +308,31 @@ export interface StoreResult {
 // Both ingestion and daily cleanup serialize across processes, not just this mutex.
 const OPPORTUNITY_LOCK = "SELECT pg_advisory_xact_lock(hashtext('internship-opportunities'))";
 
-function withEvidence(i: StoredInternship): StoredInternship {
-  return { ...i, identities: i.identities?.length ? i.identities : [{
+function withEvidence(i: StoredInternship, retained = false): StoredInternship {
+  let identities: PostingIdentity[] = i.identities?.length ? i.identities : [{
     postingKey: postingKey(i.link), sourceUrl: i.link, title: i.title, terms: parseSeason(i.title),
-  }] };
+    facts: openingFacts(i.description ?? ''),
+  }];
+  const linkKey = postingKey(i.link);
+  if (retained && !linkKey.startsWith('url:') && !identities.some(x => x.postingKey === linkKey) &&
+      identities.every(x => x.employer?.kind === 'source' && x.origin !== 'board' &&
+        sourceUrlKey(x.sourceUrl) !== sourceUrlKey(i.link) && x.postingKey.slice(0,x.postingKey.lastIndexOf(':')) === linkKey.slice(0,linkKey.lastIndexOf(':')))) {
+    // The accepted row's current application URL can outlive an old parser key
+    // or board path. Retain both aliases rather than replacing qualified IDs.
+    identities = [...identities, { postingKey: linkKey, sourceUrl: i.link, title: i.title, terms: parseSeason(i.title),
+      facts: openingFacts(i.description ?? '') }];
+  }
+  return { ...i, identities: identities.map(x => {
+    // Re-read old URL fallbacks with the current native parser. Never rewrite
+    // an already qualified key, or infer another tenant from a numeric ID.
+    const key = x.postingKey.startsWith('url:') ? postingKey(x.sourceUrl) : x.postingKey;
+    const board = x.employer?.kind === 'greenhouse' || (ATS_SOURCES.includes(i.source) && key === postingKey(i.link));
+    return { ...x, postingKey: key, origin: x.origin ?? (board ? 'board' : 'feed') };
+  }) };
 }
 
-/** Metadata folding never writes classification, employer ratings, or archive policy. */
+/** Folding preserves classification and archive policy. Fresh official observations
+ * can repair link-health state, without becoming new opportunities or alerts. */
 async function foldObservation(client: PoolClient, keep: StoredInternship, other: StoredInternship, rediscovery: boolean): Promise<StoredInternship> {
   if (!rediscovery && !identitiesAgree(keep.identities ?? [], other.identities ?? [])) {
     throw new Error('Cannot consolidate incompatible opening evidence');
@@ -322,12 +342,19 @@ async function foldObservation(client: PoolClient, keep: StoredInternship, other
   const concrete = union.filter(l => !/^\d+ locations?$/i.test(l));
   const locations = concrete.length ? concrete : union;
   const direct = (link: string) => discoverATSTarget(link, '') ? 2 : /linkedin\.com|simplify\.jobs/.test(link) ? 0 : 1;
-  const link = direct(other.link) > direct(keep.link) ? other.link : keep.link;
+  // Source is the origin of this observation, not the canonical row's historical
+  // display label. Cached feed identity is not proof that an official board is live.
+  const observedBoard = rediscovery && ATS_SOURCES.includes(other.source) && !postingKey(other.link).startsWith('url:');
+  const link = (observedBoard && keep.failedCheckCount > 0) || direct(other.link) > direct(keep.link) ? other.link : keep.link;
+  const liveBoard = observedBoard && postingKey(other.link) === postingKey(link);
+  const title = liveBoard ? other.title : keep.title;
+  const revive = (rediscovery && (keep.archiveReason === undefined || keep.archiveReason === 'not seen') && keep.failedCheckCount === 0) ||
+    (liveBoard && keep.archiveReason === 'link gone');
   const salary = keep.salaryText ? keep : other;
   const terms = [...new Set(identities.flatMap(x => x.terms))];
   const season = terms.length ? terms.map(t => t.startsWith('year-') ? `summer-${t.slice(5)}` : t)
     : [...new Set([...keep.season, ...other.season])];
-  const merged = { ...keep, identities, locations, location: locations[0] ?? keep.location,
+  const merged = { ...keep, title, identities, locations, location: locations[0] ?? keep.location,
     link, jobKey: jobKey(link), season,
     seenAt: keep.seenAt > other.seenAt ? keep.seenAt : other.seenAt,
     description: keep.description || other.description,
@@ -338,29 +365,60 @@ async function foldObservation(client: PoolClient, keep: StoredInternship, other
     seen_at=$2, first_seen_at=LEAST(first_seen_at, COALESCE((SELECT first_seen_at FROM internships WHERE id=$16), first_seen_at)),
     description=$3, posted_at=COALESCE(posted_at, $4), locations=$5, location=$6,
     salary_text=$7, salary_min=$8, salary_max=$9, salary_unit=$10, identities=$11,
-    last_checked_at=CASE WHEN link <> $12 THEN NULL ELSE last_checked_at END, link=$12, job_key=$13, season=$14,
-    archived=CASE WHEN $15 AND failed_check_count=0 AND (archive_reason IS NULL OR archive_reason='not seen') THEN false ELSE archived END,
-    archive_reason=CASE WHEN $15 AND failed_check_count=0 AND (archive_reason IS NULL OR archive_reason='not seen') THEN NULL ELSE archive_reason END
+    last_checked_at=CASE WHEN $17 THEN $18::timestamptz WHEN link <> $12 THEN NULL ELSE last_checked_at END,
+    failed_check_count=CASE WHEN $17 THEN 0 ELSE failed_check_count END, link=$12, job_key=$13, season=$14,
+    title=$19, normalized_key=$20,
+    archived=CASE WHEN $15 THEN false ELSE archived END,
+    archive_reason=CASE WHEN $15 THEN NULL ELSE archive_reason END
     WHERE id=$1 RETURNING *, ${preciseFirstSeen()}`, [keep.id, merged.seenAt, merged.description ?? null, merged.postedAt ?? null,
     JSON.stringify(locations), merged.location, merged.salaryText ?? null, merged.salaryMin ?? null, merged.salaryMax ?? null,
-    merged.salaryUnit ?? null, JSON.stringify(identities), link, merged.jobKey, JSON.stringify(season), rediscovery, other.id]);
+    merged.salaryUnit ?? null, JSON.stringify(identities), link, merged.jobKey, JSON.stringify(season), revive, other.id, liveBoard, other.seenAt,
+    title, normalizeKey(keep.company, title)]);
   return fromRow(updated.rows[0]);
 }
 
 /** Successful source evidence can be reused without another per-posting HTTP request. */
-export async function getPostingIdentities(keys: string[]): Promise<Map<string, PostingIdentity>> {
+export async function getPostingIdentities(keys: string[], sourceUrls: string[] = []): Promise<Map<string, PostingIdentity>> {
   if (!keys.length) return new Map();
-  const { rows } = await getPool().query<{ identities: PostingIdentity[] }>(
-    'SELECT identities FROM internships WHERE identities @> ANY($1::jsonb[])',
-    [keys.map(postingKey => JSON.stringify([{ postingKey }]))]);
-  const wanted = new Set(keys);
-  return new Map(rows.flatMap(r => r.identities).filter(x => wanted.has(x.postingKey)).map(x => [x.postingKey, x]));
+  const urls = [...new Set(sourceUrls.flatMap(url => [url, sourceUrlKey(url)]).filter(Boolean))];
+  const queries = [...keys.map(postingKey => JSON.stringify([{ postingKey }])), ...urls.map(sourceUrl => JSON.stringify([{ sourceUrl }]))];
+  const { rows } = await getPool().query<Row>(
+    `${SELECT} WHERE i.identities @> ANY($1::jsonb[]) OR i.link=ANY($2::text[]) ORDER BY i.seen_at DESC`, [queries,urls]);
+  const identities = rows.flatMap(r => fromRow(r).identities ?? []);
+  const wanted = new Set(keys), result = new Map<string, PostingIdentity>();
+  for (const x of identities) if (wanted.has(x.postingKey) &&
+    (!result.has(x.postingKey) || (x.origin === 'board' && result.get(x.postingKey)?.origin !== 'board'))) result.set(x.postingKey, x);
+  for (const key of wanted) {
+    const boards = identities.filter(x => x.origin === 'board' && x.postingKey === key);
+    if (!identitiesAgree(boards,boards)) result.delete(key);
+  }
+  for (const url of urls) {
+    const key = postingKey(url);
+    if (!/^greenhouse:_:post:\d+$/.test(key)) continue;
+    const id = key.split(':').at(-1);
+    const candidates = identities.filter(x => /^greenhouse:(?!_:)[^:]+:post:\d+$/.test(x.postingKey) &&
+      x.postingKey.endsWith(`:post:${id}`) && sourceUrlKey(x.sourceUrl) === sourceUrlKey(url));
+    if (new Set(candidates.map(x => x.postingKey)).size === 1 && identitiesAgree(candidates,candidates)) result.set(key, candidates[0]);
+    else if (candidates.length) result.delete(key);
+  }
+  return result;
 }
 
-/** Display company names are retrieval hints only. They never establish employer identity. */
-export async function getIdentityCandidates(companies: string[]): Promise<StoredInternship[]> {
-  if (!companies.length) return [];
-  const { rows } = await getPool().query<Row>(`${SELECT} WHERE i.archived=false AND i.company=ANY($1::text[]) ORDER BY i.first_seen_at,i.id`, [companies]);
+// History can retain a source employer even after its display company changes.
+// These names select candidates only. OpportunityIndex still owns proof.
+const employerEvidenceMatches = (parameter: number) => `EXISTS (
+  SELECT 1 FROM jsonb_array_elements(i.identities) AS evidence(value)
+  CROSS JOIN LATERAL jsonb_array_elements_text(jsonb_build_array(evidence.value->'employer'->>'name') ||
+    COALESCE(evidence.value->'employer'->'hiringNames','[]'::jsonb)) AS names(value)
+  WHERE regexp_replace(lower(names.value),'[^[:alnum:]]','','g')=ANY($${parameter}::text[]))`;
+
+/** Display company names and retained source employers are retrieval hints only. */
+export async function getIdentityCandidates(companies: string[], employers: string[] = []): Promise<StoredInternship[]> {
+  if (!companies.length && !employers.length) return [];
+  const keys = [...new Set(companies.map(companyKey).filter(Boolean))];
+  const names = [...new Set(employers.map(employerSpelling).filter(Boolean))];
+  const { rows } = await getPool().query<Row>(`${SELECT} WHERE (i.company_key=ANY($1::text[]) OR ${employerEvidenceMatches(2)})
+    AND (i.archive_reason IS DISTINCT FROM 'duplicate') ORDER BY i.archived,i.first_seen_at,i.id`, [keys,names]);
   return rows.map(fromRow);
 }
 
@@ -385,10 +443,18 @@ export async function saveExistingIdentities(updates: Array<{ id: string; identi
 export async function deduplicateAndStore(input: StoredInternship[]): Promise<StoreResult> {
   return withLock(() => withTxn(async (client) => {
     await client.query(OPPORTUNITY_LOCK);
-    const incoming = input.map(withEvidence);
-    const aliases = incoming.flatMap(i => i.identities!.map(x => JSON.stringify([{ postingKey: x.postingKey }])));
-    const existing = (await client.query<Row>(`${SELECT} WHERE i.archived=false OR i.id=ANY($1::text[]) OR i.identities @> ANY($2::jsonb[])`,
-      [incoming.map(i => i.id), aliases])).rows.map(fromRow);
+    const incoming = input.map(i => withEvidence(i));
+    const aliases = incoming.flatMap(i => i.identities!.flatMap(x =>
+      ['postingKey', 'openingKey', 'requisitionKey', 'sourceUrl'].flatMap(field => {
+        const value = x[field as keyof PostingIdentity];
+        return value ? [JSON.stringify([{ [field]: value }])] : [];
+      })));
+    // Company keys only retrieve history. Raw employer, role, content and
+    // requisition evidence still own every matching decision.
+    const companyKeys = [...new Set(incoming.map(i => companyKey(i.company)).filter(Boolean))];
+    const employers = [...new Set(incoming.flatMap(i => i.identities!.flatMap(employerNames)))];
+    const existing = (await client.query<Row>(`${SELECT} WHERE i.archived=false OR i.id=ANY($1::text[]) OR i.identities @> ANY($2::jsonb[]) OR i.company_key=ANY($3::text[]) OR ${employerEvidenceMatches(4)}`,
+      [incoming.map(i => i.id), aliases, companyKeys, employers])).rows.map(fromRow);
     const index = new OpportunityIndex(existing, incoming);
     const newIds = new Set<string>();
 
@@ -397,14 +463,15 @@ export async function deduplicateAndStore(input: StoredInternship[]): Promise<St
       const match = index.find(i);
       let keep = match ?? old;
       if (keep) {
-        // An enriched existing row may now match another stored variant. Keep the oldest active ID.
+        // An enriched existing row may now match another stored variant. Keep
+        // the oldest canonical ID even when it was temporarily archived.
         if (old && match && old.id !== match.id) {
-          if (!old.archived && compareOpportunityAge(old, match) < 0) keep = old;
+          if (old.archiveReason !== 'duplicate' && compareOpportunityAge(old, match) < 0) keep = old;
           const absorbed = keep.id === old.id ? match : old;
           keep = await foldObservation(client, keep, absorbed, false);
           if (!absorbed.archived) {
             await client.query("UPDATE internships SET archived=true, archive_reason='duplicate' WHERE id=$1", [absorbed.id]);
-            index.add({ ...absorbed, archived: true });
+            index.add({ ...absorbed, archived: true, archiveReason: 'duplicate' });
             newIds.delete(absorbed.id);
           }
         }
@@ -428,18 +495,18 @@ export async function deduplicateAndStore(input: StoredInternship[]): Promise<St
 export async function consolidateOpportunities(): Promise<number> {
   return withLock(() => withTxn(async client => {
     await client.query(OPPORTUNITY_LOCK);
-    const rows = (await client.query<Row>(`${SELECT} WHERE i.archived=false ORDER BY i.first_seen_at, i.id`)).rows.map(fromRow);
+    const rows = (await client.query<Row>(`${SELECT} WHERE i.archived=false OR i.archive_reason IS DISTINCT FROM 'duplicate' ORDER BY i.first_seen_at, i.id`)).rows.map(fromRow);
     const index = new OpportunityIndex(rows);
     let archived = 0;
     for (const row of rows) {
       const current = index.get(row.id)!;
       if (current.archived) continue;
       const match = index.find(current);
-      if (!match || match.archived) continue;
+      if (!match) continue;
       const [keep, duplicate] = [current, match].sort(compareOpportunityAge);
       index.add(await foldObservation(client, keep, duplicate, false));
       await client.query("UPDATE internships SET archived=true, archive_reason='duplicate' WHERE id=$1", [duplicate.id]);
-      index.add({ ...duplicate, archived: true });
+      index.add({ ...duplicate, archived: true, archiveReason: 'duplicate' });
       archived++;
     }
     return archived;

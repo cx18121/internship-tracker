@@ -12,10 +12,16 @@ export interface OpeningFacts {
   degrees: Degree[];
   teams: string[];
   technologies: string[];
+  /** Explicit internship duration. Four weeks per month only aligns stated units. */
+  durationWeeks?: number[];
 }
 
 /** Opening-local source evidence. Never a global employer alias or rating. */
 export interface PostingIdentity {
+  /** Parser revision for employer/requisition evidence. Missing on legacy observations. */
+  version?: 1;
+  /** Employer-owned posting metadata or an aggregator observation of it. */
+  origin?: 'board' | 'feed';
   postingKey: string;
   sourceUrl: string;
   title: string;
@@ -23,7 +29,9 @@ export interface PostingIdentity {
   terms: string[];
   openingKey?: string;
   requisitionKey?: string;
-  employer?: { name: string; reference: string; kind: 'greenhouse' | 'linkedin' | 'source' };
+  employer?: { name: string; reference: string; kind: 'greenhouse' | 'linkedin' | 'source';
+    /** Hiring employers explicitly stated in the JD, separate from a recruiting/profile label. */
+    hiringNames?: string[] };
   /** Extracted before the source description is capped. Absence means unavailable. */
   facts?: OpeningFacts;
 }
@@ -79,7 +87,9 @@ export interface StoredInternship {
   /** When the tracker first stored the row. Never bumped. */
   firstSeenAt: string;
   archived: boolean;
-  /** 1 once a direct link check found the posting gone; rediscovery then leaves it archived. */
+  /** Archive policy is separate from retained opening identity and link health. */
+  archiveReason?: string;
+  /** 1 after a gone check, cleared only by a fresh observation of the same official board posting. */
   failedCheckCount: number;
   lastCheckedAt?: string;
   salaryText?: string;

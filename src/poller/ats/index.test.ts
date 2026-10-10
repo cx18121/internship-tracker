@@ -16,6 +16,7 @@ describe('jobKey', () => {
     assert.equal(jobKey('https://stripe.com/jobs/apply?gh_jid=123'), 'greenhouse:123');
     assert.equal(jobKey('https://boards.greenhouse.io/embed/job_app?token=243853'), 'greenhouse:243853');
     assert.equal(jobKey('https://nvidia.wd5.myworkdayjobs.com/en-US/NVIDIAExternalCareerSite/job/US-CA-Santa-Clara/Intern_JR1998421'), 'workday:jr1998421');
+    assert.equal(postingKey('https://vermeer.wd5.myworkdayjobs.com/externalcareersite/job/Pella/Intern_REQ-22120'), 'workday:vermeer:post:req-22120');
     assert.equal(jobKey('https://www.linkedin.com/jobs/view/software-engineer-intern-at-x-4300000001?refId=1'), 'linkedin:4300000001');
     assert.equal(jobKey('https://www.linkedin.com/jobs/search/?currentJobId=4253822234'), 'linkedin:4253822234');
     assert.equal(jobKey('https://jobs.lever.co/x/11111111-1111-1111-1111-111111111111/apply'), 'lever:11111111-1111-1111-1111-111111111111');

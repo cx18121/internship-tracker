@@ -2,11 +2,16 @@
 // Discord HTTP requests in alert tests are mocked with captured source fixtures.
 import { describe, test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import axios from 'axios';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import sigma from './fixtures/sigma-openings.json';
 import reposts from './fixtures/reposted-openings.json';
-import { deduplicateAndStore, deleteInternship, getInternship, getPostingIdentities, consolidateOpportunities } from '../src/lib/store';
+import doordash from './fixtures/doordash-opening.json';
+import recent from './fixtures/recent-opening-audit.json';
+import legacyEdits from './fixtures/legacy-posting-edits.json';
+import nativeMetadata from './fixtures/native-metadata-audit.json';
+import { deduplicateAndStore, deleteInternship, getInternship, getPostingIdentities, getIdentityCandidates, consolidateOpportunities } from '../src/lib/store';
 import { getPool, closePool } from '../src/lib/db';
 import { loadNotifSettings, saveNotifSettings } from '../src/lib/app-state';
 import { greenhouseDetails } from '../src/poller/ats/greenhouse';
@@ -14,6 +19,8 @@ import { linkedInDetails } from '../src/poller/ats/linkedin';
 import { enrichPostingIdentities, prepareStoredIdentityCandidates } from '../src/poller/identity';
 import { enrichForStorage } from '../src/poller/utils/enrich';
 import { openingFacts } from '../src/lib/opportunity';
+import { buildPosting } from '../src/poller/utils/build-row';
+import { workdayDetails, workdayDetailUrl } from '../src/poller/ats/workday';
 import { sendBatchAlert } from '../src/poller/notifier';
 import { present } from '../src/lib/present';
 import type { RawPosting, StoredInternship } from '../src/lib/types';
@@ -44,6 +51,7 @@ async function cleanup(rows: StoredInternship[]): Promise<void> { for (const r o
 type DiscordBody = { embeds: Array<{ fields: Array<{ name: string; value: string }>; footer: { text: string } }> };
 async function withSources(run: (posts: DiscordBody[], requests: string[]) => Promise<void>, guestHtml = sigma.linkedInHtml, responses: Record<string, string | object> = {}): Promise<void> {
   const fetch = globalThis.fetch;
+  const axiosGet = axios.get;
   const token = process.env.DISCORD_BOT_TOKEN;
   const channel = process.env.DISCORD_CHANNEL_INTERNSHIPS;
   const settings = await loadNotifSettings();
@@ -51,6 +59,11 @@ async function withSources(run: (posts: DiscordBody[], requests: string[]) => Pr
   await saveNotifSettings({ ...settings, minScore: 0, tiers: [], seasons: [], excludedSources: [], roleTypes: [], degrees: [], metros: [] });
   process.env.DISCORD_BOT_TOKEN = 'test-only';
   process.env.DISCORD_CHANNEL_INTERNSHIPS = 'test-only';
+  axios.get = (async (url: string) => {
+    requests.push(url);
+    if (url in responses) return { data: responses[url] };
+    throw new Error(`Unexpected axios HTTP request ${url}`);
+  }) as typeof axios.get;
   globalThis.fetch = async (input, init) => {
     const url = String(input); requests.push(url);
     if (url.startsWith('https://discord.com/api/')) {
@@ -69,6 +82,7 @@ async function withSources(run: (posts: DiscordBody[], requests: string[]) => Pr
   };
   try { await run(posts, requests); } finally {
     globalThis.fetch = fetch;
+    axios.get = axiosGet;
     if (token === undefined) delete process.env.DISCORD_BOT_TOKEN; else process.env.DISCORD_BOT_TOKEN = token;
     if (channel === undefined) delete process.env.DISCORD_CHANNEL_INTERNSHIPS; else process.env.DISCORD_CHANNEL_INTERNSHIPS = channel;
     await saveNotifSettings(settings);
@@ -101,6 +115,263 @@ describe('Opportunity storage and alerts', { skip }, () => {
         } finally { await cleanup(rows); }
       }
     }
+  });
+
+  test('identity caching and cleanup do not choose between contradictory employer-owned cohorts', async () => {
+    const prefix = `cohort-cache-${Date.now()}-${sequence++}`;
+    const board = { ...examples()[2], id: `${prefix}-first` };
+    const future = { ...board, id: `${prefix}-future`, identities: board.identities!.map(x => ({ ...x, terms: ['summer-2028'] })) };
+    try {
+      assert.equal((await deduplicateAndStore([board,future])).newInternships.length, 2);
+      const identities = await getPostingIdentities([board.identities![0].postingKey], [board.link]);
+      assert.equal(identities.has(board.identities![0].postingKey), false);
+      assert.equal(await consolidateOpportunities(), 0);
+    } finally { await cleanup([board,future]); }
+  });
+
+  test('captured native posting metadata owns conflicting aggregator seasons and obsolete URL keys', async () => {
+    for (const c of nativeMetadata) {
+      const prefix = `native-metadata-${Date.now()}-${sequence++}`;
+      const original = c.capturedRows[0], feed = c.capturedRows.find(r => r.source !== 'Workday' && r.link === original.link)!;
+      const boardRaw = buildPosting({ company: original.company, title: c.source.title, source: 'Workday',
+        link: original.link, descriptionHtml: c.source.jobDescription, now: original.first_seen_at,
+        identity: workdayDetails(original.link,c.source).identity });
+      const board = { ...enrichForStorage(boardRaw, original.first_seen_at), id: `${prefix}-original`,
+        roleType: 'swe' as const, degrees: ['bs' as const], usEligible: 'yes' as const, isInternship: true };
+      const aggregate: RawPosting = { company: feed.company, title: feed.title, link: feed.link, locations: [], source: feed.source,
+        season: feed.season, description: feed.description ?? undefined };
+      const incoming = { ...enrichForStorage(aggregate, new Date().toISOString()), id: `${prefix}-feed` };
+      try {
+        await withSources(async (posts,requests) => {
+          const first = await deduplicateAndStore([board]);
+          await sendBatchAlert(first.newInternships.map(r => present(r)));
+          assert.equal(posts.length, 1);
+          // Preserve the captured duplicate's old parser key and feed seasons.
+          await getPool().query(`INSERT INTO internships (id,title,company,company_key,location,locations,link,source,seen_at,first_seen_at,season,identities)
+            VALUES ($1,$2,$3,$4,'','[]',$5,$6,$7,$7,$8,$9)`,
+          [incoming.id,feed.title,feed.company,feed.company.toLowerCase(),feed.link,feed.source,new Date().toISOString(),JSON.stringify(feed.season),JSON.stringify(feed.identities)]);
+          assert.equal(await consolidateOpportunities(), 1, `${c.name} already-stored copies`);
+          assert.equal((await getInternship(incoming.id))?.archiveReason, 'duplicate');
+          await deleteInternship(incoming.id);
+          await closePool();
+          await enrichPostingIdentities([aggregate]);
+          assert.equal(aggregate.title, c.source.title, `${c.name} classification sees employer title`);
+          assert.deepEqual(aggregate.season, board.season);
+          const result = await deduplicateAndStore([{ ...enrichForStorage(aggregate,new Date().toISOString()),id:incoming.id }]);
+          await sendBatchAlert(result.newInternships.map(r => present(r)));
+          assert.equal(result.newInternships.length, 0);
+          assert.equal(posts.length, 1);
+          assert.equal(requests.filter(url => !url.startsWith('https://discord.com')).length, 0, 'retained source evidence needs no extra HTTP call');
+          if (c.verifiedAlias) {
+            const alias: RawPosting = { ...aggregate, identity: undefined, title: feed.title,
+              link: c.verifiedAlias.externalUrl, season: feed.season };
+            await enrichPostingIdentities([alias]);
+            assert.equal(alias.identity?.requisitionKey, 'workday:marvell:req:2603760', 'read the native requisition, never trim a posting suffix');
+            const repeated = await deduplicateAndStore([{ ...enrichForStorage(alias,new Date().toISOString()), id: `${incoming.id}-alias` }]);
+            await sendBatchAlert(repeated.newInternships.map(r => present(r)));
+            assert.equal(repeated.newInternships.length, 0);
+            assert.equal(posts.length, 1);
+          }
+        }, sigma.linkedInHtml, c.verifiedAlias ? { [workdayDetailUrl(c.verifiedAlias.externalUrl)!]: { jobPostingInfo: c.verifiedAlias } } : {});
+      } finally { await cleanup([board,incoming,{ ...incoming,id: `${incoming.id}-alias` }]); }
+    }
+  });
+
+  test('captured legacy native-post title edits produce no repeat Discord alerts', async () => {
+    for (const pair of [legacyEdits.slice(0, 2), legacyEdits.slice(2, 4)]) {
+      const prefix = `legacy-edit-${Date.now()}-${sequence++}`;
+      const rows = pair.map((r,n) => ({ ...enrichForStorage({ company: r.company, title: r.title, link: r.link,
+        locations: [], source: r.source, description: r.description }, r.first_seen_at), id: `${prefix}-${n}`,
+        identities: r.identities as StoredInternship['identities'], roleType: 'swe' as const, degrees: ['bs' as const], usEligible: 'yes' as const, isInternship: true }));
+      try {
+        await withSources(async posts => {
+          const first = await deduplicateAndStore([rows[0]]);
+          await getPool().query("UPDATE internships SET identities='[]' WHERE id=$1", [rows[0].id]);
+          await sendBatchAlert(first.newInternships.map(r => present(r)));
+          assert.equal(posts.length, 1);
+          await closePool();
+          const second = await deduplicateAndStore([rows[1]]);
+          await sendBatchAlert(second.newInternships.map(r => present(r)));
+          assert.equal(second.newInternships.length, 0, pair[0].company);
+          assert.equal(posts.length, 1, 'same qualified public posting with edited label is not a new opening');
+          assert.ok(await getInternship(rows[0].id));
+          assert.equal(await getInternship(rows[1].id), null);
+        });
+      } finally { await cleanup(rows); }
+    }
+  });
+
+  test('archived source employer evidence retrieves history across display-company changes', async () => {
+    const prefix = `archived-employer-${Date.now()}-${sequence++}`;
+    const old = { ...examples()[0], id: `${prefix}-old`, company: 'Sigma', archived: true, archiveReason: 'not seen' };
+    const incoming = { ...old, id: `${prefix}-new`, company: 'Sigma Computing', archived: false, archiveReason: undefined,
+      identities: old.identities!.map(x => ({ ...x, postingKey: 'linkedin:post:9999999901' })) };
+    try {
+      await deduplicateAndStore([old]);
+      assert.ok((await getIdentityCandidates(['Sigma Computing'], ['sigmacomputing'])).some(r => r.id === old.id), 'candidate enrichment retrieves source-employer history');
+      await closePool();
+      await withSources(async posts => {
+        const result = await deduplicateAndStore([incoming]);
+        await sendBatchAlert(result.newInternships.map(r => present(r)));
+        assert.equal(result.newInternships.length, 0);
+        assert.equal(posts.length, 0);
+        assert.ok(await getInternship(old.id));
+        assert.equal(await getInternship(incoming.id), null);
+      });
+    } finally { await cleanup([old,incoming]); }
+  });
+
+  test('daily consolidation retains archived original identity without reviving archive policy', async () => {
+    const prefix = `archived-cleanup-${Date.now()}-${sequence++}`;
+    const ids = ['55a303cad8fc61eb1806587baa835d59','304ed301936487a9c521bee16c459e6c'];
+    const rows = ids.map(id => {
+      const r = doordash.history.find(r => r.id === id)!;
+      return { ...enrichForStorage({ company: r.company, title: r.title, link: r.link,
+        source: r.source, locations: r.locations }, r.first_seen_at), id: `${prefix}-${id}`,
+        firstSeenAt: r.first_seen_at, identities: r.identities as StoredInternship['identities'],
+        archived: r.archived, archiveReason: r.archive_reason ?? undefined, failedCheckCount: r.failed_check_count };
+    });
+    try {
+      // Seed the incident's pre-repair rows without letting ingestion fold them first.
+      for (const r of rows) {
+        await getPool().query(`INSERT INTO internships (id,title,company,company_key,location,locations,link,source,seen_at,first_seen_at,season,identities,archived,archive_reason,failed_check_count)
+          VALUES ($1,$2,$3,'doordash',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+        [r.id,r.title,r.company,r.location,JSON.stringify(r.locations),r.link,r.source,r.seenAt,r.firstSeenAt,JSON.stringify(r.season),JSON.stringify(r.identities),r.archived,r.archiveReason,r.failedCheckCount]);
+      }
+      assert.equal(await consolidateOpportunities(), 1);
+      const canonical = await getInternship(rows[0].id);
+      assert.ok(canonical);
+      assert.ok(canonical.identities?.some(x => x.postingKey === 'linkedin:post:4475777152'));
+      assert.equal(canonical.archived, true, 'cleanup is not a fresh live-board observation');
+      assert.equal(canonical.archiveReason, 'link gone');
+      assert.equal((await getInternship(rows[1].id))?.archiveReason, 'duplicate');
+      assert.equal(await consolidateOpportunities(), 0, 'cleanup is idempotent');
+    } finally { await cleanup(rows); }
+  });
+
+  test('captured DoorDash archive, live board rediscovery and new LinkedIn IDs keep one canonical and one alert', async () => {
+    for (const boardFirst of [false, true]) {
+      const prefix = `doordash-${Date.now()}-${sequence++}`;
+      const history = doordash.history.filter(r => r.id !== '304ed301936487a9c521bee16c459e6c');
+      const stored = history.map(r => ({ ...enrichForStorage({ company: r.company, title: r.title, link: r.link,
+        locations: r.locations, source: r.source }, r.first_seen_at), id: `${prefix}-${r.id}`,
+        firstSeenAt: r.first_seen_at, seenAt: r.seen_at, identities: r.identities as StoredInternship['identities'],
+        roleType: 'swe' as const, degrees: ['bs' as const], usEligible: 'yes' as const, isInternship: true }));
+      const canonical = stored.find(r => r.id.endsWith('55a303cad8fc61eb1806587baa835d59'))!;
+      const absorbed = stored.find(r => r.id.endsWith('0d297bfe3e471ce4ce90c15fe1732f23'))!;
+      const detail = greenhouseDetails('doordashusa', doordash.greenhouse);
+      const board = { ...enrichForStorage({ company: 'DoorDash', title: doordash.greenhouse.title,
+        link: detail.identity!.sourceUrl, locations: ['San Francisco, CA'], source: 'Greenhouse', identity: detail.identity }, new Date().toISOString()), id: absorbed.id };
+      const feeds = ['4475777152', '4475773277'].map(id => ({ ...enrichForStorage({ company: 'DoorDash',
+        title: doordash.greenhouse.title, link: `https://www.linkedin.com/jobs/search/?currentJobId=${id}`,
+        locations: ['Sunnyvale, CA'], source: 'Linkedin', identity: linkedInDetails(doordash.linkedInHtml, id).identity }, new Date().toISOString()), id: `${prefix}-${id}` }));
+      const all = [...stored, ...feeds];
+      try {
+        // Preserve the exact captured boundary, including the older absorbed row and failed check.
+        for (let n = 0; n < stored.length; n++) {
+          const r = stored[n];
+          await getPool().query(`INSERT INTO internships (id,title,company,company_key,location,locations,link,source,seen_at,first_seen_at,season)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [r.id,r.title,r.company, r.company.toLowerCase().replace(/[^a-z]/g,''),
+            r.location, JSON.stringify(r.locations),r.link,r.source,r.seenAt,r.firstSeenAt,JSON.stringify(r.season)]);
+          const captured = history[n];
+          await getPool().query(`UPDATE internships SET identities=$2, archived=$3, archive_reason=$4,
+            failed_check_count=$5, role_type='swe', degrees='["bs"]', us_eligible='yes', is_internship=true,
+            classified_at='2026-10-08T11:01:48Z' WHERE id=$1`,
+          [stored[n].id, JSON.stringify(stored[n].identities), captured.archived, captured.archive_reason, captured.failed_check_count]);
+        }
+        const before = (await getPool().query('SELECT first_seen_at::text,classified_at::text FROM internships WHERE id=$1', [canonical.id])).rows[0];
+        await withSources(async posts => {
+          await sendBatchAlert([{ ...present(absorbed), source: 'Greenhouse' }]);
+          assert.equal(posts.length, 1, 'the opening was already announced');
+          await closePool();
+          const batches = boardFirst ? [[board], feeds] : [feeds, [board]];
+          for (const batch of batches) {
+            const result = await deduplicateAndStore(batch);
+            await sendBatchAlert(result.newInternships.map(r => present(r)));
+            assert.equal(result.newInternships.length, 0, 'neither revived history nor a new feed ID is a new opening');
+          }
+          assert.equal(posts.length, 1, 'no repeat Discord request');
+          const keep = await getInternship(canonical.id);
+          assert.ok(keep);
+          assert.equal(keep.archived, false, 'fresh official board evidence revives the opening');
+          assert.equal(keep.failedCheckCount, 0);
+          assert.equal(keep.link, board.link);
+          assert.equal(keep.title, doordash.greenhouse.title, 'the tracker shows the official Labs role, not an old generic label');
+          assert.ok(keep.identities?.some(x => x.postingKey === 'linkedin:post:4475777152'));
+          assert.ok(keep.identities?.some(x => x.postingKey === 'linkedin:post:4475773277'));
+          assert.equal((await getInternship(absorbed.id))?.archived, true, 'the absorbed ID never revives separately');
+          for (const feed of feeds) assert.equal(await getInternship(feed.id), null);
+          const after = (await getPool().query('SELECT first_seen_at::text,classified_at::text FROM internships WHERE id=$1', [canonical.id])).rows[0];
+          assert.deepEqual(after, before, 'discovery age and classification survive recovery');
+          await closePool();
+          assert.equal((await deduplicateAndStore(feeds)).newInternships.length, 0, 'recognition survives a restart');
+        });
+      } finally { await cleanup(all); }
+    }
+  });
+
+  test('audited custom careers URLs reuse official identity before scoring and cannot alert again', async () => {
+    for (const c of recent.duplicateCases.filter(c => 'greenhouse' in c)) {
+      const captured = c.capturedRows;
+      const source = c.greenhouse![0];
+      const detail = greenhouseDetails(source.boardSlug, source.job);
+      const prefix = `audit-${Date.now()}-${sequence++}`;
+      const official = { ...enrichForStorage({ company: captured[0].company, title: detail.identity!.title,
+        link: detail.identity!.sourceUrl, locations: ['NYC'], source: 'Greenhouse', identity: detail.identity,
+        description: detail.description }, new Date().toISOString()), id: `${prefix}-official`, roleType: 'swe' as const,
+        degrees: detail.identity!.facts?.degrees ?? [], isInternship: true, usEligible: 'yes' as const };
+      const raw: RawPosting = { company: captured[1].company, title: captured[1].title, link: captured[1].link,
+        source: 'SimplifyJobs', locations: ['NYC'], season: captured[1].identities[0].terms };
+      const incomingId = `${prefix}-feed`;
+      try {
+        await withSources(async (posts, requests) => {
+          const first = await deduplicateAndStore([official]);
+          await sendBatchAlert(first.newInternships.map(r => present(r)));
+          assert.equal(posts.length, 1);
+          const before = requests.length;
+          await enrichPostingIdentities([raw]);
+          assert.equal(requests.length, before, 'reuse source URL proof without another HTTP lookup');
+          assert.equal(raw.identity?.postingKey, detail.identity!.postingKey, c.name);
+          const incoming = { ...enrichForStorage(raw, new Date().toISOString()), id: incomingId };
+          const result = await deduplicateAndStore([incoming]);
+          await sendBatchAlert(result.newInternships.map(r => present(r)));
+          assert.equal(result.newInternships.length, 0, c.name);
+          assert.equal(posts.length, 1);
+          assert.equal(await getInternship(incomingId), null);
+          const keep = await getInternship(official.id);
+          assert.deepEqual(keep?.degrees, official.degrees, 'aggregator omissions cannot downgrade eligibility');
+          assert.deepEqual(keep?.identities?.[0].terms, detail.identity!.terms);
+          if (c.name.startsWith('roblox')) assert.deepEqual(keep?.season, ['summer-2027'], 'the incorrect 2026 list labels do not survive');
+        });
+      } finally { await cleanup([official, { ...official, id: incomingId }]); }
+    }
+  });
+
+  test('captured Amazon Leo employer requisition is resolved before alerting despite other Amazon roles', async () => {
+    const c = recent.duplicateCases.find(c => c.name.startsWith('amazon-leo'))!;
+    const prefix = `amazon-audit-${Date.now()}-${sequence++}`;
+    const old = c.capturedRows[0];
+    const official = { ...enrichForStorage({ company: old.company, title: old.title, link: old.link,
+      locations: ['NYC'], source: old.source }, new Date().toISOString()), id: `${prefix}-official` };
+    const feeds = c.linkedin!.map(j => {
+      const f = j.fields;
+      const identity = linkedInDetails(`<h2>${f.title}</h2><a data-tracking-control-name="public_jobs_topcard-org-name" href="${f.employerAnchor.href}">${f.employerAnchor.text}</a><div class="show-more-less-html__markup">${f.descriptionHtml}</div>`, j.jobId).identity;
+      return { ...enrichForStorage({ company: 'Amazon', title: f.title, link: identity!.sourceUrl, locations: ['NYC'],
+        source: 'Linkedin', identity }, new Date().toISOString()), id: `${prefix}-${j.jobId}` };
+    });
+    try {
+      await deduplicateAndStore([official]);
+      await withSources(async (posts, requests) => {
+        await prepareStoredIdentityCandidates(feeds);
+        assert.equal(requests.length, 0, 'Amazon URL already states the employer job ID, no scraping is needed');
+        assert.equal((await getInternship(official.id))?.identities?.find(x => x.requisitionKey)?.requisitionKey, 'amazon:amazon:req:10571374');
+        const result = await deduplicateAndStore(feeds);
+        await sendBatchAlert(result.newInternships.map(r => present(r)));
+        assert.equal(result.newInternships.length, 0);
+        assert.equal(posts.length, 0);
+        for (const feed of feeds) assert.equal(await getInternship(feed.id), null);
+      });
+    } finally { await cleanup([official, ...feeds]); }
   });
 
   test('content-only inference cannot form a transitive bridge during ingestion and daily consolidation', async () => {
@@ -449,6 +720,46 @@ describe('Opportunity storage and alerts', { skip }, () => {
       await getPool().query("UPDATE internships SET archive_reason='not seen', failed_check_count=0 WHERE id=$1", [rows[0].id]);
       assert.equal((await deduplicateAndStore([rows[1]])).newInternships.length, 0);
       assert.equal((await getInternship(rows[0].id))?.archived, false);
+    } finally { await cleanup(rows); }
+  });
+
+  test('only fresh board observations repair gone state; feeds and rejected/absorbed rows stay archived', async () => {
+    const rows = examples();
+    try {
+      await deduplicateAndStore(rows.slice(0, 2));
+      const canonical = rows[0];
+      await getPool().query("UPDATE internships SET archived=true, archive_reason='link gone', failed_check_count=1 WHERE id=$1", [canonical.id]);
+      assert.equal((await deduplicateAndStore([rows[1]])).newInternships.length, 0);
+      assert.equal((await getInternship(canonical.id))?.archived, true, 'a stale feed is not proof of liveness');
+      assert.equal((await getInternship(canonical.id))?.failedCheckCount, 1);
+      const board = { ...rows[1], source: 'Greenhouse' };
+      assert.equal((await deduplicateAndStore([board])).newInternships.length, 0);
+      assert.equal((await getInternship(canonical.id))?.archived, false);
+      assert.equal((await getInternship(canonical.id))?.failedCheckCount, 0);
+      assert.ok((await getInternship(canonical.id))?.lastCheckedAt);
+      for (const reason of ['duplicate', 'role product_pm', 'non-US location', 'expired season']) {
+        await getPool().query('UPDATE internships SET archived=true,archive_reason=$2,failed_check_count=1 WHERE id=$1', [canonical.id, reason]);
+        assert.equal((await deduplicateAndStore([board])).newInternships.length, 0);
+        assert.equal((await getInternship(canonical.id))?.archived, true, `${reason} is policy, not link health`);
+      }
+    } finally { await cleanup(rows); }
+  });
+
+  test('known opening IDs retrieve archived history even when configured display companies differ', async () => {
+    const rows = examples();
+    rows[0].company = 'Historical configured display label';
+    rows[0].identities = [{ ...gh.identity!, postingKey: 'greenhouse:sigmacomputing:post:historical' }];
+    rows[0].link = 'https://job-boards.greenhouse.io/sigmacomputing/jobs/123456';
+    try {
+      await deduplicateAndStore([rows[0]]);
+      await getPool().query("UPDATE internships SET archived=true,archive_reason='link gone',failed_check_count=1 WHERE id=$1", [rows[0].id]);
+      assert.equal((await deduplicateAndStore([rows[2]])).newInternships.length, 0, 'shared underlying opening is retrieved without display-name equality');
+      assert.equal(await getInternship(rows[2].id), null);
+      const keep = await getInternship(rows[0].id);
+      assert.equal(keep?.identities?.length, 2);
+      assert.equal(keep?.link, rows[2].link, 'a new official posting replaces the failed old public link');
+      assert.equal(keep?.archived, false);
+      assert.equal(keep?.failedCheckCount, 0);
     } finally { await cleanup(rows); }
   });
 

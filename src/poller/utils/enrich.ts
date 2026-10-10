@@ -43,9 +43,10 @@ export function enrichForStorage(p: RawPosting, now: string): StoredInternship {
     normalizedKey: normalizeKey(company, p.title),
     ...(link ? { jobKey: jobKey(link) } : {}),
     identities: [{ ...p.identity,
+      origin: p.identity?.origin ?? (ATS_SOURCES.includes(p.source) || p.identity?.employer?.kind === 'greenhouse' ? 'board' : 'feed'),
       postingKey: p.identity?.postingKey ?? postingKey(link),
       sourceUrl: p.identity?.sourceUrl ?? link,
-      title: p.identity?.title ?? p.title,
+      title: p.identity?.title || p.title,
       terms: [...new Set(p.identity?.terms.length ? p.identity.terms : p.explicitTerms ?? p.season ?? explicitInternshipTerms(p.title, p.description))],
       facts: p.identity?.facts ?? p.openingFacts ?? openingFacts(p.description ?? ''),
       // Capture raw spelling BEFORE canonicalizeCompany, which has display/scoring aliases.
