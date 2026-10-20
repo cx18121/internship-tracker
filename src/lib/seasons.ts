@@ -18,6 +18,16 @@ const BARE_YEAR_RE = /\b(202\d)\b/;
 const SEASON_RUN_THEN_YEAR = /((?:\b(?:summer|fall|autumn|winter|spring)\b[ ,/&]{0,3}(?:and )?){2,4})(20\d{2}|'?\d{2})\b/g;
 const SEASON_WORD_RE = /summer|fall|autumn|winter|spring/g;
 
+// Explicit "(2027 Start) - Winter" title shape (and its mirror
+// "Winter - (2027 Start)"). The year is only bound when it sits inside a
+// parenthesised "start" marker directly adjacent to a season word, so prose
+// like "graduating in 2027 ... winter break" is never paired.
+const START_MARKER = String.raw`\(\s*(?:start(?:ing)?[\s:]*)?(20\d{2})(?:\s*start(?:ing|s)?)?\s*\)`;
+const START_PAREN_THEN_SEASON = new RegExp(
+  `${START_MARKER}\\s*[-–—:|,]?\\s*\\b(summer|fall|autumn|winter|spring)\\b`, 'g');
+const SEASON_THEN_START_PAREN = new RegExp(
+  `\\b(summer|fall|autumn|winter|spring)\\b\\s*[-–—:|,]?\\s*${START_MARKER}`, 'g');
+
 function normalizeSeason(s: string): SeasonName {
   // Autumn collapses to fall — same season, different naming convention.
   return s === 'autumn' ? 'fall' : (s as SeasonName);
@@ -51,6 +61,17 @@ export function parseSeason(title: string | null | undefined): string[] {
     for (const sm of m[1].matchAll(SEASON_WORD_RE)) {
       out.add(`${normalizeSeason(sm[0])}-${year}`);
     }
+  }
+
+  // Explicit "(YYYY Start) - Season" / "Season - (YYYY Start)" shapes. The
+  // marker must contain the word "start" so a plain "(2027)" stays unbound.
+  for (const m of text.matchAll(START_PAREN_THEN_SEASON)) {
+    if (!/start/.test(m[0])) continue;
+    out.add(`${normalizeSeason(m[2])}-${m[1]}`);
+  }
+  for (const m of text.matchAll(SEASON_THEN_START_PAREN)) {
+    if (!/start/.test(m[0])) continue;
+    out.add(`${normalizeSeason(m[1])}-${m[2]}`);
   }
 
   if (out.size === 0) {

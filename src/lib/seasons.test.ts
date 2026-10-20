@@ -43,3 +43,34 @@ describe('openSeasonTokens', () => {
     assert.deepEqual(openSeasonTokens(['spring-2026'], now), []);
   });
 });
+
+describe('parseSeason explicit "(YYYY Start) - Season" shape', () => {
+  test('binds start year to the adjacent season', () => {
+    assert.deepEqual(parseSeason('Software Engineering Intern (2027 Start) - Winter'), ['winter-2027']);
+  });
+  test('casing and punctuation variants', () => {
+    assert.deepEqual(parseSeason('software engineering intern (2027 start) winter'), ['winter-2027']);
+    assert.deepEqual(parseSeason('SWE Intern (2027 START) – WINTER'), ['winter-2027']);
+    assert.deepEqual(parseSeason('SWE Intern ( 2027 Start ): Autumn'), ['fall-2027']);
+    assert.deepEqual(parseSeason('SWE Intern (Start 2027) | Spring'), ['spring-2027']);
+  });
+  test('mirrored shape', () => {
+    assert.deepEqual(parseSeason('SWE Intern - Winter (2027 Start)'), ['winter-2027']);
+    assert.deepEqual(parseSeason('SWE Intern, Summer (Starting 2027)'), ['summer-2027']);
+  });
+  test('plain parenthesised year without "start" stays unbound', () => {
+    assert.deepEqual(parseSeason('SWE Intern (2027) - Winter'), ['year-2027']);
+  });
+  test('unrelated prose does not bind year and season', () => {
+    assert.deepEqual(parseSeason('Students graduating in 2027 may apply. Office closes over winter break.'), ['year-2027']);
+    assert.deepEqual(parseSeason('Class of 2027 graduates welcome; summer hours apply'), ['year-2027']);
+    assert.deepEqual(parseSeason('Expected graduation (2027 start of final year) and fall recruiting'), ['year-2027']);
+  });
+  test('existing shapes preserved', () => {
+    assert.deepEqual(parseSeason('Fall / Winter 2026 Intern'), ['fall-2026', 'winter-2026']);
+    assert.deepEqual(parseSeason('Summer 2026 and Fall 2027'), ['fall-2027', 'summer-2026']);
+    assert.deepEqual(parseSeason('2026 Summer Intern'), ['summer-2026']);
+    assert.deepEqual(parseSeason('Intern 2026'), ['year-2026']);
+    assert.deepEqual(parseSeason('Summer Intern'), []);
+  });
+});

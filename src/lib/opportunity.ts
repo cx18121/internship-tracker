@@ -13,6 +13,13 @@ export function sourceUrlKey(link: string): string {
  * tenant. Other native IDs are already qualified. Conflicting board cohorts
  * remain counterevidence; an aggregator never resolves that ambiguity. */
 function resolvePostingAliases(evidence: PostingIdentity[], other: PostingIdentity[] = [], accepted = true): PostingIdentity[] {
+  // A formerly year-only extraction can be refined by its own explicit title.
+  // Never replace a source-stated season with a new parser's interpretation.
+  evidence = evidence.map(x => {
+    const terms = parseSeason(x.title);
+    return x.terms.every(t => t.startsWith('year-')) && terms.some(t => !t.startsWith('year-'))
+      ? { ...x, terms } : x;
+  });
   const all = [...evidence, ...other];
   const known = all.filter(x => /^greenhouse:(?!_:)[^:]+:post:\d+$/.test(x.postingKey));
   const boards = all.filter(x => x.origin === 'board' && postingIssuer(x) && !x.postingKey.includes(':_:'));
@@ -36,6 +43,7 @@ function resolvePostingAliases(evidence: PostingIdentity[], other: PostingIdenti
     // Refine only its weak labels, never erase that alias or known opening IDs.
     if (id || board.postingKey === x.postingKey) return { ...board,
       openingKey: x.openingKey ?? board.openingKey, requisitionKey: x.requisitionKey ?? board.requisitionKey,
+      requisitionReference: x.requisitionReference ?? board.requisitionReference,
       employer: x.employer?.hiringNames?.length ? x.employer : board.employer ?? x.employer,
       facts: retainMissingFacts(x.facts,board.facts),
     };
@@ -61,9 +69,21 @@ export function employerNames(x: PostingIdentity): string[] {
   return [x.employer.name, ...x.employer.hiringNames ?? []].map(employerSpelling).filter(Boolean);
 }
 
-/** Location labels may disappear, but trailing team/degree words must survive. */
-export function roleSignature(title: string): string {
-  return title.normalize('NFKC').toLowerCase()
+/** Only observed location labels may refine a title; team/degree words survive. */
+export function roleSignature(title: string, locations: string[] = []): string {
+  let text = title.normalize('NFKC').toLowerCase();
+  for (const location of locations.flatMap(l => l.split(';'))) {
+    const parts = location.split(',').map(p => p.trim().normalize('NFKC').toLowerCase());
+    for (let n = parts.length; n > 0; n--) {
+      const label = parts.slice(0, n).join(', ');
+      if (label.length < 3) continue;
+      const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      // A city can also be a role word (Mobile, Commerce). Only a complete
+      // trailing location segment is a location qualifier, never a prefix.
+      text = text.replace(new RegExp(`(?:\\s*[-–—|,:]\\s*|\\s*\\()${escaped}\\s*\\)?\\s*$`, 'g'), ' ');
+    }
+  }
+  return text
     .replace(/\b(?:software engineering|software development engineer)\b/g, 'software engineer')
     .replace(/\bsw\b/g, 'software')
     .replace(/\b(?:internships?|interns?|co-op|coop)\b/g, ' ')
@@ -76,10 +96,18 @@ const ROLE_START = /\b(?:about (?:the|this) role|(?:your |key )?responsibilities
 const FOOTER = /\b(?:about us|about (?:the|our) company|company description|benefits(?: for|:|\n)|equal opportunity|our privacy|candidate privacy)\b/i;
 const STOP_WORDS = new Set('a an the and or of to in on for with as by from at you your we our they their this that these those will would can have has be are is it its during about role intern internship team work working also'.split(' '));
 
+function beforeRoleFooter(description: string): string {
+  // Company introductions commonly precede the duties. Only a footer after
+  // the role starts can terminate that role's evidence.
+  const afterStart = Math.max(description.search(ROLE_START), 0);
+  const footer = description.slice(afterStart).search(FOOTER);
+  return footer < 0 ? description : description.slice(0, afterStart + footer);
+}
+
 /** Capture narrow explicit constraints and optional role content before any storage cap. */
 export function openingFacts(description: string): OpeningFacts | undefined {
   if (!description.trim()) return undefined;
-  const relevant = description.split(FOOTER)[0];
+  const relevant = beforeRoleFooter(description);
   const start = relevant.search(ROLE_START);
   const role = start < 0 ? '' : relevant.slice(start).normalize('NFKC').toLowerCase();
   const tokens = [...new Set((role.match(/[\p{L}\p{N}]+(?:\+\+|#)?/gu) ?? []).filter(t => !STOP_WORDS.has(t)))];
@@ -103,7 +131,7 @@ export function openingFacts(description: string): OpeningFacts | undefined {
     .map(m => employerSpelling(m[1])).filter(Boolean);
   const qualificationsStart = relevant.search(/\b(?:requirements?|qualifications?|must|required)\b/i);
   const technicalText = role || (qualificationsStart >= 0 ? relevant.slice(qualificationsStart).normalize('NFKC').toLowerCase() : '');
-  return { version: 1, roleTokens: tokens, degrees: degrees.sort(), teams: [...new Set(teams)],
+  return { version: 2, roleTokens: tokens, degrees: degrees.sort(), teams: [...new Set(teams)],
     technologies: [...new Set(technicalText.match(/\b(?:c\+\+|c#|f#)(?!\w)/g) ?? [])],
     durationWeeks: [...new Set([...relevant.matchAll(/\b(?:internship|intern)\s+(?:role\s+)?(?:is\s+)?(?:for|of|lasting)\s+(\d+)\s*(months?|weeks?)\b/gi)]
       .map(m => Number(m[1]) * (/month/i.test(m[2]) ? 4 : 1)))],
@@ -113,10 +141,31 @@ export function openingFacts(description: string): OpeningFacts | undefined {
 /** JD years alone may be graduation dates. Only internship-related dated statements count. */
 export function explicitInternshipTerms(title: string, description = ''): string[] {
   const titleTerms = parseSeason(title);
-  if (titleTerms.length) return titleTerms;
-  return [...new Set(description.split(FOOTER)[0].split(/\n|(?<=[.!?])\s+/)
-    .filter(s => /\b(?:internship|intern|program)\b/i.test(s) && !/\b(?:graduat|full.time|convert)/i.test(s))
-    .flatMap(s => parseSeason(s).filter(t => !t.startsWith('year-'))))].sort();
+  if (titleTerms.some(t => !t.startsWith('year-'))) return titleTerms;
+  const start = description.search(ROLE_START);
+  // Retain a posting's introductory term statement, but not a company-history
+  // section before the duties (for example, last year's internship program).
+  const prefix = description.slice(0, start < 0 ? description.length : start).split(FOOTER)[0];
+  const role = start < 0 ? '' : beforeRoleFooter(description).slice(start);
+  const terms = [...new Set(`${prefix}\n${role}`.split(/\n|(?<=[.!?])\s+/)
+    .filter(s => /\b(?:internship|intern|program|application)\b/i.test(s) &&
+      !/\b(?:graduat\w*|full.time|convert\w*|not|don[’']t|separate|another|other)\b/i.test(s) &&
+      (!titleTerms.length || /\bthis (?:application|internship|role|position|posting|program)\b/i.test(s)))
+    .flatMap(s => parseSeason(s).filter(t => !t.startsWith('year-') &&
+      (!titleTerms.length || titleTerms.includes(`year-${t.split('-')[1]}`)))))].sort();
+  return terms.length && (!titleTerms.length || terms.length === 1) ? terms : titleTerms;
+}
+
+/** A source-stated requisition is not a globally qualified ATS identity. */
+export function statedRequisitionReference(description: string): string | undefined {
+  const values = [...description.matchAll(/(?:^|\n)\s*(?:(?:requisition|req)(?:\s+(?:id|number))?\s*[:#]\s*([\w-]{3,60})|(P-\d{3,}))\s*(?=\n|$)/gi)]
+    .map(m => (m[1] ?? m[2]).toLowerCase()).filter(value => /\d/.test(value) && !/^0+$/.test(value));
+  const unique = [...new Set(values)];
+  return unique.length === 1 ? unique[0] : undefined;
+}
+
+function requisitionReference(x: PostingIdentity): string | undefined {
+  return (x.requisitionKey?.split(':req:')[1] ?? x.requisitionReference)?.toLowerCase();
 }
 
 function termsAgree(a: string[], b: string[]): boolean {
@@ -158,16 +207,19 @@ function factsAgree(a?: OpeningFacts, b?: OpeningFacts): boolean {
   return durationAgrees && !disjoint(a?.degrees ?? [], b?.degrees ?? []) && !disjoint(a?.teams ?? [], b?.teams ?? []) &&
     !disjoint(a?.technologies ?? [], b?.technologies ?? []) && roleContentSupport(a, b) !== 'contradicts';
 }
-function rolesAndTermsAgree(a: PostingIdentity[], b: PostingIdentity[]): boolean {
-  return a.every(x => b.every(y => (plausibleRole(x.title, y.title) ||
+function rolesAndTermsAgree(a: PostingIdentity[], b: PostingIdentity[], leftLocations: string[], rightLocations: string[]): boolean {
+  return a.every(x => b.every(y => (plausibleRole(x.title, y.title, leftLocations, rightLocations) ||
     (x.postingKey === y.postingKey && !!postingIssuer(x) && !x.postingKey.includes(':_:'))) && termsAgree(x.terms, y.terms)));
 
 }
-export function identitiesAgree(a: PostingIdentity[], b: PostingIdentity[]): boolean {
+export function identitiesAgree(a: PostingIdentity[], b: PostingIdentity[], leftLocations: string[] = [], rightLocations: string[] = []): boolean {
   const original = a;
   a = resolvePostingAliases(a, b);
   b = resolvePostingAliases(b, original);
-  return !conflicts(a, b, 'openingKey') && !conflicts(a, b, 'requisitionKey') && rolesAndTermsAgree(a, b) &&
+  return !conflicts(a, b, 'openingKey') && !conflicts(a, b, 'requisitionKey') && rolesAndTermsAgree(a, b, leftLocations, rightLocations) &&
+    !a.some(x => b.some(y => (x.requisitionReference || y.requisitionReference) &&
+      requisitionReference(x) && requisitionReference(y) && sameEmployer([x], [y]) &&
+      requisitionReference(x) !== requisitionReference(y))) &&
     a.every(x => b.every(y => factsAgree(x.facts, y.facts) &&
       !disjoint((x.employer?.hiringNames ?? []).map(employerSpelling), (y.employer?.hiringNames ?? []).map(employerSpelling))));
 }
@@ -175,6 +227,9 @@ export function identitiesAgree(a: PostingIdentity[], b: PostingIdentity[]): boo
 function retainMissingFacts(old?: OpeningFacts, incoming?: OpeningFacts): OpeningFacts | undefined {
   if (!incoming) return old;
   if (!old) return incoming;
+  // A retained legacy alias must not roll a refreshed extraction back to the
+  // old parser. It can still supply constraints absent from the newer text.
+  if (incoming.version < old.version) return retainMissingFacts(incoming, old);
   // Empty extraction means absent evidence, not an explicit withdrawal of a constraint.
   return { ...incoming,
     roleTokens: incoming.roleTokens.length ? incoming.roleTokens : old.roleTokens,
@@ -196,11 +251,15 @@ export function mergeIdentities(a: PostingIdentity[], b: PostingIdentity[]): Pos
     // Backfills and partial rediscovery must not overwrite known conflicting
     // opening evidence merely because a public posting key was reused.
     if (old && !identitiesAgree([old],[x])) continue;
-    byKey.set(x.postingKey, { ...old, ...x,
-      terms: x.terms.length ? x.terms : old?.terms ?? [], openingKey: x.openingKey ?? old?.openingKey,
-      requisitionKey: x.requisitionKey ?? old?.requisitionKey,
-      employer: x.employer ? { ...x.employer, hiringNames: x.employer.hiringNames ?? old?.employer?.hiringNames } : old?.employer,
-      facts: retainMissingFacts(old?.facts, x.facts),
+    const current = old && (old.version ?? 0) > (x.version ?? 0) ? old : x;
+    const previous = current === x ? old : x;
+    byKey.set(x.postingKey, { ...previous, ...current,
+      terms: current.terms.length ? current.terms : previous?.terms ?? [],
+      openingKey: current.openingKey ?? previous?.openingKey,
+      requisitionKey: current.requisitionKey ?? previous?.requisitionKey,
+      requisitionReference: current.requisitionReference ?? previous?.requisitionReference,
+      employer: current.employer ? { ...current.employer, hiringNames: current.employer.hiringNames ?? previous?.employer?.hiringNames } : previous?.employer,
+      facts: retainMissingFacts(previous?.facts, current.facts),
     });
   }
   return [...byKey.values()];
@@ -216,19 +275,19 @@ function sameResolvedPosting(a: PostingIdentity[], b: PostingIdentity[]): boolea
 function sameEmployer(a: PostingIdentity[], b: PostingIdentity[]): boolean {
   return a.some(x => b.some(y => overlap(employerNames(x), employerNames(y)) > 0));
 }
-export function plausibleRole(a: string, b: string): boolean {
-  const leftRole = roleSignature(a), rightRole = roleSignature(b);
+export function plausibleRole(a: string, b: string, leftLocations: string[] = [], rightLocations: string[] = []): boolean {
+  const leftRole = roleSignature(a, leftLocations), rightRole = roleSignature(b, rightLocations);
   if (!leftRole || !rightRole) return true; // Generic titles cannot make competing openings disappear.
   const left = leftRole.split(' '), right = rightRole.split(' ');
   return left.every(w => right.includes(w)) || right.every(w => left.includes(w));
 }
-function plausible(a: PostingIdentity[], b: PostingIdentity[]): boolean {
-  return sameEmployer(a, b) && a.some(x => b.some(y => plausibleRole(x.title, y.title) && termsAgree(x.terms, y.terms)));
+function plausible(a: PostingIdentity[], b: PostingIdentity[], leftLocations: string[] = [], rightLocations: string[] = []): boolean {
+  return sameEmployer(a, b) && a.some(x => b.some(y => plausibleRole(x.title, y.title, leftLocations, rightLocations) && termsAgree(x.terms, y.terms)));
 }
 /** Refine qualifiers only within one already accepted opportunity. A separate generic
  * posting stays a competitor; Backend and Frontend can never refine each other. */
-function qualifiedRoles(evidence: PostingIdentity[]): string[] {
-  const roles = [...new Set(evidence.map(x => roleSignature(x.title)).filter(Boolean))];
+function qualifiedRoles(evidence: PostingIdentity[], locations: string[] = []): string[] {
+  const roles = [...new Set(evidence.map(x => roleSignature(x.title, locations)).filter(Boolean))];
   return roles.filter(role => !roles.some(other => role !== other &&
     role.split(' ').every(word => other.split(' ').includes(word))));
 }
@@ -245,9 +304,9 @@ function separateAuthoritativePosts(a: PostingIdentity[], b: PostingIdentity[]):
 function corroboratedCopies(rows: StoredInternship[]): boolean {
   return rows.every((a, n) => rows.slice(n + 1).every(b => {
     const left = a.identities ?? [], right = b.identities ?? [];
-    if (!identitiesAgree(left, right) || separateAuthoritativePosts(left, right)) return false;
+    if (!identitiesAgree(left, right, a.locations, b.locations) || separateAuthoritativePosts(left, right)) return false;
     if (['postingKey', 'openingKey', 'requisitionKey'].some(k => sharedKey(left, right, k as 'postingKey' | 'openingKey' | 'requisitionKey'))) return true;
-    const roles = new Set([...qualifiedRoles(left), ...qualifiedRoles(right)]);
+    const roles = new Set([...qualifiedRoles(left, a.locations), ...qualifiedRoles(right, b.locations)]);
     return sameEmployer(left, right) && roles.size === 1 && !roles.has('') &&
       contentCorroborates(left, right);
   }));
@@ -289,7 +348,11 @@ export class OpportunityIndex {
       if (!x.postingKey.startsWith('url:') && sourceUrlKey(x.sourceUrl)) add(`source-url:${sourceUrlKey(x.sourceUrl)}`);
       if (x.openingKey) add(`opening:${x.openingKey}`);
       if (x.requisitionKey) add(`req:${x.requisitionKey}`);
-      for (const name of employerNames(x)) add(`employer:${name}`);
+      for (const name of employerNames(x)) {
+        add(`employer:${name}`);
+        const ref = requisitionReference(x);
+        if (ref) add(`reference:${name}:${ref}`);
+      }
     }
   }
   get(id: string): StoredInternship | undefined { return this.rows.get(id); }
@@ -307,7 +370,7 @@ export class OpportunityIndex {
         .filter(y => y.origin === 'board' && y.postingKey === x.postingKey);
       if (!identitiesAgree(boards, boards)) return undefined;
     }
-    const compatible = (r: StoredInternship) => identitiesAgree(evidence, r.identities ?? []);
+    const compatible = (r: StoredInternship) => identitiesAgree(evidence, r.identities ?? [], incoming.locations, r.locations);
     const exact = this.candidates(evidence.map(x => `post:${x.postingKey}`), incoming)
       .filter(r => sameResolvedPosting(evidence, r.identities ?? []) && compatible(r));
     if (exact.length) return exact[0];
@@ -321,17 +384,44 @@ export class OpportunityIndex {
       .filter(compatible);
     if (opening.length) return opening[0];
 
+    // A feed's literal requisition needs an observed employer AND a unique,
+    // compatible native issuer. Never turn an unqualified number into a global key.
+    const referenceKeys = evidence.flatMap(x => employerNames(x).flatMap(name => {
+      const ref = requisitionReference(x);
+      return ref ? [`reference:${name}:${ref}`] : [];
+    }));
+    const referenceRelated = (r: StoredInternship) => compatible(r) && evidence.some(x => (r.identities ?? []).some(y =>
+        (x.requisitionKey || y.requisitionKey) && requisitionReference(x) &&
+        requisitionReference(x) === requisitionReference(y) && sameEmployer([x], [y])));
+    const references = this.candidates(referenceKeys, incoming).filter(referenceRelated);
+    if (references.length) {
+      const pendingReferences = this.pending.filter(r => r.id !== incoming.id && !r.archived && referenceRelated(r));
+      const all = [...evidence, ...references.flatMap(r => r.identities ?? []), ...pendingReferences.flatMap(r => r.identities ?? [])];
+      const issuers = new Set(all.filter(x => x.requisitionKey && evidence.some(y =>
+        requisitionReference(x) === requisitionReference(y) && sameEmployer([x], [y])))
+        .map(x => x.requisitionKey));
+      if (issuers.size !== 1 || !identitiesAgree(all, all) ||
+          !references.some(r => contentCorroborates(evidence, r.identities ?? []))) return undefined;
+      return references[0];
+    }
+
     // Plausibility is deliberately broader than positive evidence. Missing details cannot hide a competitor.
-    const related = this.candidates(evidence.flatMap(x => employerNames(x).map(name => `employer:${name}`)), incoming)
-      .filter(r => r.archiveReason !== 'duplicate' && plausible(evidence, r.identities ?? []));
-    const pending = this.pending.filter(r => r.id !== incoming.id && !r.archived && plausible(evidence, r.identities ?? []));
+    const relatedRole = (r: StoredInternship) => sameEmployer(evidence, r.identities ?? []) &&
+      evidence.some(x => (r.identities ?? []).some(y => plausibleRole(x.title, y.title, incoming.locations, r.locations)));
+    const neighborhood = this.candidates(evidence.flatMap(x => employerNames(x).map(name => `employer:${name}`)), incoming)
+      .filter(r => r.archiveReason !== 'duplicate' && relatedRole(r));
+    const pendingRole = this.pending.filter(r => r.id !== incoming.id && !r.archived && relatedRole(r));
+    const related = neighborhood.filter(r => plausible(evidence, r.identities ?? [], incoming.locations, r.locations));
+    const pending = pendingRole.filter(r => plausible(evidence, r.identities ?? [], incoming.locations, r.locations));
+    const corroborated = this.findCorroborated(incoming, evidence, neighborhood, pendingRole);
+    if (corroborated) return corroborated.match;
     const all = resolvePostingAliases([...evidence, ...related.flatMap(r => r.identities ?? []), ...pending.flatMap(r => r.identities ?? [])], [], false);
     if (conflicts(all, all, 'openingKey') || conflicts(all, all, 'requisitionKey') || separateAuthoritativePosts(all, all)) return undefined;
     const groups = authoritativeGroups(all);
     if (groups > 1) return undefined;
     // Named teams are separate plausible openings even if the incoming title omits the team.
-    const roles = new Set([qualifiedRoles(evidence), ...related.map(r => qualifiedRoles(r.identities ?? [])),
-      ...pending.map(r => qualifiedRoles(r.identities ?? []))].flat());
+    const roles = new Set([qualifiedRoles(evidence, incoming.locations), ...related.map(r => qualifiedRoles(r.identities ?? [], r.locations)),
+      ...pending.map(r => qualifiedRoles(r.identities ?? [], r.locations))].flat());
     if (roles.size > 1) return undefined;
     const provisional = new Map<string, StoredInternship>();
     for (const r of [...related, ...pending]) {
@@ -339,11 +429,56 @@ export class OpportunityIndex {
       provisional.set(r.id, old ? { ...old, identities: mergeIdentities(old.identities ?? [], r.identities ?? []) } : r);
     }
     if (!groups && provisional.size > 1 && !corroboratedCopies([...provisional.values(), { ...incoming, identities: evidence }])) return undefined;
-    const qualifiedRole = (r: StoredInternship) => qualifiedRoles(evidence).some(role => qualifiedRoles(r.identities ?? []).includes(role));
+    const qualifiedRole = (r: StoredInternship) => qualifiedRoles(evidence, incoming.locations).some(role => qualifiedRoles(r.identities ?? [], r.locations).includes(role));
     // Old closed/rejected opportunities are remembered, but title + season alone
     // cannot make a genuinely new opening disappear into historical rows.
     const matches = related.filter(r => qualifiedRole(r) && compatible(r) &&
       (contentCorroborates(evidence, r.identities ?? []) || (!r.archived && sameExplicitTerm(evidence, r.identities ?? []))));
     return matches[0];
+  }
+
+  /** Find a fully corroborated role neighborhood, not a company-wide veto.
+   * A decided-but-empty result is abstention and must not fall back to the
+   * weaker role/season inference below. Pending rows participate in the proof,
+   * but only an already stored row can be returned for consolidation. */
+  private findCorroborated(incoming: StoredInternship, evidence: PostingIdentity[], related: StoredInternship[], pending: StoredInternship[]): { match?: StoredInternship } | undefined {
+    const roles = qualifiedRoles(evidence, incoming.locations);
+    if (roles.length !== 1 || !evidence.some(x => (x.facts?.roleTokens.length ?? 0) >= 12)) return undefined;
+    const observations = new Map<string, StoredInternship>();
+    for (const row of [...related, ...pending]) {
+      const previous = observations.get(row.id);
+      observations.set(row.id, previous ? { ...previous,
+        identities: mergeIdentities(previous.identities ?? [], row.identities ?? []),
+        locations: [...new Set([...previous.locations, ...row.locations])],
+      } : row);
+    }
+    const agrees = (a: StoredInternship, b: StoredInternship) => identitiesAgree(a.identities ?? [], b.identities ?? [], a.locations, b.locations);
+    const sameRole = (r: StoredInternship) => {
+      const other = qualifiedRoles(r.identities ?? [], r.locations);
+      return other.length === 1 && other[0] === roles[0];
+    };
+    const peers = [...observations.values()].filter(sameRole);
+    const group: StoredInternship[] = [{ ...incoming, identities: evidence }];
+    const remaining = new Set(peers);
+    // Take the whole connected neighborhood before testing every pair. Choosing
+    // only immediate neighbors would let verbose B bridge unsupported A and C.
+    for (let n = 0; n < group.length; n++) {
+      for (const row of remaining) if (agrees(group[n], row) && contentCorroborates(group[n].identities ?? [], row.identities ?? [])) {
+        group.push(row);
+        remaining.delete(row);
+      }
+    }
+    if (group.length === 1) return undefined;
+    if ([...remaining].some(r => !r.archived && group.some(member => agrees(member, r))) ||
+        group.some(r => !identitiesAgree(r.identities ?? [], r.identities ?? [])) ||
+        authoritativeGroups(resolvePostingAliases(group.flatMap(r => r.identities ?? []))) > 1 ||
+        !corroboratedCopies(group)) return {};
+    // A different qualified role is a real competitor when its content (or
+    // explicit identity) connects it to this group, not merely its broad title.
+    const competitors = [...observations.values()].filter(r => !sameRole(r));
+    if (competitors.some(r => group.some(member => agrees(member, r) && (contentCorroborates(member.identities ?? [], r.identities ?? []) ||
+      ['postingKey', 'openingKey', 'requisitionKey'].some(field => sharedKey(member.identities ?? [], r.identities ?? [], field as 'postingKey' | 'openingKey' | 'requisitionKey')))))) return {};
+    const stored = group.flatMap(r => r.id !== incoming.id && this.rows.has(r.id) ? [this.rows.get(r.id)!] : []);
+    return { match: stored.sort(compareOpportunityAge)[0] };
   }
 }

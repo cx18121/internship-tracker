@@ -8,8 +8,8 @@ import { pool } from '../lib/concurrency';
 export function hasCurrentIdentity(identity: PostingIdentity): boolean {
   if (identity.postingKey.startsWith('amazon:')) return !!identity.requisitionKey && !!identity.employer && !!identity.title;
   if (identity.postingKey.startsWith('workday:') && !identity.requisitionKey) return false;
-  return identity.facts?.version === 1 && (identity.origin === 'board' || !!identity.employer) &&
-    (!identity.postingKey.startsWith('linkedin:') || identity.version === 1);
+  return identity.facts?.version === 2 && (identity.origin === 'board' || !!identity.employer) &&
+    (!identity.postingKey.startsWith('linkedin:') || identity.version === 2);
 }
 
 function acceptIdentity(p: RawPosting, identity: PostingIdentity, resolved = false): void {

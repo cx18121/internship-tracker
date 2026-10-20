@@ -334,7 +334,7 @@ function withEvidence(i: StoredInternship, retained = false): StoredInternship {
 /** Folding preserves classification and archive policy. Fresh official observations
  * can repair link-health state, without becoming new opportunities or alerts. */
 async function foldObservation(client: PoolClient, keep: StoredInternship, other: StoredInternship, rediscovery: boolean): Promise<StoredInternship> {
-  if (!rediscovery && !identitiesAgree(keep.identities ?? [], other.identities ?? [])) {
+  if (!rediscovery && !identitiesAgree(keep.identities ?? [], other.identities ?? [], keep.locations, other.locations)) {
     throw new Error('Cannot consolidate incompatible opening evidence');
   }
   const identities = mergeIdentities(keep.identities ?? [], other.identities ?? []);
@@ -352,7 +352,7 @@ async function foldObservation(client: PoolClient, keep: StoredInternship, other
     (liveBoard && keep.archiveReason === 'link gone');
   const salary = keep.salaryText ? keep : other;
   const terms = [...new Set(identities.flatMap(x => x.terms))];
-  const season = terms.length ? terms.map(t => t.startsWith('year-') ? `summer-${t.slice(5)}` : t)
+  const season = terms.length ? [...new Set(terms.map(t => t.startsWith('year-') ? `summer-${t.slice(5)}` : t))]
     : [...new Set([...keep.season, ...other.season])];
   const merged = { ...keep, title, identities, locations, location: locations[0] ?? keep.location,
     link, jobKey: jobKey(link), season,

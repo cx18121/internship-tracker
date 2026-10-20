@@ -1,5 +1,5 @@
 import type { LinkHandler, PostingDetails } from './types';
-import { openingFacts, explicitInternshipTerms, employerSpelling, statedEmployers } from '../../lib/opportunity';
+import { openingFacts, explicitInternshipTerms, employerSpelling, statedEmployers, statedRequisitionReference } from '../../lib/opportunity';
 import { amazonRequisitionKey } from './amazon';
 import { TIMEOUT_MS, MAX_DESC_LEN, HTML_HEADERS, isGoneStatus } from './http';
 import { stripHtml, decodeHtmlEntities, identityText } from '../utils/html';
@@ -46,9 +46,10 @@ export function linkedInDetails(html: string, id: string): PostingDetails {
   const amazonId = (employerSpelling(employer?.name ?? '') === 'amazon' || /\bCompany\s*-\s*Amazon\.com Services LLC\b/i.test(full))
     ? full.match(/\bJob ID\s*:\s*A(\d+)\b/i)?.[1] : undefined;
   return { description: full.slice(0, MAX_DESC_LEN), ...(title ? { identity: {
-    version: 1, postingKey: `linkedin:post:${id}`,
+    version: 2, postingKey: `linkedin:post:${id}`,
     sourceUrl: `https://www.linkedin.com/jobs/search/?currentJobId=${id}`,
     title, terms: explicitInternshipTerms(title, full), employer, facts: openingFacts(full),
+    requisitionReference: statedRequisitionReference(full),
     ...(amazonId ? { requisitionKey: amazonRequisitionKey(amazonId) } : {}),
   } } : {}) };
 }

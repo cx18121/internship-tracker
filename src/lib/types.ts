@@ -7,7 +7,7 @@ export type ScoreLabel = 'A' | 'B' | 'C' | 'D' | 'F';
 
 /** Compact facts extracted from source text, not classifier defaults. */
 export interface OpeningFacts {
-  version: 1;
+  version: 1 | 2;
   roleTokens: string[];
   degrees: Degree[];
   teams: string[];
@@ -19,7 +19,7 @@ export interface OpeningFacts {
 /** Opening-local source evidence. Never a global employer alias or rating. */
 export interface PostingIdentity {
   /** Parser revision for employer/requisition evidence. Missing on legacy observations. */
-  version?: 1;
+  version?: 1 | 2;
   /** Employer-owned posting metadata or an aggregator observation of it. */
   origin?: 'board' | 'feed';
   postingKey: string;
@@ -29,6 +29,8 @@ export interface PostingIdentity {
   terms: string[];
   openingKey?: string;
   requisitionKey?: string;
+  /** Literal employer requisition stated by a feed, before its ATS issuer is proven. */
+  requisitionReference?: string;
   employer?: { name: string; reference: string; kind: 'greenhouse' | 'linkedin' | 'source';
     /** Hiring employers explicitly stated in the JD, separate from a recruiting/profile label. */
     hiringNames?: string[] };

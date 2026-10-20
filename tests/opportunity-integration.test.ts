@@ -11,6 +11,7 @@ import doordash from './fixtures/doordash-opening.json';
 import recent from './fixtures/recent-opening-audit.json';
 import legacyEdits from './fixtures/legacy-posting-edits.json';
 import nativeMetadata from './fixtures/native-metadata-audit.json';
+import { sameDayCase, observeLinkedIn } from './helpers/same-day-openings';
 import { deduplicateAndStore, deleteInternship, getInternship, getPostingIdentities, getIdentityCandidates, consolidateOpportunities } from '../src/lib/store';
 import { getPool, closePool } from '../src/lib/db';
 import { loadNotifSettings, saveNotifSettings } from '../src/lib/app-state';
@@ -405,7 +406,10 @@ describe('Opportunity storage and alerts', { skip }, () => {
     try {
       await withSources(async (posts, requests) => {
         const first = await deduplicateAndStore([old, embed]);
-        await sendBatchAlert(first.newInternships.filter(r => r.id === old.id).map(r => present(r)));
+        const clock = Date.now;
+        Date.now = () => Date.parse(old.firstSeenAt);
+        try { await sendBatchAlert(first.newInternships.filter(r => r.id === old.id).map(r => present(r))); }
+        finally { Date.now = clock; }
         assert.equal(posts.length, 1);
         await getPool().query('UPDATE internships SET identities=\'[]\'::jsonb WHERE id=ANY($1::text[])', [[old.id, embed.id]]);
         const before = (await getPool().query('SELECT id,first_seen_at::text,classified_at::text,archived,archive_reason FROM internships WHERE id=ANY($1::text[]) ORDER BY id', [[old.id, embed.id]])).rows;
@@ -780,6 +784,80 @@ describe('Opportunity storage and alerts', { skip }, () => {
         await sendBatchAlert(second.newInternships.map(r => present(r)));
         assert.equal(posts.length, 2, 'accepted immediate-alert fallback');
       });
+    } finally { await cleanup(rows); }
+  });
+
+  test('captured Neuralink copies retain one opening and do not repeat its alert despite archived generic history', async () => {
+    for (const reverse of [false, true]) {
+      const rows = sameDayCase('neuralink-internal-apps').map(r => ({ ...r, id: `neuralink-${sequence++}-${r.id}` }));
+      const incoming = rows.slice(1, 3).map(observeLinkedIn);
+      const history = rows.filter(r => !incoming.some(i => i.id === r.id));
+      try {
+        await withSources(async posts => {
+          const first = await deduplicateAndStore(history);
+          const clock = Date.now;
+          Date.now = () => Date.parse(rows[0].postedAt!);
+          try { await sendBatchAlert(first.newInternships.filter(r => r.id === rows[0].id).map(r => present(r))); }
+          finally { Date.now = clock; }
+          const alerts = posts.length;
+          assert.equal(alerts, 1, 'the initial alert is real, not an empty-filter assertion');
+          const batch = reverse ? [...incoming].reverse() : incoming;
+          const result = await deduplicateAndStore(batch);
+          assert.equal(result.newInternships.length, 0);
+          await sendBatchAlert(result.newInternships.map(r => present(r)));
+          assert.equal(posts.length, alerts);
+          const keep = await getInternship(rows[0].id);
+          assert.equal(keep?.firstSeenAt, rows[0].firstSeenAt);
+          assert.ok(keep?.locations.includes('Austin, TX, USA'));
+          assert.ok(keep?.locations.includes('San Francisco, CA, USA'));
+          assert.equal(keep?.identities?.length, 3);
+          await closePool();
+          assert.equal((await deduplicateAndStore(batch)).newInternships.length, 0, 'recognized after restarting the connection');
+          assert.equal((await getInternship(history[1].id))?.archived, true, 'old generic history is not absorbed or revived');
+        });
+      } finally { await cleanup(rows); }
+    }
+  });
+
+  test('captured Databricks same-batch copies preserve two cohorts and correct the winter display season', async () => {
+    const rows = sameDayCase('databricks-winter-and-general').map(r => ({ ...r, id: `databricks-${sequence++}-${r.id}` }));
+    const incoming = [rows[1], rows[2], rows[4], rows[5]].map(observeLinkedIn);
+    try {
+      assert.equal((await deduplicateAndStore([rows[0], rows[3]])).newInternships.length, 2);
+      assert.equal((await deduplicateAndStore([...incoming].reverse())).newInternships.length, 0);
+      assert.deepEqual((await getInternship(rows[0].id))?.season, ['winter-2027']);
+      assert.deepEqual((await getInternship(rows[3].id))?.season, ['summer-2027']);
+      assert.equal((await getInternship(rows[0].id))?.identities?.length, 4);
+      assert.equal((await getInternship(rows[3].id))?.identities?.length, 3);
+      assert.equal((await deduplicateAndStore(incoming)).newInternships.length, 0);
+      assert.equal(await consolidateOpportunities(), 0, 'different cohorts are not cleanup duplicates');
+    } finally { await cleanup(rows); }
+  });
+
+  test('fresh Valon evidence repairs existing copies without creating a new row or alert', async () => {
+    const rows = sameDayCase('valon-company-intro-truncation').map(r => ({ ...r, id: `valon-${sequence++}-${r.id}` }));
+    try {
+      assert.equal((await deduplicateAndStore(rows)).newInternships.length, 2, 'captured legacy evidence has no role tokens');
+      const result = await deduplicateAndStore(rows.map(observeLinkedIn));
+      assert.equal(result.newInternships.length, 0);
+      const keep = await getInternship(rows[1].id);
+      assert.equal(keep?.archived, false);
+      assert.equal(keep?.identities?.length, 2);
+      assert.equal(keep?.locations.length, 2);
+      assert.ok(keep?.identities?.every(x => x.facts?.version === 2 && x.facts.roleTokens.length > 100));
+      assert.equal((await getInternship(rows[0].id))?.archiveReason, 'duplicate');
+      assert.equal(await consolidateOpportunities(), 0);
+      assert.equal((await deduplicateAndStore(rows.map(observeLinkedIn))).newInternships.length, 0);
+    } finally { await cleanup(rows); }
+  });
+
+  test('captured native ID reuse never combines Astranis cohorts or MORSE degree requirements', async () => {
+    const rows = ['astranis-cohorts-share-ids', 'morse-graduate-and-undergraduate-share-ids']
+      .flatMap(name => sameDayCase(name)).map(r => ({ ...r, id: `native-separation-${sequence++}-${r.id}` }));
+    try {
+      assert.equal((await deduplicateAndStore(rows)).newInternships.length, rows.length);
+      assert.equal(await consolidateOpportunities(), 0);
+      for (const r of rows) assert.equal((await getInternship(r.id))?.archived, false);
     } finally { await cleanup(rows); }
   });
 
