@@ -381,9 +381,17 @@ async function foldObservation(client: PoolClient, keep: StoredInternship, other
 export async function getPostingIdentities(keys: string[], sourceUrls: string[] = []): Promise<Map<string, PostingIdentity>> {
   if (!keys.length) return new Map();
   const urls = [...new Set(sourceUrls.flatMap(url => [url, sourceUrlKey(url)]).filter(Boolean))];
-  const queries = [...keys.map(postingKey => JSON.stringify([{ postingKey }])), ...urls.map(sourceUrl => JSON.stringify([{ sourceUrl }]))];
-  const { rows } = await getPool().query<Row>(
-    `${SELECT} WHERE i.identities @> ANY($1::jsonb[]) OR i.link=ANY($2::text[]) ORDER BY i.seen_at DESC`, [queries,urls]);
+  const queries = [...new Set(keys)].map(postingKey => JSON.stringify([{ postingKey }]));
+  queries.push(...urls.map(sourceUrl => JSON.stringify([{ sourceUrl }])));
+  // Look up each alias through the identities GIN index. Combining a large
+  // @> ANY list with the unindexed link fallback makes Postgres scan every
+  // row against every alias and can stall the whole polling cycle.
+  const { rows } = await getPool().query<Row>(`${SELECT} JOIN (
+    SELECT cached.id FROM unnest($1::jsonb[]) AS wanted(identity)
+    JOIN internships cached ON cached.identities @> wanted.identity
+    UNION
+    SELECT id FROM internships WHERE link=ANY($2::text[])
+  ) AS matched ON matched.id=i.id ORDER BY i.seen_at DESC,i.id`, [queries,urls]);
   const identities = rows.flatMap(r => fromRow(r).identities ?? []);
   const wanted = new Set(keys), result = new Map<string, PostingIdentity>();
   for (const x of identities) if (wanted.has(x.postingKey) &&

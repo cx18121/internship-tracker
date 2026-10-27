@@ -405,7 +405,12 @@ describe('Opportunity storage and alerts', { skip }, () => {
     try {
       await withSources(async (posts, requests) => {
         const first = await deduplicateAndStore([old, embed]);
-        await sendBatchAlert(first.newInternships.filter(r => r.id === old.id).map(r => present(r)));
+        // Replay the original alert at discovery time, before this captured
+        // posting ages out of the notifier's 14-day freshness window.
+        const clock = Date.now;
+        Date.now = () => Date.parse(old.firstSeenAt);
+        try { await sendBatchAlert(first.newInternships.filter(r => r.id === old.id).map(r => present(r))); }
+        finally { Date.now = clock; }
         assert.equal(posts.length, 1);
         await getPool().query('UPDATE internships SET identities=\'[]\'::jsonb WHERE id=ANY($1::text[])', [[old.id, embed.id]]);
         const before = (await getPool().query('SELECT id,first_seen_at::text,classified_at::text,archived,archive_reason FROM internships WHERE id=ANY($1::text[]) ORDER BY id', [[old.id, embed.id]])).rows;
