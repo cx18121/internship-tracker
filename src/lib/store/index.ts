@@ -452,17 +452,25 @@ export async function deduplicateAndStore(input: StoredInternship[]): Promise<St
   return withLock(() => withTxn(async (client) => {
     await client.query(OPPORTUNITY_LOCK);
     const incoming = input.map(i => withEvidence(i));
-    const aliases = incoming.flatMap(i => i.identities!.flatMap(x =>
+    const aliases = [...new Set(incoming.flatMap(i => i.identities!.flatMap(x =>
       ['postingKey', 'openingKey', 'requisitionKey', 'sourceUrl'].flatMap(field => {
         const value = x[field as keyof PostingIdentity];
         return value ? [JSON.stringify([{ [field]: value }])] : [];
-      })));
+      }))))];
     // Company keys only retrieve history. Raw employer, role, content and
     // requisition evidence still own every matching decision.
     const companyKeys = [...new Set(incoming.map(i => companyKey(i.company)).filter(Boolean))];
     const employers = [...new Set(incoming.flatMap(i => i.identities!.flatMap(employerNames)))];
-    const existing = (await client.query<Row>(`${SELECT} WHERE i.archived=false OR i.id=ANY($1::text[]) OR i.identities @> ANY($2::jsonb[]) OR i.company_key=ANY($3::text[]) OR ${employerEvidenceMatches(4)}`,
-      [incoming.map(i => i.id), aliases, companyKeys, employers])).rows.map(fromRow);
+    // Keep the large alias batch out of the history scan, just as in the
+    // identity cache lookup. All other history gates still contribute IDs;
+    // only the matcher below can decide whether those rows are duplicates.
+    const existing = (await client.query<Row>(`${SELECT} JOIN (
+      SELECT i.id FROM internships i WHERE i.archived=false OR i.id=ANY($1::text[])
+        OR i.company_key=ANY($3::text[]) OR ${employerEvidenceMatches(4)}
+      UNION
+      SELECT cached.id FROM unnest($2::jsonb[]) AS wanted(identity)
+      JOIN internships cached ON cached.identities @> wanted.identity
+    ) AS matched ON matched.id=i.id`, [incoming.map(i => i.id), aliases, companyKeys, employers])).rows.map(fromRow);
     const index = new OpportunityIndex(existing, incoming);
     const newIds = new Set<string>();
 

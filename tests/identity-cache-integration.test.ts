@@ -1,10 +1,11 @@
 // Explicitly local database only. No source fetches, classification, or alerts.
-import { after, before, describe, test } from 'node:test';
+import { after, before, describe, mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { performance } from 'node:perf_hooks';
 import { Client } from 'pg';
 import { getPool, closePool } from '../src/lib/db';
-import { getPostingIdentities } from '../src/lib/store';
+import { deduplicateAndStore, getPostingIdentities } from '../src/lib/store';
+import { enrichForStorage } from '../src/poller/utils/enrich';
 
 const db = process.env.DATABASE_URL;
 const local = db && /^(localhost|127\.0\.0\.1)$/.test(new URL(db).hostname);
@@ -101,6 +102,68 @@ describe('Identity cache lookup', { skip }, () => {
       await insert('other-tenant', 'https://job-boards.greenhouse.io/othertenant/jobs/9908000012',
         [{ ...board, postingKey: 'greenhouse:othertenant:post:9908000012' }]);
       assert.equal((await getPostingIdentities([anonymous], [custom])).has(anonymous), false, 'ambiguous source URLs cannot select a tenant');
+    } finally {
+      await pool.query('DELETE FROM internships WHERE starts_with(id,$1)', [prefix]);
+    }
+  });
+
+  test('deduplication retrieves exactly the same history through every candidate gate', async () => {
+    const prefix = `candidate-gates-${Date.now()}`;
+    const identity = { postingKey: 'linkedin:post:9910000001', openingKey: 'known-opening', requisitionKey: 'known-requisition',
+      sourceUrl: 'https://source.example/known', title: 'Software Engineer Intern', terms: ['summer-2027'],
+      employer: { name: 'Foo, Inc.', kind: 'source' as const, reference: 'fixture', hiringNames: ['Hiring Employer'] } };
+    const incoming = { ...enrichForStorage({ company: 'IncomingFixture', title: identity.title, locations: ['NYC'],
+      link: 'https://www.linkedin.com/jobs/view/9910000001', source: 'Linkedin', identity }, new Date().toISOString()), id: `${prefix}-same-id` };
+    const unrelated = { postingKey: 'unrelated', sourceUrl: 'https://unrelated.example', title: 'Unrelated', terms: [] };
+    const fixtures = [
+      { name: 'active', archived: false, identities: [] },
+      { name: 'same-id', reason: 'duplicate', identities: [unrelated] },
+      ...(['postingKey', 'openingKey', 'requisitionKey', 'sourceUrl'] as const).map(field =>
+        ({ name: field, identities: [{ ...unrelated, [field]: identity[field] }] })),
+      { name: 'company', companyKey: 'incomingfixture', identities: [] },
+      { name: 'employer', identities: [{ ...unrelated, employer: { name: 'Foo Inc', kind: 'source', reference: 'fixture' } }] },
+      { name: 'punctuated-employer', identities: [{ ...unrelated, employer: { name: 'FOO, INC.', kind: 'source', reference: 'fixture' } }] },
+      { name: 'hiring-name', identities: [{ ...unrelated, employer: { name: 'Agency', hiringNames: ['Hiring Employer'] } }] },
+      { name: 'multiple', archived: false, companyKey: 'incomingfixture', identities: [identity] },
+      { name: 'excluded', identities: [unrelated] },
+    ];
+    const pool = getPool();
+    try {
+      for (const fixture of fixtures) {
+        await pool.query(`INSERT INTO internships (id,title,company,company_key,location,link,source,seen_at,archived,archive_reason,identities)
+          VALUES ($1,'Unrelated','Historical label',$2,'NYC',$3,'Linkedin',now(),$4,$5,$6)`,
+        [`${prefix}-${fixture.name}`, 'companyKey' in fixture ? fixture.companyKey : 'historical',
+          `https://unrelated.example/${fixture.name}`, 'archived' in fixture ? fixture.archived : true,
+          'reason' in fixture ? fixture.reason : 'not seen', JSON.stringify(fixture.identities)]);
+      }
+      // Observe the actual transaction's candidate rows, then abort before the
+      // matcher writes anything. No test-only production export is necessary.
+      const client = await pool.connect();
+      const query = client.query.bind(client);
+      const stop = new Error('candidate rows captured');
+      let actual: string[] = [], params: unknown[] = [];
+      const connect = mock.method(pool, 'connect', async () => client);
+      const capture = mock.method(client, 'query', async (sql: string, values?: unknown[]) => {
+        const result = await query(sql, values);
+        if (sql.startsWith('SELECT i.*') && values?.length === 4) {
+          actual = result.rows.map(row => row.id);
+          params = values;
+          throw stop;
+        }
+        return result;
+      });
+      try { await assert.rejects(deduplicateAndStore([incoming]), error => error === stop); }
+      finally { capture.mock.restore(); connect.mock.restore(); }
+      // The original OR query is the reference for this retrieval-only change.
+      const reference = await pool.query(`SELECT i.id FROM internships i WHERE i.archived=false OR i.id=ANY($1::text[])
+        OR i.identities @> ANY($2::jsonb[]) OR i.company_key=ANY($3::text[]) OR EXISTS (
+          SELECT 1 FROM jsonb_array_elements(i.identities) AS evidence(value)
+          CROSS JOIN LATERAL jsonb_array_elements_text(jsonb_build_array(evidence.value->'employer'->>'name') ||
+            COALESCE(evidence.value->'employer'->'hiringNames','[]'::jsonb)) AS names(value)
+          WHERE regexp_replace(lower(names.value),'[^[:alnum:]]','','g')=ANY($4::text[]))`, params);
+      const expected = fixtures.filter(f => f.name !== 'excluded').map(f => `${prefix}-${f.name}`).sort();
+      assert.deepEqual(actual.sort(), expected);
+      assert.deepEqual(reference.rows.map(row => row.id).sort(), expected);
     } finally {
       await pool.query('DELETE FROM internships WHERE starts_with(id,$1)', [prefix]);
     }
